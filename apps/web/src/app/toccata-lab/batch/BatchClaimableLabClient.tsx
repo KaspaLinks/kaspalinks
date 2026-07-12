@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- QR SVGs come from our validated internal endpoint. */
+
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   getKaswareProvider,
@@ -120,6 +122,7 @@ export function BatchClaimableLabClient({
   const [fundingWithKasware, setFundingWithKasware] = useState(false);
   const [isTouchOnly, setIsTouchOnly] = useState<null | boolean>(null);
   const [refundAddress, setRefundAddress] = useState("");
+  const [showFundingQr, setShowFundingQr] = useState(false);
   const [title, setTitle] = useState("Community claim drop");
 
   useEffect(() => {
@@ -914,7 +917,34 @@ export function BatchClaimableLabClient({
                   >
                     Copy address
                   </button>
+                  <button
+                    aria-expanded={showFundingQr}
+                    className="btn"
+                    onClick={() => setShowFundingQr((current) => !current)}
+                    type="button"
+                  >
+                    {showFundingQr ? "Hide QR code" : "Show QR code"}
+                  </button>
                 </div>
+                {showFundingQr ? (
+                  <div className="batch-lab-funding-qr">
+                    <img
+                      alt={`Funding QR code for ${batchFundingAmountKas} KAS`}
+                      src={`/api/toccata-lab/qr?${new URLSearchParams({
+                        amountKas: batchFundingAmountKas,
+                        label: "Kaspa Links batch funding",
+                        recipientAddress: batch.activation.fundingAddress,
+                      }).toString()}`}
+                    />
+                    <div>
+                      <strong>Scan with Kaspium</strong>
+                      <p>
+                        Address and exact total are included. Verify both values in Kaspium before
+                        sending.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
                 <p className="batch-lab-wallet-note">
                   The wallet receives the exact total and one-time funding address. You still review
                   and approve the transaction inside Kaspium or KasWare.

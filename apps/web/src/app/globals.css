@@ -7996,7 +7996,7 @@ body:has(main.deck-main) {
 
 .batch-lab-wallet-options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -8011,6 +8011,43 @@ body:has(main.deck-main) {
 .batch-lab-wallet-note {
   color: var(--fg-subtle);
   font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.batch-lab-funding-qr {
+  display: grid;
+  grid-template-columns: minmax(0, 196px) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(73, 234, 203, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(2, 12, 18, 0.28);
+}
+
+.batch-lab-funding-qr img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+}
+
+.batch-lab-funding-qr div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.batch-lab-funding-qr strong {
+  color: var(--fg);
+}
+
+.batch-lab-funding-qr p {
+  color: var(--fg-muted);
+  font-size: 0.82rem;
   line-height: 1.5;
 }
 
@@ -8190,6 +8227,16 @@ body:has(main.deck-main) {
 
   .batch-lab-wallet-options {
     grid-template-columns: 1fr;
+  }
+
+  .batch-lab-funding-qr {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .batch-lab-funding-qr img {
+    max-width: 220px;
   }
 
   .batch-lab-funding-callout .btn,
