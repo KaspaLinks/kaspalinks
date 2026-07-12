@@ -9,7 +9,7 @@ import { formatSompiToKaspa } from "@kaspa-actions/kaspa";
  * runtime in, and — more importantly — the percentage math has to stay
  * in integer-sompi BigInt land. Calling Number() on a raw sompi amount
  * overflows the 53-bit safe-integer range and silently loses precision
- * on large balances (a hard AGENTS.md no-go). Clients receive only the
+ * on large balances (a hard no-go). Clients receive only the
  * finished primitives via `import type { GoalProgress }`, so this
  * module never reaches the browser bundle.
  */

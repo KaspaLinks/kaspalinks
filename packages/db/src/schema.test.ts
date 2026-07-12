@@ -29,7 +29,7 @@ describe("Prisma schema", () => {
     expect(schema).toMatch(/publicId\s+String\s+@unique @default\(cuid\(\)\)/);
   });
 
-  it("keeps payment request statuses aligned with AGENTS.md", () => {
+  it("keeps payment request statuses aligned with the public wire format", () => {
     for (const status of ["PENDING", "CONFIRMED", "EXPIRED", "FAILED"]) {
       expect(schema).toContain(status);
     }

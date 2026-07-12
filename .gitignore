@@ -12,3 +12,7 @@ packages/db/src/generated/
 !.env.example
 
 .DS_Store
+
+# Internal working notes — never publish
+AGENTS.md
+TODO.md

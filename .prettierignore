@@ -10,4 +10,3 @@ packages/db/src/generated/
 vendor/
 pnpm-lock.yaml
 
-AGENTS.md

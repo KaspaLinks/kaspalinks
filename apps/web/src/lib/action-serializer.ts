@@ -42,8 +42,8 @@ export type PublicActionMetadata = {
 
 // NOTE: hiddenFromProfile intentionally NOT exposed here. PublicActionMetadata
 // is the stable v1 wire format consumed by the pay page, overlay, blink JSON,
-// KasWare and external SDK users — see AGENTS.md "v1 wire format must stay
-// stable". Profile-visibility is internal Creator/Profile state, only relevant
+// KasWare and external SDK users — the v1 wire format must stay
+// stable. Profile-visibility is internal Creator/Profile state, only relevant
 // to creator-authenticated surfaces (dashboard, my-links, the /u/<username>
 // server query). Those surfaces read directly from the Prisma Action model.
 export function serializePublicAction(action: Action): PublicActionMetadata {

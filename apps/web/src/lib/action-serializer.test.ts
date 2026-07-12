@@ -35,7 +35,7 @@ const BASE_ACTION = {
 describe("serializePublicAction", () => {
   it("serializes Prisma enums and BigInts into the public v1 metadata shape", () => {
     // Profile-only fields like hiddenFromProfile must NOT appear here —
-    // v1 wire format stays stable per AGENTS.md, and that flag is
+    // v1 wire format stays stable, and that flag is
     // creator-internal state. Setting it on the input must not affect
     // the serialized output.
     expect(serializePublicAction({ ...BASE_ACTION, hiddenFromProfile: true })).toEqual({

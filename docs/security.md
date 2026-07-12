@@ -241,7 +241,7 @@ and sompi only.
 
 ## Wallet send-flow (Pay with KasWare)
 
-The public Action page can trigger a `kasware.sendKaspa(toAddress, sompi)` call when KasWare is connected. This is a thin, client-only forward and is **explicitly reviewed** here, since `AGENTS.md` flags any wallet-signing feature as requiring an explicit security review.
+The public Action page can trigger a `kasware.sendKaspa(toAddress, sompi)` call when KasWare is connected. This is a thin, client-only forward and is **explicitly reviewed** here, since any wallet-signing feature requires an explicit security review.
 
 What the bridge does:
 

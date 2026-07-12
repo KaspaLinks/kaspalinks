@@ -234,7 +234,7 @@ export default async function CreatorProfilePage({ params }: PageProps) {
 
   // NEVER use Number() on sompi BigInts for display math — large amounts
   // overflow Number's 53-bit safe integer range and lose precision (a
-  // single AGENTS.md no-no). formatSompiToKaspa does the integer-decimal
+  // single hard no-no). formatSompiToKaspa does the integer-decimal
   // split without float arithmetic.
   const otherActionCards = otherActions.map((action) => {
     let goalProgress: GoalProgress | null = null;

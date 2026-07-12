@@ -141,7 +141,7 @@ export function compactSompiAsKas(sompi: bigint): string {
  * Strict KAS-string → sompi-BigInt parser. Used to compare a Creator
  * Action's `amountKas` (e.g. "2", "0.5", "1.50000000") against an
  * AddressPayment's `amountSompi` without going near floating-point
- * arithmetic — see AGENTS.md "Never use Number() on KAS amounts."
+ * arithmetic — never use Number() on KAS amounts.
  *
  * Returns null on garbage input so callers can fall back to "no fixed
  * amount" semantics (i.e. treat the action as variable-amount).
