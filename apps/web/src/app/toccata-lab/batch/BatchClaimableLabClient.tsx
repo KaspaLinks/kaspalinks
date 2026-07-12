@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { createToccataLabKeyPair } from "@/lib/toccata-lab-keys";
+import { encodeClaimableFragmentPayload } from "@/lib/claimable-share";
 import {
   readEncryptedLocalJson,
   removeEncryptedLocalJson,
@@ -17,7 +18,10 @@ import {
 } from "@/lib/toccata-lab-fee";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 
-import { buildBatchActivationSpendInBrowser, buildClaimableSpendInBrowser } from "../claimable-browser";
+import {
+  buildBatchActivationSpendInBrowser,
+  buildClaimableSpendInBrowser,
+} from "../claimable-browser";
 type Capabilities = { missing: string[]; ready: boolean; version: string };
 
 type FundingMatch = {
@@ -94,7 +98,9 @@ export function BatchClaimableLabClient({
   const [amountKas, setAmountKas] = useState("1");
   const [batch, setBatch] = useState<BatchRecord | null>(null);
   const [count, setCount] = useState("10");
-  const [description, setDescription] = useState("A Kaspa reward for the first person to claim it.");
+  const [description, setDescription] = useState(
+    "A Kaspa reward for the first person to claim it.",
+  );
   const [error, setError] = useState("");
   const [expiryUnit, setExpiryUnit] = useState<ToccataCanaryExpiryUnit>("hours");
   const [expiryValue, setExpiryValue] = useState("24");
@@ -116,7 +122,12 @@ export function BatchClaimableLabClient({
     if (!batch) return null;
     const funded = batch.links.filter((link) => link.status === "funded").length;
     const spent = batch.links.filter((link) => link.status === "spent").length;
-    return { funded, spent, waiting: batch.links.length - funded - spent, activation: batch.activation.status };
+    return {
+      funded,
+      spent,
+      waiting: batch.links.length - funded - spent,
+      activation: batch.activation.status,
+    };
   }, [batch]);
 
   function persist(next: BatchRecord | null) {
@@ -126,7 +137,9 @@ export function BatchClaimableLabClient({
       return;
     }
     void writeEncryptedLocalJson(STORAGE_KEY, next).catch(() => {
-      setError("Could not encrypt the local batch recovery record. Keep the exported recovery file safe.");
+      setError(
+        "Could not encrypt the local batch recovery record. Keep the exported recovery file safe.",
+      );
     });
   }
 
@@ -138,9 +151,9 @@ export function BatchClaimableLabClient({
   }
 
   function changeLinkTitle(index: number, nextTitle: string) {
-    setLinkTitles((current) => current.map((title, currentIndex) => (
-      currentIndex === index ? nextTitle : title
-    )));
+    setLinkTitles((current) =>
+      current.map((title, currentIndex) => (currentIndex === index ? nextTitle : title)),
+    );
   }
 
   async function createBatch(event: FormEvent<HTMLFormElement>) {
@@ -174,7 +187,10 @@ export function BatchClaimableLabClient({
     setGenerating(true);
     try {
       const daaResponse = await fetch("/api/toccata-lab/dag-info");
-      const daaBody = (await daaResponse.json()) as { virtualDaaScore?: string; error?: { message: string } };
+      const daaBody = (await daaResponse.json()) as {
+        virtualDaaScore?: string;
+        error?: { message: string };
+      };
       if (!daaResponse.ok || !daaBody.virtualDaaScore) {
         throw new Error(daaBody.error?.message ?? "Could not read the current Kaspa DAA score.");
       }
@@ -204,10 +220,18 @@ export function BatchClaimableLabClient({
         headers: { "content-type": "application/json" },
         method: "POST",
       });
-      const scriptBody = (await scriptResponse.json()) as ScriptResponse | { error?: { message?: string } };
-      if (!scriptResponse.ok || !("scripts" in scriptBody) || scriptBody.scripts.length !== linkCount) {
+      const scriptBody = (await scriptResponse.json()) as
+        | ScriptResponse
+        | { error?: { message?: string } };
+      if (
+        !scriptResponse.ok ||
+        !("scripts" in scriptBody) ||
+        scriptBody.scripts.length !== linkCount
+      ) {
         throw new Error(
-          "error" in scriptBody ? scriptBody.error?.message ?? "Could not derive batch funding addresses." : "Could not derive batch funding addresses.",
+          "error" in scriptBody
+            ? (scriptBody.error?.message ?? "Could not derive batch funding addresses.")
+            : "Could not derive batch funding addresses.",
         );
       }
 
@@ -231,20 +255,26 @@ export function BatchClaimableLabClient({
         error?: { message?: string };
       };
       if (!allocatorResponse.ok || !allocatorBody.allocator) {
-        throw new Error(allocatorBody.error?.message ?? "Could not create the batch funding contract.");
+        throw new Error(
+          allocatorBody.error?.message ?? "Could not create the batch funding contract.",
+        );
       }
 
       const createdAt = new Date();
       const batchId = `batch-${createdAt.getTime().toString(36)}-${randomToken().slice(0, 8)}`;
       const normalizedTitle = title.trim().slice(0, 80) || "Community claim drop";
-      const normalizedDescription = description.trim().slice(0, 180) || "Claim this Kaspa reward to your own wallet.";
+      const normalizedDescription =
+        description.trim().slice(0, 180) || "Claim this Kaspa reward to your own wallet.";
       const next: BatchRecord = {
         activation: {
           activationCode: activation.privateKey,
           activationFeeSompi: BATCH_ACTIVATION_FEE_SOMPI.toString(),
           activationPublicKey: activation.xOnlyPublicKey,
           fundingAddress: allocatorBody.allocator.fundingAddress,
-          fundingAmountSompi: (spendPlan.utxoSompi * BigInt(linkCount) + BATCH_ACTIVATION_FEE_SOMPI).toString(),
+          fundingAmountSompi: (
+            spendPlan.utxoSompi * BigInt(linkCount) +
+            BATCH_ACTIVATION_FEE_SOMPI
+          ).toString(),
           fundingMatch: null,
           redeemScriptHex: allocatorBody.allocator.redeemScriptHex,
           refundCode: batchRefund.privateKey,
@@ -315,12 +345,22 @@ export function BatchClaimableLabClient({
       if (!response.ok) throw new Error(body.error?.message ?? "Could not check batch funding.");
       const next = {
         ...batch,
-        activation: body.funded && body.match
-          ? { ...batch.activation, fundingMatch: body.match, status: body.outputStatus === "spent" ? "activated" as const : "funded" as const }
-          : batch.activation,
+        activation:
+          body.funded && body.match
+            ? {
+                ...batch.activation,
+                fundingMatch: body.match,
+                status:
+                  body.outputStatus === "spent" ? ("activated" as const) : ("funded" as const),
+              }
+            : batch.activation,
       };
       persist(next);
-      setNotice(body.funded && body.match ? "Funding detected. Activate the batch to create the individual claim outputs." : "No exact batch funding output found yet.");
+      setNotice(
+        body.funded && body.match
+          ? "Funding detected. Activate the batch to create the individual claim outputs."
+          : "No exact batch funding output found yet.",
+      );
     } catch (checkError) {
       setError(checkError instanceof Error ? checkError.message : "Could not check batch funding.");
     } finally {
@@ -340,16 +380,26 @@ export function BatchClaimableLabClient({
         fundingAmountSompi: batch.activation.fundingAmountSompi,
         fundingOutputIndex: batch.activation.fundingMatch.outputIndex,
         fundingTransactionId: batch.activation.fundingMatch.transactionId,
-        outputs: batch.links.map((link) => ({ amountSompi: link.amountSompi, redeemScriptHex: link.redeemScriptHex })),
+        outputs: batch.links.map((link) => ({
+          amountSompi: link.amountSompi,
+          redeemScriptHex: link.redeemScriptHex,
+        })),
         redeemScriptHex: batch.activation.redeemScriptHex,
       });
       const response = await fetch("/api/toccata-lab/batch-activate", {
-        body: JSON.stringify({ expectedTransactionId: spend.transactionId, transactionSafeJson: spend.transactionSafeJson }),
+        body: JSON.stringify({
+          expectedTransactionId: spend.transactionId,
+          transactionSafeJson: spend.transactionSafeJson,
+        }),
         headers: { "content-type": "application/json" },
         method: "POST",
       });
-      const body = (await response.json()) as { broadcast?: { transactionId: string }; error?: { message?: string } };
-      if (!response.ok || !body.broadcast) throw new Error(body.error?.message ?? "Could not activate the batch.");
+      const body = (await response.json()) as {
+        broadcast?: { transactionId: string };
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.broadcast)
+        throw new Error(body.error?.message ?? "Could not activate the batch.");
       const next = {
         ...batch,
         activation: { ...batch.activation, status: "activated" as const },
@@ -365,9 +415,15 @@ export function BatchClaimableLabClient({
         })),
       };
       persist(next);
-      setNotice(`Batch activation was accepted. ${next.links.length} individual claim outputs are ready; you can now export the claim URLs.`);
+      setNotice(
+        `Batch activation was accepted. ${next.links.length} individual claim outputs are ready; you can now export the claim URLs.`,
+      );
     } catch (activationError) {
-      setError(activationError instanceof Error ? activationError.message : "Could not activate the batch.");
+      setError(
+        activationError instanceof Error
+          ? activationError.message
+          : "Could not activate the batch.",
+      );
     } finally {
       setChecking(false);
     }
@@ -401,8 +457,12 @@ export function BatchClaimableLabClient({
         headers: readCreatorAuthHeaders() ?? { "content-type": "application/json" },
         method: "POST",
       });
-      const body = (await response.json()) as { broadcast?: { transactionId: string }; error?: { message?: string } };
-      if (!response.ok || !body.broadcast) throw new Error(body.error?.message ?? "Could not refund the batch.");
+      const body = (await response.json()) as {
+        broadcast?: { transactionId: string };
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.broadcast)
+        throw new Error(body.error?.message ?? "Could not refund the batch.");
       persist({ ...batch, activation: { ...batch.activation, status: "refunded" } });
       setNotice("The unactivated batch refund was accepted. No claim URLs were distributed.");
     } catch (refundError) {
@@ -417,7 +477,15 @@ export function BatchClaimableLabClient({
     downloadCsv(
       "kaspa-links-batch-funding.csv",
       ["batch_name", "funding_address", "exact_total_kas", "activation_fee_kas", "status"],
-      [[batch.title, batch.activation.fundingAddress, formatSompiForToccataLab(BigInt(batch.activation.fundingAmountSompi)), formatSompiForToccataLab(BigInt(batch.activation.activationFeeSompi)), batch.activation.status]],
+      [
+        [
+          batch.title,
+          batch.activation.fundingAddress,
+          formatSompiForToccataLab(BigInt(batch.activation.fundingAmountSompi)),
+          formatSompiForToccataLab(BigInt(batch.activation.activationFeeSompi)),
+          batch.activation.status,
+        ],
+      ],
     );
   }
 
@@ -427,7 +495,13 @@ export function BatchClaimableLabClient({
     downloadCsv(
       "kaspa-links-batch-claim-links.csv",
       ["number", "title", "claim_url", "amount_kas", "valid_for"],
-      funded.map((link, index) => [index + 1, link.title, buildClaimUrl(link, batch), link.netClaimKas, batch.validFor]),
+      funded.map((link, index) => [
+        index + 1,
+        link.title,
+        buildClaimUrl(link, batch),
+        link.netClaimKas,
+        batch.validFor,
+      ]),
     );
   }
 
@@ -461,16 +535,18 @@ export function BatchClaimableLabClient({
         <span className="hero-eyebrow">Private lab</span>
         <h1 className="hero-title">Batch claim links.</h1>
         <p className="hero-sub">
-          Fund one contract address once, then activate the exact child claim outputs in your browser.
-          This test tool is protected and unlisted; it is not part of the public creator flow.
+          Fund one contract address once, then activate the exact child claim outputs in your
+          browser. This test tool is protected and unlisted; it is not part of the public creator
+          flow.
         </p>
       </section>
 
-      <section className="card batch-lab-warning">
-        <strong>Important: every row is separate digital cash.</strong>
+      <section className="batch-lab-warning" role="note">
+        <span className="batch-lab-warning-label">Before you fund</span>
+        <strong>Every claim link is separate digital cash.</strong>
         <p>
-          Claim and recovery URLs carry bearer codes. The browser creates them and the server never
-          receives them. The funding contract fixes every child amount and destination, so activation cannot redirect the drop.
+          Claim and recovery URLs carry bearer codes. Your browser creates them and the server never
+          receives them. The batch contract fixes every child amount and destination before you pay.
         </p>
       </section>
 
@@ -478,32 +554,83 @@ export function BatchClaimableLabClient({
       {!error && notice ? <p className="success-text">{notice}</p> : null}
 
       <div className="batch-lab-grid">
-        <section className="card">
-          <span className="label">Generate</span>
-          <h2 className="form-section-heading">Create a small claim drop</h2>
+        <section className="card batch-lab-panel">
+          <header className="batch-lab-panel-heading">
+            <span className="batch-lab-step">1</span>
+            <div>
+              <span className="label">Configure</span>
+              <h2 className="form-section-heading">Create a claim drop</h2>
+              <p>Choose the shared settings, then give each claim link a clear name.</p>
+            </div>
+          </header>
           <form className="claimable-lab-form" onSubmit={createBatch}>
-            <label className="label" htmlFor="batch-title">Drop name</label>
-            <input id="batch-title" maxLength={80} onChange={(event) => setTitle(event.target.value)} value={title} />
-            <label className="label" htmlFor="batch-description">Description</label>
-            <textarea id="batch-description" maxLength={180} onChange={(event) => setDescription(event.target.value)} rows={3} value={description} />
-            <div className="grid-two">
+            <div className="batch-lab-form-section">
               <div>
-                <label className="label" htmlFor="batch-count">Links</label>
-                <select id="batch-count" onChange={(event) => changeLinkCount(event.target.value)} value={count}>
-                  <option value="2">2</option><option value="5">5</option><option value="10">10</option>
-                </select>
+                <label className="label" htmlFor="batch-title">
+                  Drop name
+                </label>
+                <input
+                  id="batch-title"
+                  maxLength={80}
+                  onChange={(event) => setTitle(event.target.value)}
+                  value={title}
+                />
               </div>
               <div>
-                <label className="label" htmlFor="batch-amount">Amount per link</label>
-                <input id="batch-amount" inputMode="decimal" onChange={(event) => setAmountKas(event.target.value.replace(",", "."))} value={amountKas} />
+                <label className="label" htmlFor="batch-description">
+                  Description
+                </label>
+                <textarea
+                  id="batch-description"
+                  maxLength={180}
+                  onChange={(event) => setDescription(event.target.value)}
+                  rows={3}
+                  value={description}
+                />
               </div>
             </div>
+
+            <div className="batch-lab-form-section">
+              <span className="batch-lab-section-title">Distribution</span>
+              <div className="grid-two">
+                <div>
+                  <label className="label" htmlFor="batch-count">
+                    Number of links
+                  </label>
+                  <select
+                    id="batch-count"
+                    onChange={(event) => changeLinkCount(event.target.value)}
+                    value={count}
+                  >
+                    <option value="2">2 links</option>
+                    <option value="5">5 links</option>
+                    <option value="10">10 links</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label" htmlFor="batch-amount">
+                    KAS per link
+                  </label>
+                  <input
+                    id="batch-amount"
+                    inputMode="decimal"
+                    onChange={(event) => setAmountKas(event.target.value.replace(",", "."))}
+                    value={amountKas}
+                  />
+                </div>
+              </div>
+            </div>
+
             <fieldset className="batch-link-name-list">
-              <legend className="label">Individual link names</legend>
-              <p className="muted">Each title appears on its own claim page and in the exported CSV.</p>
+              <legend className="batch-lab-section-title">Individual link names</legend>
+              <p className="muted">These names appear on the claim pages and in your export.</p>
               {linkTitles.slice(0, Number.parseInt(count, 10)).map((linkTitle, index) => (
-                <label className="batch-link-name-row" htmlFor={`batch-link-title-${index + 1}`} key={index}>
-                  <span>Link {index + 1}</span>
+                <label
+                  className="batch-link-name-row"
+                  htmlFor={`batch-link-title-${index + 1}`}
+                  key={index}
+                >
+                  <span className="batch-link-number">{index + 1}</span>
                   <input
                     id={`batch-link-title-${index + 1}`}
                     maxLength={80}
@@ -513,87 +640,233 @@ export function BatchClaimableLabClient({
                 </label>
               ))}
             </fieldset>
-            <div className="grid-two">
-              <div>
-                <label className="label" htmlFor="batch-expiry">Valid for</label>
-                <input id="batch-expiry" inputMode="numeric" onChange={(event) => setExpiryValue(event.target.value)} value={expiryValue} />
+            <div className="batch-lab-form-section">
+              <span className="batch-lab-section-title">Timing and network fee</span>
+              <div className="grid-two">
+                <div>
+                  <label className="label" htmlFor="batch-expiry">
+                    Claim window
+                  </label>
+                  <input
+                    id="batch-expiry"
+                    inputMode="numeric"
+                    onChange={(event) => setExpiryValue(event.target.value)}
+                    value={expiryValue}
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="batch-unit">
+                    Unit
+                  </label>
+                  <select
+                    id="batch-unit"
+                    onChange={(event) =>
+                      setExpiryUnit(event.target.value as ToccataCanaryExpiryUnit)
+                    }
+                    value={expiryUnit}
+                  >
+                    <option value="hours">Hours</option>
+                    <option value="days">Days</option>
+                    <option value="minutes">Minutes</option>
+                  </select>
+                </div>
               </div>
               <div>
-                <label className="label" htmlFor="batch-unit">Unit</label>
-                <select id="batch-unit" onChange={(event) => setExpiryUnit(event.target.value as ToccataCanaryExpiryUnit)} value={expiryUnit}>
-                  <option value="hours">Hours</option><option value="days">Days</option><option value="minutes">Minutes</option>
-                </select>
+                <label className="label" htmlFor="batch-fee">
+                  Claim/refund fee per link
+                </label>
+                <input
+                  id="batch-fee"
+                  inputMode="decimal"
+                  onChange={(event) => setFeeKas(event.target.value.replace(",", "."))}
+                  value={feeKas}
+                />
               </div>
             </div>
-            <label className="label" htmlFor="batch-fee">Claim/refund fee per link</label>
-            <input id="batch-fee" inputMode="decimal" onChange={(event) => setFeeKas(event.target.value.replace(",", "."))} value={feeKas} />
-            <p className="notice notice-warn">Fund the one-time batch address with the exact total only. Extra KAS cannot be included in the fixed distribution and must wait for the batch refund path.</p>
-            <button className="btn btn-primary" disabled={!enabled || !capabilities.ready || generating} type="submit">
+
+            <p className="notice notice-warn batch-lab-exact-notice">
+              Fund the generated address with the exact total. Extra KAS cannot be distributed to
+              the fixed child links.
+            </p>
+            <button
+              className="btn btn-primary"
+              disabled={!enabled || !capabilities.ready || generating}
+              type="submit"
+            >
               {generating ? "Generating contracts..." : "Generate batch"}
             </button>
           </form>
         </section>
 
-        <section className="card">
-          <span className="label">Batch status</span>
-          <h2 className="form-section-heading">Funding and exports</h2>
+        <section className="card batch-lab-panel batch-lab-status-panel">
+          <header className="batch-lab-panel-heading">
+            <span className="batch-lab-step">2</span>
+            <div>
+              <span className="label">Fund and activate</span>
+              <h2 className="form-section-heading">Batch status</h2>
+              <p>One payment funds the batch. Activation then creates each claim output.</p>
+            </div>
+          </header>
           {batch && summary ? (
             <>
               <div className="batch-lab-stats">
-                <div><span className="label">Waiting</span><strong>{summary.waiting}</strong></div>
-                <div><span className="label">Funded</span><strong>{summary.funded}</strong></div>
-                <div><span className="label">Spent</span><strong>{summary.spent}</strong></div>
+                <div>
+                  <span className="label">Waiting</span>
+                  <strong>{summary.waiting}</strong>
+                </div>
+                <div>
+                  <span className="label">Funded</span>
+                  <strong>{summary.funded}</strong>
+                </div>
+                <div>
+                  <span className="label">Spent</span>
+                  <strong>{summary.spent}</strong>
+                </div>
               </div>
-              <p className="muted">{batch.links.length} links · {batch.links[0]?.amountKas} KAS each · valid for {batch.validFor}</p>
+              <p className="batch-lab-summary">
+                <span>{batch.links.length} links</span>
+                <span>{batch.links[0]?.amountKas} KAS each</span>
+                <span>Valid for {batch.validFor}</span>
+              </p>
               <div className="batch-lab-funding-callout">
-                <span className="label">1. Fund this one-time batch address</span>
-                <code>{batch.activation.fundingAddress}</code>
-                <strong>{formatSompiForToccataLab(BigInt(batch.activation.fundingAmountSompi))} KAS exact total</strong>
-                <p className="muted">Includes {formatSompiForToccataLab(BigInt(batch.activation.activationFeeSompi))} KAS activation fee. {batch.activation.status === "awaiting_funding" ? "Waiting for the exact funding output." : batch.activation.status === "funded" ? "Funding found. Activate the batch next." : batch.activation.status === "activated" ? "Activation accepted; individual child outputs were created." : "The unactivated batch was refunded."}</p>
-                <a className="btn btn-primary" href={buildWalletLaunchUri({ amountKas: formatSompiForToccataLab(BigInt(batch.activation.fundingAmountSompi)), recipientAddress: batch.activation.fundingAddress })}>Open funding wallet</a>
+                <span className="label">One-time batch address</span>
+                <code className="batch-lab-address">{batch.activation.fundingAddress}</code>
+                <div className="batch-lab-funding-amount">
+                  <span>Exact total</span>
+                  <strong>
+                    {formatSompiForToccataLab(BigInt(batch.activation.fundingAmountSompi))} KAS
+                  </strong>
+                </div>
+                <p className="muted">
+                  Includes {formatSompiForToccataLab(BigInt(batch.activation.activationFeeSompi))}{" "}
+                  KAS activation fee. {batchActivationStatusText(batch.activation.status)}
+                </p>
+                <a
+                  className="btn btn-primary"
+                  href={buildWalletLaunchUri({
+                    amountKas: formatSompiForToccataLab(
+                      BigInt(batch.activation.fundingAmountSompi),
+                    ),
+                    recipientAddress: batch.activation.fundingAddress,
+                  })}
+                >
+                  Open funding wallet
+                </a>
               </div>
-              <div className="claimable-action-row">
-                <button className="btn" onClick={downloadFundingPlan} type="button">Download funding plan</button>
-                <button className="btn btn-primary" disabled={checking} onClick={() => void checkFunding()} type="button">{checking ? "Checking funding..." : "Check all funding"}</button>
-                <button className="btn btn-primary" disabled={checking || batch.activation.status !== "funded"} onClick={() => void activateBatch()} type="button">{checking && batch.activation.status === "funded" ? "Activating batch..." : "Activate batch"}</button>
-                <button className="btn" disabled={summary.funded === 0} onClick={downloadClaimLinks} type="button">Download claim URLs</button>
-                <button className="btn btn-danger" disabled={summary.funded === 0} onClick={downloadRecoveryFile} type="button">Download private recovery file</button>
+
+              <div className="batch-lab-action-group">
+                <span className="batch-lab-section-title">Confirm and activate</span>
+                <div className="batch-lab-actions">
+                  <button className="btn" onClick={downloadFundingPlan} type="button">
+                    Funding plan
+                  </button>
+                  <button
+                    className="btn"
+                    disabled={checking}
+                    onClick={() => void checkFunding()}
+                    type="button"
+                  >
+                    {checking ? "Checking funding..." : "Check funding"}
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={checking || batch.activation.status !== "funded"}
+                    onClick={() => void activateBatch()}
+                    type="button"
+                  >
+                    {checking && batch.activation.status === "funded"
+                      ? "Activating batch..."
+                      : "Activate batch"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="batch-lab-action-group">
+                <span className="batch-lab-section-title">Export after activation</span>
+                <div className="batch-lab-actions">
+                  <button
+                    className="btn"
+                    disabled={summary.funded === 0}
+                    onClick={downloadClaimLinks}
+                    type="button"
+                  >
+                    Claim URLs
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    disabled={summary.funded === 0}
+                    onClick={downloadRecoveryFile}
+                    type="button"
+                  >
+                    Private recovery file
+                  </button>
+                </div>
               </div>
               {batch.activation.status === "funded" ? (
                 <div className="batch-lab-refund">
                   <span className="label">Fallback after expiry</span>
-                  <p className="muted">If you decide not to activate this drop, wait until its claim window ends and recover the whole unactivated batch to your own address.</p>
-                  <label className="label" htmlFor="batch-refund-address">Refund address</label>
-                  <input id="batch-refund-address" onChange={(event) => setRefundAddress(event.target.value)} placeholder="kaspa:..." value={refundAddress} />
-                  <button className="btn btn-danger" disabled={checking || refundAddress.trim().length === 0} onClick={() => void refundUnactivatedBatch()} type="button">Refund unactivated batch after expiry</button>
+                  <p className="muted">
+                    If you decide not to activate this drop, wait until its claim window ends and
+                    recover the whole unactivated batch to your own address.
+                  </p>
+                  <label className="label" htmlFor="batch-refund-address">
+                    Refund address
+                  </label>
+                  <input
+                    id="batch-refund-address"
+                    onChange={(event) => setRefundAddress(event.target.value)}
+                    placeholder="kaspa:..."
+                    value={refundAddress}
+                  />
+                  <button
+                    className="btn btn-danger"
+                    disabled={checking || refundAddress.trim().length === 0}
+                    onClick={() => void refundUnactivatedBatch()}
+                    type="button"
+                  >
+                    Refund unactivated batch after expiry
+                  </button>
                 </div>
               ) : null}
-              <div className="batch-lab-table-wrap">
-                <table className="batch-lab-table">
-                  <thead><tr><th>#</th><th>Link</th><th>Claim output</th><th>Status</th><th>Recovery</th></tr></thead>
-                  <tbody>{batch.links.map((link, index) => (
-                    <tr key={link.id}>
-                      <td>{index + 1}</td>
-                      <td>{link.title}</td>
-                      <td><code>{compactAddress(link.fundingAddress)}</code></td>
-                      <td>{humanStatus(link.status)}</td>
-                      <td>
-                        <button
-                          className="batch-lab-recovery-button"
-                          disabled={!link.fundingMatch || link.status === "spent"}
-                          onClick={() => openIndividualRefund(link)}
-                          type="button"
-                        >
-                          Refund after expiry
-                        </button>
-                      </td>
-                    </tr>
-                  ))}</tbody>
-                </table>
+              <div className="batch-lab-link-section">
+                <span className="batch-lab-section-title">Individual claim outputs</span>
+                <ul className="batch-lab-link-list">
+                  {batch.links.map((link, index) => (
+                    <li className="batch-lab-link-item" key={link.id}>
+                      <span className="batch-link-number">{index + 1}</span>
+                      <div className="batch-lab-link-copy">
+                        <strong>{link.title}</strong>
+                        <code title={link.fundingAddress}>
+                          {compactAddress(link.fundingAddress)}
+                        </code>
+                      </div>
+                      <span className={`batch-lab-link-status is-${link.status}`}>
+                        {humanStatus(link.status)}
+                      </span>
+                      <button
+                        className="batch-lab-recovery-button"
+                        disabled={!link.fundingMatch || link.status === "spent"}
+                        onClick={() => openIndividualRefund(link)}
+                        type="button"
+                      >
+                        Refund
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <button className="btn" onClick={() => persist(null)} type="button">Clear this local batch</button>
+              <button className="btn batch-lab-clear" onClick={() => persist(null)} type="button">
+                Clear local batch
+              </button>
             </>
-          ) : <p className="muted">Generate a batch first. It remains only in this browser until you export it.</p>}
+          ) : (
+            <div className="batch-lab-empty">
+              <strong>No batch created yet</strong>
+              <p>
+                Configure your drop on the left. Its private recovery data stays in this browser.
+              </p>
+            </div>
+          )}
         </section>
       </div>
     </main>
@@ -602,12 +875,28 @@ export function BatchClaimableLabClient({
 
 function buildClaimUrl(link: BatchLink, batch: BatchRecord): string {
   if (!link.fundingMatch) return "";
-  return `${window.location.origin}/claim?link=${encodeURIComponent(link.id)}#${CLAIM_PREFIX}${encodePayload({
-    amountKas: link.amountKas, amountSompi: link.amountSompi, claimCode: link.claimCode, claimPublicKey: link.claimPublicKey,
-    createdAt: batch.createdAt, createdAtMs: batch.createdAtMs, description: link.description, feeKas: link.feeKas, feeSompi: link.feeSompi,
-    fundingAddress: link.fundingAddress, fundingMatch: link.fundingMatch, id: link.id, netClaimKas: link.netClaimKas,
-    redeemScriptHex: link.redeemScriptHex, refundLockTime: link.refundLockTime, title: link.title, validFor: batch.validFor, version: 1,
-  })}`;
+  return `${window.location.origin}/claim?link=${encodeURIComponent(link.id)}#${CLAIM_PREFIX}${encodePayload(
+    {
+      amountKas: link.amountKas,
+      amountSompi: link.amountSompi,
+      claimCode: link.claimCode,
+      claimPublicKey: link.claimPublicKey,
+      createdAt: batch.createdAt,
+      createdAtMs: batch.createdAtMs,
+      description: link.description,
+      feeKas: link.feeKas,
+      feeSompi: link.feeSompi,
+      fundingAddress: link.fundingAddress,
+      fundingMatch: link.fundingMatch,
+      id: link.id,
+      netClaimKas: link.netClaimKas,
+      redeemScriptHex: link.redeemScriptHex,
+      refundLockTime: link.refundLockTime,
+      title: link.title,
+      validFor: batch.validFor,
+      version: 1,
+    },
+  )}`;
 }
 
 function readCreatorAuthHeaders(): Record<string, string> | null {
@@ -649,16 +938,29 @@ async function registerBatchClaimableLink(link: BatchLink): Promise<void> {
 function buildRefundUrl(link: BatchLink, batch: BatchRecord): string {
   if (!link.fundingMatch) return "";
   return `${window.location.origin}/claim/refund#${REFUND_PREFIX}${encodePayload({
-    amountKas: link.amountKas, amountSompi: link.amountSompi, createdAt: batch.createdAt, createdAtMs: batch.createdAtMs,
-    description: link.description, feeKas: link.feeKas, feeSompi: link.feeSompi, fundingAddress: link.fundingAddress,
-    fundingMatch: link.fundingMatch, id: link.id, netClaimKas: link.netClaimKas, redeemScriptHex: link.redeemScriptHex,
-    refundCode: link.refundCode, refundLockTime: link.refundLockTime, refundPublicKey: link.refundPublicKey,
-    title: link.title, validFor: batch.validFor, version: 1,
+    amountKas: link.amountKas,
+    amountSompi: link.amountSompi,
+    createdAt: batch.createdAt,
+    createdAtMs: batch.createdAtMs,
+    description: link.description,
+    feeKas: link.feeKas,
+    feeSompi: link.feeSompi,
+    fundingAddress: link.fundingAddress,
+    fundingMatch: link.fundingMatch,
+    id: link.id,
+    netClaimKas: link.netClaimKas,
+    redeemScriptHex: link.redeemScriptHex,
+    refundCode: link.refundCode,
+    refundLockTime: link.refundLockTime,
+    refundPublicKey: link.refundPublicKey,
+    title: link.title,
+    validFor: batch.validFor,
+    version: 1,
   })}`;
 }
 
 function encodePayload(payload: unknown): string {
-  return btoa(JSON.stringify(payload)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+  return encodeClaimableFragmentPayload(payload);
 }
 
 function downloadCsv(filename: string, headers: string[], rows: Array<Array<number | string>>) {
@@ -683,7 +985,24 @@ function compactAddress(value: string): string {
 }
 
 function humanStatus(status: BatchLink["status"]): string {
-  return status === "awaiting_activation" ? "Awaiting batch activation" : status === "funded" ? "Funded" : "Spent";
+  return status === "awaiting_activation"
+    ? "Awaiting batch activation"
+    : status === "funded"
+      ? "Funded"
+      : "Spent";
+}
+
+function batchActivationStatusText(status: BatchRecord["activation"]["status"]): string {
+  switch (status) {
+    case "awaiting_funding":
+      return "Waiting for the exact funding output.";
+    case "funded":
+      return "Funding found. Activate the batch next.";
+    case "activated":
+      return "Activation accepted; the individual claim outputs are ready.";
+    case "refunded":
+      return "The unactivated batch was refunded.";
+  }
 }
 
 function serializeScriptPublicKey(value: { script: string; version: number }): string {

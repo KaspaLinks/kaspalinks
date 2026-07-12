@@ -7756,21 +7756,113 @@ body:has(main.deck-main) {
 }
 
 .batch-lab-warning {
+  display: grid;
+  gap: 6px;
   margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(245, 158, 11, 0.34);
+  border-radius: var(--radius-sm);
   border-color: rgba(245, 158, 11, 0.34);
   background: rgba(245, 158, 11, 0.08);
 }
 
+.batch-lab-warning-label {
+  color: #fbbf24;
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.batch-lab-warning strong {
+  color: var(--fg-strong);
+  font-size: 1rem;
+}
+
 .batch-lab-warning p {
-  margin-bottom: 0;
+  max-width: 82ch;
+  margin: 0;
   color: var(--fg-muted);
+  line-height: 1.55;
 }
 
 .batch-lab-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 18px;
   align-items: start;
+}
+
+.batch-lab-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.batch-lab-panel-heading {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.batch-lab-panel-heading .label,
+.batch-lab-panel-heading h2,
+.batch-lab-panel-heading p {
+  margin: 0;
+}
+
+.batch-lab-panel-heading h2 {
+  margin-top: 3px;
+}
+
+.batch-lab-panel-heading p {
+  max-width: 54ch;
+  margin-top: 7px;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.batch-lab-step,
+.batch-link-number {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(73, 234, 203, 0.3);
+  border-radius: 50%;
+  background: rgba(73, 234, 203, 0.09);
+  color: var(--accent-bright);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.batch-lab-form-section,
+.batch-link-name-list,
+.batch-lab-action-group,
+.batch-lab-link-section {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.batch-lab-form-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.batch-lab-section-title {
+  display: block;
+  margin: 0;
+  color: var(--fg);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0;
 }
 
 .batch-lab-stats {
@@ -7783,6 +7875,7 @@ body:has(main.deck-main) {
 .batch-lab-stats > div {
   display: grid;
   gap: 4px;
+  min-width: 0;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -7795,11 +7888,13 @@ body:has(main.deck-main) {
 }
 
 .batch-link-name-list {
-  display: grid;
-  gap: 10px;
-  margin: 2px 0;
-  padding: 0;
-  border: 0;
+  margin: 0;
+  padding-right: 0;
+  padding-bottom: 0;
+  padding-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
 }
 
 .batch-link-name-list .muted {
@@ -7809,7 +7904,7 @@ body:has(main.deck-main) {
 
 .batch-link-name-row {
   display: grid;
-  grid-template-columns: 70px minmax(0, 1fr);
+  grid-template-columns: 32px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   margin: 0;
@@ -7818,31 +7913,189 @@ body:has(main.deck-main) {
 }
 
 .batch-link-name-row input {
+  width: 100%;
   min-width: 0;
 }
 
-.batch-lab-table-wrap {
-  overflow-x: auto;
-  margin: 16px 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+.batch-lab-exact-notice {
+  overflow-wrap: anywhere;
 }
 
-.batch-lab-table {
+.batch-lab-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 16px;
+}
+
+.batch-lab-summary span {
+  padding: 5px 8px;
+  border: 1px solid rgba(73, 234, 203, 0.18);
+  border-radius: 999px;
+  background: rgba(73, 234, 203, 0.06);
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.batch-lab-funding-callout {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(73, 234, 203, 0.25);
+  border-radius: var(--radius-sm);
+  background: rgba(73, 234, 203, 0.055);
+}
+
+.batch-lab-address {
+  display: block;
   width: 100%;
-  border-collapse: collapse;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--radius-sm);
+  background: rgba(2, 12, 18, 0.32);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  white-space: normal;
+}
+
+.batch-lab-funding-amount {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.batch-lab-funding-amount span {
+  color: var(--fg-muted);
   font-size: 0.82rem;
 }
 
-.batch-lab-table th,
-.batch-lab-table td {
-  padding: 10px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
+.batch-lab-funding-amount strong {
+  min-width: 0;
+  color: var(--accent-bright);
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.batch-lab-funding-callout p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.batch-lab-funding-callout .btn {
+  justify-self: start;
+}
+
+.batch-lab-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.batch-lab-actions .btn {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding-inline: 12px;
+  white-space: normal;
+}
+
+.batch-lab-refund {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 16px;
+  border-left: 3px solid rgba(251, 113, 133, 0.56);
+  background: rgba(251, 113, 133, 0.05);
+}
+
+.batch-lab-refund p {
+  margin: 0;
+}
+
+.batch-lab-refund .btn {
+  justify-self: start;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.batch-lab-link-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.batch-lab-link-item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.batch-lab-link-item:last-child {
+  border-bottom: 0;
+}
+
+.batch-lab-link-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.batch-lab-link-copy strong,
+.batch-lab-link-copy code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.batch-lab-table tr:last-child td { border-bottom: 0; }
+.batch-lab-link-copy strong {
+  color: var(--fg);
+  font-size: 0.88rem;
+}
+
+.batch-lab-link-copy code {
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+}
+
+.batch-lab-link-status {
+  max-width: 150px;
+  padding: 5px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
+}
+
+.batch-lab-link-status.is-funded {
+  border-color: rgba(73, 234, 203, 0.3);
+  background: rgba(73, 234, 203, 0.08);
+  color: var(--accent-bright);
+}
+
+.batch-lab-link-status.is-spent {
+  color: var(--fg);
+}
 
 .batch-lab-recovery-button {
   padding: 5px 9px;
@@ -7853,7 +8106,7 @@ body:has(main.deck-main) {
   font: inherit;
   font-size: 0.78rem;
   font-weight: 650;
-  white-space: nowrap;
+  white-space: normal;
   cursor: pointer;
 }
 
@@ -7867,9 +8120,82 @@ body:has(main.deck-main) {
   cursor: not-allowed;
 }
 
-@media (max-width: 720px) {
-  .batch-lab-grid { grid-template-columns: 1fr; }
-  .batch-link-name-row { grid-template-columns: 1fr; gap: 5px; }
+.batch-lab-empty {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  padding: 18px 0 4px;
+  color: var(--fg-muted);
+}
+
+.batch-lab-empty strong {
+  color: var(--fg);
+}
+
+.batch-lab-empty p {
+  max-width: 44ch;
+  margin: 0;
+}
+
+.batch-lab-clear {
+  margin-top: 16px;
+}
+
+@media (max-width: 980px) {
+  .batch-lab-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .batch-lab-panel-heading {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .batch-lab-stats {
+    gap: 7px;
+  }
+
+  .batch-lab-stats > div {
+    padding: 10px;
+  }
+
+  .batch-lab-stats .label {
+    font-size: 0.62rem;
+  }
+
+  .batch-lab-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-lab-funding-callout .btn,
+  .batch-lab-refund .btn,
+  .batch-lab-clear {
+    width: 100%;
+  }
+
+  .batch-lab-funding-amount {
+    display: grid;
+    gap: 2px;
+  }
+
+  .batch-lab-funding-amount strong {
+    text-align: left;
+  }
+
+  .batch-lab-link-item {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .batch-lab-link-status {
+    align-self: center;
+  }
+
+  .batch-lab-recovery-button {
+    grid-column: 2 / -1;
+    width: 100%;
+  }
 }
 
 @media (max-width: 720px) {
