@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildCompactClaimUrl,
   buildClaimableXPostText,
+  decodeClaimableFragmentPayload,
   decodeSharedClaimCode,
+  encodeClaimableFragmentPayload,
   encodeClaimCodeForSharing,
   extractClaimCodeFromClaimUrl,
   withClaimablePreviewVersion,
@@ -13,6 +15,17 @@ import { buildXIntentUrl } from "./share-text";
 const PRIVATE_KEY = "01".repeat(32);
 
 describe("claimable social sharing", () => {
+  it("round-trips Unicode titles and descriptions in browser-only fragments", () => {
+    const payload = {
+      description: "Grüße für die Community 🎁",
+      title: "Let’s try a claimable link on X!",
+    };
+
+    expect(decodeClaimableFragmentPayload(encodeClaimableFragmentPayload(payload))).toEqual(
+      payload,
+    );
+  });
+
   it("round-trips a compact claim code without sending it to the server", () => {
     const compact = encodeClaimCodeForSharing(PRIVATE_KEY);
 
@@ -52,9 +65,7 @@ describe("claimable social sharing", () => {
     expect(url.hash).toBe(`#c=${encodeClaimCodeForSharing(PRIVATE_KEY)}`);
     expect(extractClaimCodeFromClaimUrl(compactUrl)).toBe(PRIVATE_KEY);
 
-    const intent = new URL(
-      buildXIntentUrl({ text: "Claim KAS", url: compactUrl }),
-    );
+    const intent = new URL(buildXIntentUrl({ text: "Claim KAS", url: compactUrl }));
     expect(intent.searchParams.get("url")).toBe(compactUrl);
   });
 

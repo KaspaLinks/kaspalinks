@@ -19,6 +19,10 @@ export type ClaimableStoreRecord = {
   createdAtMs: number;
   claimUrl: string;
   manageUrl: string;
+  // Encrypted by claimable-vault before localStorage. Keeping the raw browser
+  // keys here allows recovery URLs to be rebuilt after a render interruption.
+  claimCode?: string;
+  refundCode?: string;
   updatedAtMs: number;
 };
 
@@ -44,9 +48,7 @@ async function readRecords(): Promise<ClaimableStoreRecord[]> {
   return result.value.filter(isStoreRecord).sort((a, b) => b.createdAtMs - a.createdAtMs);
 }
 
-export function saveClaimableRecord(
-  record: ClaimableStoreRecord,
-): Promise<ClaimableStoreRecord[]> {
+export function saveClaimableRecord(record: ClaimableStoreRecord): Promise<ClaimableStoreRecord[]> {
   return enqueueWrite(async () => {
     const records = await readRecords();
     const index = records.findIndex((entry) => entry.id === record.id);
@@ -69,10 +71,7 @@ export function removeClaimableRecord(id: string): Promise<ClaimableStoreRecord[
   });
 }
 
-export function updateClaimableStatus(
-  id: string,
-  status: string,
-): Promise<ClaimableStoreRecord[]> {
+export function updateClaimableStatus(id: string, status: string): Promise<ClaimableStoreRecord[]> {
   return enqueueWrite(async () => {
     const records = await readRecords();
     if (!records.some((entry) => entry.id === id)) return records;

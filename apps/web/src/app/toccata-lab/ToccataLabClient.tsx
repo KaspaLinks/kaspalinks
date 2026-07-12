@@ -11,11 +11,18 @@ import {
   WalletAdapterError,
 } from "@kaspa-actions/wallet-adapter";
 
-import { saveClaimableRecord, updateClaimableStatus } from "@/lib/claimable-store";
+import {
+  saveClaimableRecord,
+  updateClaimableStatus,
+  type ClaimableStoreRecord,
+} from "@/lib/claimable-store";
 import {
   buildCompactClaimUrl,
+  buildClaimableManageUrl,
   buildClaimableXPostText,
   CLAIMABLE_COMPACT_HASH_PREFIX,
+  CLAIMABLE_MANAGE_HASH_PREFIX,
+  decodeClaimableFragmentPayload,
   decodeSharedClaimCode,
 } from "@/lib/claimable-share";
 
@@ -235,7 +242,6 @@ type ClaimableLabManagePayload = {
 };
 
 const CLAIMABLE_LAB_HASH_PREFIX = "lab-claim=";
-const CLAIMABLE_LAB_MANAGE_PREFIX = "lab-manage=";
 // A funding tx whose change output is smaller than this trips Kaspa's
 // storage-mass rule. Used only to warn the user before they try to fund.
 const TOCCATA_FUNDING_SAFE_CHANGE_SOMPI = 20_000_000n; // 0.2 KAS
@@ -285,6 +291,32 @@ async function registerClaimableLinkInDb(link: ClaimableLabLink): Promise<void> 
   if (!response.ok) {
     throw new Error(body.error?.message ?? "Could not register claimable link.");
   }
+}
+
+function toClaimableStoreRecord(
+  link: ClaimableLabLink,
+  claimUrl: string,
+  manageUrl: string,
+): ClaimableStoreRecord {
+  return {
+    id: link.id,
+    title: link.title,
+    description: link.description,
+    amountKas: link.amountKas,
+    netClaimKas: link.netClaimKas,
+    feeKas: link.feeKas,
+    fundingAddress: link.fundingAddress ?? "",
+    refundLockTime: link.refundLockTime,
+    validFor: link.validFor,
+    status: link.status,
+    createdAt: link.createdAt,
+    createdAtMs: link.createdAtMs,
+    claimUrl,
+    manageUrl,
+    claimCode: link.claimCode || undefined,
+    refundCode: link.refundCode || undefined,
+    updatedAtMs: Date.now(),
+  };
 }
 
 export function ToccataLabClient({
@@ -373,23 +405,7 @@ export function ToccataLabClient({
     // so they appear in /my-links and can be reopened or refunded later. Skip links
     // opened via a claim or manage link — those are not "mine" to list.
     if (claimOnlyView || manageOnlyView || !labLink) return;
-    void saveClaimableRecord({
-      id: labLink.id,
-      title: labLink.title,
-      description: labLink.description,
-      amountKas: labLink.amountKas,
-      netClaimKas: labLink.netClaimKas,
-      feeKas: labLink.feeKas,
-      fundingAddress: labLink.fundingAddress ?? "",
-      refundLockTime: labLink.refundLockTime,
-      validFor: labLink.validFor,
-      status: labLink.status,
-      createdAt: labLink.createdAt,
-      createdAtMs: labLink.createdAtMs,
-      claimUrl,
-      manageUrl,
-      updatedAtMs: Date.now(),
-    }).catch(() => {
+    void saveClaimableRecord(toClaimableStoreRecord(labLink, claimUrl, manageUrl)).catch(() => {
       setError(
         "Private recovery could not be encrypted in this browser. Copy and store the private refund link before funding.",
       );
@@ -766,6 +782,16 @@ export function ToccataLabClient({
       );
       return;
     }
+    try {
+      // Do not expose the funding address until both browser-only recovery
+      // keys have been durably encrypted for this creator session.
+      await saveClaimableRecord(toClaimableStoreRecord(nextLink, "", ""));
+    } catch {
+      setError(
+        "Private recovery could not be encrypted in this browser. The link was not opened for funding.",
+      );
+      return;
+    }
     setLabLink(nextLink);
     setLinkTitle(title);
     setLinkDescription(description);
@@ -800,10 +826,7 @@ export function ToccataLabClient({
   async function copyXSafeClaimPost() {
     const share = buildXSafeShare();
     if (!share) return;
-    await copyText(
-      `${share.text}\n\n${share.publicUrl}`,
-      "Claim post copied.",
-    );
+    await copyText(`${share.text}\n\n${share.publicUrl}`, "Claim post copied.");
   }
 
   function postClaimOnX() {
@@ -1873,8 +1896,8 @@ export function ToccataLabClient({
                     </button>
                   </div>
                   <p className="muted">
-                    The private claim key stays inside the link after <code>#</code>. Browsers do not
-                    send it to Kaspa Links.
+                    The private claim key stays inside the link after <code>#</code>. Browsers do
+                    not send it to Kaspa Links.
                   </p>
                 </>
               ) : (
@@ -2454,7 +2477,13 @@ function buildFundingWalletUri(link: ClaimableLabLink | null): string {
 function buildLabClaimUrl(link: ClaimableLabLink | null): string {
   // Manage/refund links intentionally do not contain the claim key. Never try
   // to derive a public claim URL from that incomplete private state.
-  if (!link?.claimCode || !link.fundingAddress || !link.fundingMatch || !link.redeemScriptHex) {
+  if (
+    !link?.claimCode ||
+    !/^[0-9a-f]{64}$/i.test(link.claimCode) ||
+    !link.fundingAddress ||
+    !link.fundingMatch ||
+    !link.redeemScriptHex
+  ) {
     return "";
   }
   const origin = typeof window === "undefined" ? "https://kaspalinks.com" : window.location.origin;
@@ -2490,7 +2519,7 @@ function buildLabManageUrl(link: ClaimableLabLink | null): string {
     version: 1,
   };
   const origin = typeof window === "undefined" ? "https://kaspalinks.com" : window.location.origin;
-  return `${origin}/claim/refund#${CLAIMABLE_LAB_MANAGE_PREFIX}${encodeLabSharePayload(payload)}`;
+  return buildClaimableManageUrl(origin, payload);
 }
 
 function previewLabClaimUrl(url: string): string {
@@ -2584,10 +2613,10 @@ function parseLabManageLinkFromHash(): ClaimableLabLink | null {
   if (typeof window === "undefined") return null;
 
   const hash = window.location.hash.slice(1);
-  if (!hash.startsWith(CLAIMABLE_LAB_MANAGE_PREFIX)) return null;
+  if (!hash.startsWith(CLAIMABLE_MANAGE_HASH_PREFIX)) return null;
 
   try {
-    const payload = decodeLabSharePayload(hash.slice(CLAIMABLE_LAB_MANAGE_PREFIX.length));
+    const payload = decodeLabSharePayload(hash.slice(CLAIMABLE_MANAGE_HASH_PREFIX.length));
     if (!isClaimableLabManagePayload(payload)) return null;
 
     return {
@@ -2643,19 +2672,8 @@ function isClaimableLabManagePayload(value: unknown): value is ClaimableLabManag
   );
 }
 
-function encodeLabSharePayload(
-  payload: ClaimableLabSharePayload | ClaimableLabManagePayload,
-): string {
-  return btoa(JSON.stringify(payload))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
-}
-
 function decodeLabSharePayload(value: string): unknown {
-  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
-  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
-  return JSON.parse(atob(padded)) as unknown;
+  return decodeClaimableFragmentPayload(value);
 }
 
 function isClaimableLabSharePayload(value: unknown): value is ClaimableLabSharePayload {

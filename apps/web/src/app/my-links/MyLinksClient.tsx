@@ -8,6 +8,7 @@ import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import { writeClipboardText } from "@/lib/clipboard";
 import {
   buildCompactClaimUrl,
+  buildClaimableManageUrl,
   buildClaimableXPostText,
 } from "@/lib/claimable-share";
 import {
@@ -327,15 +328,21 @@ function isShownOnProfile(link: CreatorLink): boolean {
 }
 
 type DbClaimableLink = {
+  claimPublicKey: string;
+  createdAt: string;
+  description: string;
   feeSompi: string;
+  fundingOutputIndex: number | null;
+  fundingTxId: string | null;
+  fundingAddress: string;
   id: string;
   linkKey: string;
   title: string;
   amountSompi: string;
+  redeemScriptHex: string;
+  refundPublicKey: string;
   status: string;
-  fundingAddress: string;
   refundLockTime: string;
-  createdAt: string;
 };
 
 type MergedClaimable = {
@@ -366,11 +373,70 @@ function formatSompiKas(sompi: string): string {
   }
 }
 
+function recoverClaimUrl(linkKey: string, status: string, local: ClaimableStoreRecord): string {
+  try {
+    if (local.claimUrl) return buildCompactClaimUrl(local.claimUrl);
+    if (!local.claimCode || status === "awaiting_funding") return "";
+    const origin =
+      typeof window === "undefined" ? "https://kaspalinks.com" : window.location.origin;
+    return buildCompactClaimUrl(
+      `${origin}/claim?link=${encodeURIComponent(linkKey)}`,
+      local.claimCode,
+    );
+  } catch {
+    return "";
+  }
+}
+
+function recoverManageUrl(db: DbClaimableLink, local: ClaimableStoreRecord): string {
+  if (local.manageUrl) return local.manageUrl;
+  if (
+    !local.refundCode ||
+    !db.fundingTxId ||
+    db.fundingOutputIndex === null ||
+    !db.redeemScriptHex ||
+    !db.refundPublicKey
+  ) {
+    return "";
+  }
+
+  const amountKas = formatSompiKas(db.amountSompi);
+  const feeKas = formatSompiKas(db.feeSompi);
+  const netClaimKas = formatSompiKas((BigInt(db.amountSompi) - BigInt(db.feeSompi)).toString());
+  const origin = typeof window === "undefined" ? "https://kaspalinks.com" : window.location.origin;
+  return buildClaimableManageUrl(origin, {
+    amountKas,
+    amountSompi: db.amountSompi,
+    createdAt: db.createdAt,
+    createdAtMs: new Date(db.createdAt).getTime(),
+    description: db.description,
+    feeKas,
+    feeSompi: db.feeSompi,
+    fundingAddress: db.fundingAddress,
+    fundingMatch: {
+      amountSompi: db.amountSompi,
+      blockTime: null,
+      outputIndex: db.fundingOutputIndex,
+      transactionId: db.fundingTxId,
+    },
+    id: db.linkKey,
+    netClaimKas,
+    redeemScriptHex: db.redeemScriptHex,
+    refundCode: local.refundCode,
+    refundLockTime: db.refundLockTime,
+    refundPublicKey: db.refundPublicKey,
+    title: db.title,
+    validFor: local.validFor,
+    version: 1,
+  });
+}
+
 function mergeClaimable(
   dbLinks: DbClaimableLink[],
   localRecords: ClaimableStoreRecord[],
 ): MergedClaimable[] {
   const byKey = new Map<string, MergedClaimable>();
+  const dbByKey = new Map(dbLinks.map((link) => [link.linkKey, link]));
   // DB is authoritative for the list + status (durable, cross-device).
   for (const db of dbLinks) {
     byKey.set(db.linkKey, {
@@ -395,8 +461,9 @@ function mergeClaimable(
   for (const local of localRecords) {
     const existing = byKey.get(local.id);
     if (existing) {
-      existing.claimUrl = local.claimUrl;
-      existing.manageUrl = local.manageUrl;
+      const db = dbByKey.get(local.id);
+      existing.claimUrl = recoverClaimUrl(existing.linkKey, existing.status, local);
+      existing.manageUrl = db ? recoverManageUrl(db, local) : local.manageUrl;
       existing.netClaimKas = local.netClaimKas;
       existing.validFor = local.validFor;
       existing.refundLockTime = local.refundLockTime;
@@ -413,7 +480,7 @@ function mergeClaimable(
         status: local.status,
         fundingAddress: local.fundingAddress,
         refundLockTime: local.refundLockTime,
-        claimUrl: local.claimUrl,
+        claimUrl: recoverClaimUrl(local.id, local.status, local),
         manageUrl: local.manageUrl,
         hasDb: false,
         hasLocal: true,
@@ -2046,6 +2113,11 @@ export function MyLinksClient() {
                 const versionedClaimUrl = record.claimUrl
                   ? buildCompactClaimUrl(record.claimUrl)
                   : "";
+                const privateRecoveryMissing =
+                  record.hasLocal &&
+                  !versionedClaimUrl &&
+                  record.status !== "awaiting_funding" &&
+                  !terminal;
 
                 return (
                   <li
@@ -2082,6 +2154,12 @@ export function MyLinksClient() {
                           <p className="claimable-mylinks-expiry-notice">
                             This link can no longer be claimed. Use your private refund link to
                             recover the unclaimed KAS.
+                          </p>
+                        ) : null}
+                        {privateRecoveryMissing ? (
+                          <p className="claimable-mylinks-expiry-notice">
+                            This browser could not recover the private claim link. Server data alone
+                            cannot recreate it. Do not send more KAS to this funding address.
                           </p>
                         ) : null}
                       </div>

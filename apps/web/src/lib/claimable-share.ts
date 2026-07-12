@@ -3,6 +3,28 @@ const BASE64_URL = /^[A-Za-z0-9_-]{43}$/;
 
 export const CLAIMABLE_SOCIAL_PREVIEW_VERSION = "5";
 export const CLAIMABLE_COMPACT_HASH_PREFIX = "c=";
+export const CLAIMABLE_MANAGE_HASH_PREFIX = "lab-manage=";
+
+export function encodeClaimableFragmentPayload(value: unknown): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+export function decodeClaimableFragmentPayload(value: string): unknown {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+}
+
+export function buildClaimableManageUrl(origin: string, payload: unknown): string {
+  const url = new URL("/claim/refund", origin);
+  url.hash = `${CLAIMABLE_MANAGE_HASH_PREFIX}${encodeClaimableFragmentPayload(payload)}`;
+  return url.toString();
+}
 
 export function withClaimablePreviewVersion(value: string): string {
   const url = new URL(value);
@@ -42,10 +64,7 @@ export function decodeSharedClaimCode(value: string): string {
   }
 }
 
-export function buildClaimableXPostText(input: {
-  netClaimKas: string;
-  title: string;
-}): string {
+export function buildClaimableXPostText(input: { netClaimKas: string; title: string }): string {
   return [
     input.title.trim() || "Kaspa to claim",
     `First come, first served: claim ${input.netClaimKas} KAS.`,
