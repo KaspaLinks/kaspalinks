@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  getKaswareProvider,
+  readKaswareBalance,
+  readKaswareNetwork,
+  sendKaspaPayment,
+  WalletAdapterError,
+} from "@kaspa-actions/wallet-adapter";
 
 import { createToccataLabKeyPair } from "@/lib/toccata-lab-keys";
 import { encodeClaimableFragmentPayload } from "@/lib/claimable-share";
@@ -87,6 +94,7 @@ const CLAIM_PREFIX = "lab-claim=";
 const REFUND_PREFIX = "lab-manage=";
 const MAX_BATCH_SIZE = 10;
 const BATCH_ACTIVATION_FEE_SOMPI = 1_000_000n;
+const FUNDING_SAFE_CHANGE_SOMPI = 20_000_000n;
 
 export function BatchClaimableLabClient({
   capabilities,
@@ -109,6 +117,8 @@ export function BatchClaimableLabClient({
   const [linkTitles, setLinkTitles] = useState(() => defaultLinkTitles(10));
   const [notice, setNotice] = useState("");
   const [checking, setChecking] = useState(false);
+  const [fundingWithKasware, setFundingWithKasware] = useState(false);
+  const [isTouchOnly, setIsTouchOnly] = useState<null | boolean>(null);
   const [refundAddress, setRefundAddress] = useState("");
   const [title, setTitle] = useState("Community claim drop");
 
@@ -116,6 +126,11 @@ export function BatchClaimableLabClient({
     void readEncryptedLocalJson<BatchRecord>(STORAGE_KEY).then(({ value }) => {
       if (value?.version === 2 && Array.isArray(value.links)) setBatch(value);
     });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    setIsTouchOnly(window.matchMedia("(pointer: coarse)").matches);
   }, []);
 
   const summary = useMemo(() => {
@@ -129,6 +144,21 @@ export function BatchClaimableLabClient({
       activation: batch.activation.status,
     };
   }, [batch]);
+
+  const batchFundingAmountKas = useMemo(
+    () => (batch ? formatSompiForToccataLab(BigInt(batch.activation.fundingAmountSompi)) : ""),
+    [batch],
+  );
+  const batchFundingWalletUri = useMemo(
+    () =>
+      batch
+        ? buildWalletLaunchUri({
+            amountKas: batchFundingAmountKas,
+            recipientAddress: batch.activation.fundingAddress,
+          })
+        : "",
+    [batch, batchFundingAmountKas],
+  );
 
   function persist(next: BatchRecord | null) {
     setBatch(next);
@@ -365,6 +395,116 @@ export function BatchClaimableLabClient({
       setError(checkError instanceof Error ? checkError.message : "Could not check batch funding.");
     } finally {
       setChecking(false);
+    }
+  }
+
+  function openBatchFundingWallet() {
+    if (!batchFundingWalletUri || !batch) return;
+    setError("");
+    setNotice(
+      `Opening Kaspium with ${batchFundingAmountKas} KAS and the one-time batch address. Return here after sending; funding will be checked automatically.`,
+    );
+    window.setTimeout(() => void checkFunding(), 2_500);
+    window.setTimeout(() => void checkFunding(), 7_000);
+    window.location.assign(batchFundingWalletUri);
+  }
+
+  async function fundBatchWithKasware() {
+    if (!batch || batch.activation.status !== "awaiting_funding") return;
+
+    setError("");
+    setNotice("");
+    setFundingWithKasware(true);
+    try {
+      const provider = getKaswareProvider();
+      if (!provider) {
+        throw new WalletAdapterError(
+          "KasWare was not detected. Install the extension or open this page on mobile for Kaspium.",
+          { code: "KASWARE_UNAVAILABLE" },
+        );
+      }
+
+      const network = await readKaswareNetwork(provider);
+      if (network !== "mainnet") {
+        throw new WalletAdapterError(
+          network === "unknown"
+            ? "Could not verify KasWare's network. Switch KasWare to mainnet and retry."
+            : `Switch KasWare to mainnet before funding. It is currently on ${network}.`,
+          { code: "KASWARE_WRONG_NETWORK" },
+        );
+      }
+
+      const fundingAmountSompi = BigInt(batch.activation.fundingAmountSompi);
+      try {
+        const balance = await readKaswareBalance(provider);
+        if (balance) {
+          const confirmed = BigInt(balance.confirmed);
+          if (confirmed < fundingAmountSompi) {
+            throw new WalletAdapterError(
+              "KasWare's confirmed balance is lower than the exact batch funding total.",
+              { code: "KASWARE_INSUFFICIENT_BALANCE" },
+            );
+          }
+          if (confirmed - fundingAmountSompi < FUNDING_SAFE_CHANGE_SOMPI) {
+            setNotice(
+              "Your remaining KasWare change may be too small for Kaspa's storage-mass rule. If funding is rejected, use a wallet with a larger consolidated balance.",
+            );
+          }
+        }
+      } catch (balanceError) {
+        if (balanceError instanceof WalletAdapterError) throw balanceError;
+      }
+
+      let result: Awaited<ReturnType<typeof sendKaspaPayment>> | null = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          result = await sendKaspaPayment(provider, {
+            amountSompi: fundingAmountSompi,
+            toAddress: batch.activation.fundingAddress,
+          });
+          break;
+        } catch (attemptError) {
+          const message =
+            attemptError instanceof Error ? attemptError.message : String(attemptError);
+          const transient = /not connected|websocket|rpc server/i.test(message);
+          if (attempt < 3 && transient) {
+            setNotice("KasWare is connecting to the network — retrying…");
+            await new Promise((resolve) => window.setTimeout(resolve, 1_200));
+            continue;
+          }
+          throw attemptError;
+        }
+      }
+      if (!result) {
+        throw new WalletAdapterError("KasWare did not complete the batch funding transaction.", {
+          code: "KASWARE_FUNDING_FAILED",
+        });
+      }
+
+      setNotice(
+        `KasWare sent the batch funding transaction ${compactTransactionId(result.txId)}. Checking the one-time address now.`,
+      );
+      window.setTimeout(() => void checkFunding(), 1_500);
+      window.setTimeout(() => void checkFunding(), 5_000);
+    } catch (fundingError) {
+      setError(
+        fundingError instanceof Error
+          ? fundingError.message
+          : "KasWare did not complete the batch funding transaction.",
+      );
+    } finally {
+      setFundingWithKasware(false);
+    }
+  }
+
+  async function copyBatchFundingAddress() {
+    if (!batch) return;
+    try {
+      await navigator.clipboard.writeText(batch.activation.fundingAddress);
+      setError("");
+      setNotice("Batch funding address copied.");
+    } catch {
+      setError("Could not copy the batch funding address.");
     }
   }
 
@@ -741,17 +881,44 @@ export function BatchClaimableLabClient({
                   Includes {formatSompiForToccataLab(BigInt(batch.activation.activationFeeSompi))}{" "}
                   KAS activation fee. {batchActivationStatusText(batch.activation.status)}
                 </p>
-                <a
-                  className="btn btn-primary"
-                  href={buildWalletLaunchUri({
-                    amountKas: formatSompiForToccataLab(
-                      BigInt(batch.activation.fundingAmountSompi),
-                    ),
-                    recipientAddress: batch.activation.fundingAddress,
-                  })}
-                >
-                  Open funding wallet
-                </a>
+                <div className="batch-lab-wallet-options">
+                  {isTouchOnly === null ? (
+                    <button className="btn btn-primary" disabled type="button">
+                      Preparing wallet…
+                    </button>
+                  ) : isTouchOnly ? (
+                    <button
+                      className="btn btn-primary"
+                      disabled={batch.activation.status !== "awaiting_funding"}
+                      onClick={openBatchFundingWallet}
+                      type="button"
+                    >
+                      Open in Kaspium
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-primary"
+                      disabled={
+                        fundingWithKasware || batch.activation.status !== "awaiting_funding"
+                      }
+                      onClick={() => void fundBatchWithKasware()}
+                      type="button"
+                    >
+                      {fundingWithKasware ? "Opening KasWare…" : "Fund with KasWare"}
+                    </button>
+                  )}
+                  <button
+                    className="btn"
+                    onClick={() => void copyBatchFundingAddress()}
+                    type="button"
+                  >
+                    Copy address
+                  </button>
+                </div>
+                <p className="batch-lab-wallet-note">
+                  The wallet receives the exact total and one-time funding address. You still review
+                  and approve the transaction inside Kaspium or KasWare.
+                </p>
               </div>
 
               <div className="batch-lab-action-group">
@@ -982,6 +1149,10 @@ function randomToken(): string {
 
 function compactAddress(value: string): string {
   return value.length <= 24 ? value : `${value.slice(0, 12)}...${value.slice(-8)}`;
+}
+
+function compactTransactionId(value: string): string {
+  return value.length <= 20 ? value : `${value.slice(0, 10)}…${value.slice(-8)}`;
 }
 
 function humanStatus(status: BatchLink["status"]): string {
