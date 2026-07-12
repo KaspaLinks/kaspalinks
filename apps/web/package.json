@@ -1,0 +1,26 @@
+{
+  "name": "@kaspa-actions/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "NEXT_TELEMETRY_DISABLED=1 next build --webpack",
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --webpack",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@kaspa-actions/db": "workspace:*",
+    "@kaspa-actions/kaspa": "workspace:*",
+    "@kaspa-actions/kaspa-indexer": "workspace:*",
+    "@kaspa-actions/shared": "workspace:*",
+    "@kaspa-actions/wallet-adapter": "workspace:*",
+    "@noble/secp256k1": "^3.1.0",
+    "next": "16.2.6",
+    "qrcode": "1.5.4",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "zod": "3.25.51"
+  },
+  "devDependencies": {
+    "@types/qrcode": "1.5.5"
+  }
+}

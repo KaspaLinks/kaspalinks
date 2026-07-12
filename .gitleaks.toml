@@ -1,0 +1,10 @@
+# gitleaks configuration for Kaspa Links.
+# Keep all default rules, but allowlist known false positives.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "docs/toccata-sdk.md documents PUBLIC SHA-256 release/asset checksums (for verifying the vendored WASM SDK). These are integrity hashes, not secrets."
+paths = [
+  'docs/toccata-sdk\.md',
+]

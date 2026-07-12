@@ -1,0 +1,12 @@
+{
+  "name": "@kaspa-actions/kaspa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "kaspa-wasm": "file:../../vendor/kaspa-wasm-v2.0.1"
+  }
+}

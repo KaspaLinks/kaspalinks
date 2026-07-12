@@ -1,0 +1,19 @@
+[Unit]
+Description=Daily Kaspa Links Postgres backup
+Documentation=file:///opt/kaspa-actions/deploy/db-backup/README.md
+
+[Timer]
+# 03:14 UTC every day — well outside European + US business hours so a long
+# dump can't fight with normal traffic for I/O on the postgres volume.
+OnCalendar=*-*-* 03:14:00 UTC
+# Catch up if the VPS was off at the scheduled time — better a late backup
+# than a missed one.
+Persistent=yes
+AccuracySec=1min
+# Smear across a 10-minute window so a fleet of machines wouldn't all hit
+# the same upstream Storage Box at once. Single-VPS deploy doesn't need it
+# but the cost is zero.
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

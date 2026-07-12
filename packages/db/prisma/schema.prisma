@@ -1,0 +1,257 @@
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  runtime                = "nodejs"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ActionType {
+  KASPA_TRANSFER @map("kaspa.transfer")
+  KASPA_TIP      @map("kaspa.tip")
+  KASPA_DONATION @map("kaspa.donation")
+  KASPA_INVOICE  @map("kaspa.invoice")
+  KASPA_GOAL     @map("kaspa.goal")
+}
+
+enum Network {
+  MAINNET
+  TESTNET
+}
+
+enum PaymentRequestStatus {
+  PENDING
+  CONFIRMED
+  EXPIRED
+  FAILED
+}
+
+enum AuditActorType {
+  SYSTEM
+  ADMIN
+  CREATOR
+  PUBLIC
+  DEMO
+}
+
+model Creator {
+  id          String     @id @default(cuid())
+  username    String     @unique
+  displayName String?
+  // Short public-facing description shown on /u/<username>. Optional.
+  bio         String?
+  // Whitelisted public social links shown on /u/<username>. JSON keeps
+  // platform additions additive while validation stays in app code.
+  socialLinks Json?
+  // FK into Action that this creator wants surfaced as the canonical
+  // "quick tip" target on their profile page. Auto-set to the first
+  // visible active Action a creator creates (so a fresh profile starts
+  // working with zero extra setup), but the creator can override it via
+  // dashboard settings later. Nullable because
+  //   (a) a brand-new creator has no Actions yet
+  //   (b) onDelete: SetNull means deleting the chosen Action leaves the
+  //       profile in a "no quick-tip card" state instead of FK-cascading
+  //       the whole profile away.
+  tipActionId String?
+  tipAction   Action?    @relation("CreatorTipAction", fields: [tipActionId], references: [id], onDelete: SetNull)
+  tokenHash   String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  actions        Action[]
+  auditLogs      AuditLog[]
+  claimableLinks ClaimableLink[]
+
+  @@index([createdAt])
+}
+
+model Action {
+  id                String           @id @default(cuid())
+  publicId          String           @unique @default(cuid())
+  creatorId         String?
+  creator           Creator?         @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  slug              String?
+  version           String           @default("v1")
+  type              ActionType
+  title             String
+  description       String?
+  recipientAddress  String
+  amountSompi       BigInt?
+  // Fundraising target for goal / crowdfunding links (type KASPA_GOAL).
+  // Null for every other type. For goals, amountSompi stays null (each
+  // supporter picks their own contribution) and goalSompi holds the
+  // target the progress bar fills toward. Progress is computed as the
+  // sum of confirmed PaymentRequest.amountSompi for the Action.
+  goalSompi         BigInt?
+  // Goal-only guard. When true, the public payment flow stops creating
+  // new PaymentRequests once confirmed contributions meet or exceed
+  // goalSompi. Existing pending requests are left alone until they
+  // confirm or expire.
+  goalAutoClose     Boolean          @default(false)
+  message           String?
+  // When true, the public pay page enforces that the supporter enters a
+  // note before the Pay button enables. Used for commission / custom-
+  // request links where the creator needs context with the payment
+  // (e.g. "what should I draw", "which feature to prioritise", shout-out
+  // text). Server-side guard in /api/actions/[publicId]/payment-requests
+  // rejects requests that violate this on existing actions.
+  noteRequired      Boolean          @default(false)
+  // When true, this Action is excluded from the creator's public profile
+  // page (/u/<username>). Default depends on type — tip + donation are
+  // public by default (point of those is broad reach), invoice + transfer
+  // hide by default (usually 1-recipient-specific and should not leak
+  // names/amounts on a public profile). The /new-link form exposes a
+  // checkbox so the creator can override.
+  hiddenFromProfile Boolean          @default(false)
+  network           Network          @default(MAINNET)
+  expiresAt         DateTime?
+  disabledAt        DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  paymentRequests   PaymentRequest[]
+  auditLogs         AuditLog[]
+  // Inverse side of Creator.tipAction — lets the schema be consistent
+  // when a single Action is picked as the canonical tip target of one
+  // or more creators (in practice always at most one, but Prisma needs
+  // the relation declared on both sides).
+  tipForCreators    Creator[]        @relation("CreatorTipAction")
+
+  @@unique([creatorId, slug])
+  @@index([type])
+  @@index([creatorId])
+  @@index([slug])
+  @@index([recipientAddress])
+  @@index([expiresAt])
+  @@index([deletedAt])
+}
+
+model PaymentRequest {
+  id                String               @id @default(cuid())
+  actionId          String
+  action            Action               @relation(fields: [actionId], references: [id], onDelete: Restrict)
+  status            PaymentRequestStatus @default(PENDING)
+  recipientAddress  String
+  amountSompi       BigInt?
+  network           Network
+  paymentUri        String?
+  requestedMessage  String?
+  supporterMessage  String?
+  // Optional public attribution for the creator's supporter wall.
+  // supporterPublic is controlled by the supporter opt-in on the pay page;
+  // supporterHiddenAt lets the creator hide an entry later without deleting
+  // the payment request or audit trail. Wallet addresses are never shown on
+  // the public wall.
+  supporterName     String?
+  supporterPublic   Boolean              @default(false)
+  supporterHiddenAt DateTime?
+  fakeTxId          String?              @unique
+  txId              String?              @unique
+  detectionSource   String?
+  expiresAt         DateTime
+  confirmedAt       DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  auditLogs         AuditLog[]
+
+  @@index([actionId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([supporterPublic])
+  @@index([supporterHiddenAt])
+  @@index([confirmedAt])
+}
+
+model AuditLog {
+  id               String          @id @default(cuid())
+  creatorId        String?
+  creator          Creator?        @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  actionId         String?
+  action           Action?         @relation(fields: [actionId], references: [id], onDelete: SetNull)
+  paymentRequestId String?
+  paymentRequest   PaymentRequest? @relation(fields: [paymentRequestId], references: [id], onDelete: SetNull)
+  event            String
+  actorType        AuditActorType  @default(SYSTEM)
+  metadata         Json?
+  ipHash           String?
+  createdAt        DateTime        @default(now())
+
+  @@index([creatorId])
+  @@index([actionId])
+  @@index([paymentRequestId])
+  @@index([event])
+  @@index([createdAt])
+}
+
+model OperatorPageView {
+  id             String   @id @default(cuid())
+  eventHash      String   @unique
+  visitorDayHash String
+  seenAt         DateTime
+  path           String
+  referrer       String
+  utmSource      String?
+  countryCode    String?
+  device         String
+  browser        String
+  status         Int
+  isBot          Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([seenAt])
+  @@index([visitorDayHash])
+  @@index([path])
+  @@index([referrer])
+  @@index([utmSource])
+  @@index([countryCode])
+  @@index([device])
+  @@index([browser])
+  @@index([isBot])
+}
+
+// Non-custodial claimable links (Toccata lab). Stores ONLY non-secret metadata:
+// the funding address + public keys + status, never the claim/refund private
+// codes (those stay in encrypted browser storage + share URL fragments).
+// A separate table keeps the shared Action model and its public-facing queries
+// untouched. linkKey is the client-generated id shared with the localStorage
+// record and the URL fragment, so /my-links can merge server status with the
+// browser-held secrets.
+model ClaimableLink {
+  id                 String   @id @default(cuid())
+  creatorId          String
+  creator            Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  linkKey            String   @unique
+  title              String
+  description        String?
+  amountSompi        BigInt
+  feeSompi           BigInt
+  fundingAddress     String
+  claimPublicKey     String
+  refundPublicKey    String
+  refundLockTime     String
+  redeemScriptHex    String
+  fundingTxId        String?
+  fundingOutputIndex Int?
+  claimTxId          String?
+  claimedAt          DateTime?
+  refundTxId         String?
+  refundedAt         DateTime?
+  status             String   @default("awaiting_funding")
+  network            Network  @default(MAINNET)
+  deletedAt          DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([creatorId, linkKey])
+  @@index([creatorId])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([claimedAt])
+  @@index([refundedAt])
+  @@index([fundingAddress])
+}

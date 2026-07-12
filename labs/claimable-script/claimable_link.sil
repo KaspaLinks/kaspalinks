@@ -1,0 +1,35 @@
+pragma silverscript ^0.1.0;
+
+// ClaimableLink — minimal claim/refund lock for Kaspa Links claimable links.
+//
+// Design (see docs/claimable-links-lab.md, "Claim-Key Design"):
+//
+// - `linkPk` is the public half of the per-link claim code. The claim code
+//   travels only in the claim URL fragment and never reaches the server.
+// - `refundPk` is the public half of the funder-held refund key (same
+//   "save this now" pattern as the creator token).
+// - `refundAfter` is the expiry the refund path unlocks at, enforced via
+//   `tx.time` (semantics on mainnet — DAA score vs timestamp threshold — are
+//   one of the open questions this prototype must answer; see the lab plan).
+//
+// Front-run safety: the claim entrypoint requires a transaction signature
+// from `linkPk`. Because the signature covers the transaction outputs, a
+// mempool observer sees a signature but never the claim code and cannot
+// redirect the payout. No covenant state and no output binding is used —
+// this is a one-shot spend-condition contract, so the funding output is a
+// plain P2SH payment (Research Findings #1/#2).
+//
+// This file is a lab prototype. It must not be considered reviewed or
+// production-ready until the gates in docs/claimable-links-lab.md pass.
+contract ClaimableLink(pubkey linkPk, pubkey refundPk, int refundAfter) {
+    // Claim path: whoever holds the claim code signs the claim transaction.
+    entrypoint function claim(sig linkSig) {
+        require(checkSig(linkSig, linkPk));
+    }
+
+    // Refund path: after expiry, only the funder-held refund key can spend.
+    entrypoint function refund(sig refundSig) {
+        require(tx.time >= refundAfter);
+        require(checkSig(refundSig, refundPk));
+    }
+}

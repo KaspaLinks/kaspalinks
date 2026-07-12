@@ -1,0 +1,109 @@
+{
+	email {$ACME_EMAIL}
+
+	# Cloudflare-ready proxy parsing. This does not require Cloudflare to be
+	# enabled yet; direct visitors still work normally. Once DNS is proxied
+	# through Cloudflare, Caddy will trust only Cloudflare edge IPs for the
+	# real client IP and country headers used by /operator-stats.
+	servers {
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		trusted_proxies_strict
+		client_ip_headers Cf-Connecting-Ip X-Forwarded-For
+	}
+}
+
+# Redirect www → apex so the site has one canonical hostname.
+# Without this block, requests to www.{$DOMAIN} hit Cloudflare but the
+# origin Caddy has no matching site for that Host header, so the TLS
+# handshake fails and Cloudflare returns 525. Adding this block makes
+# Caddy auto-provision a Let's Encrypt cert for the www name and then
+# 301 every request to the apex. Apex visitors are unaffected.
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Site is public. /operator-stats stays gated because it surfaces private
+	# traffic analytics. A few legacy Toccata smoke endpoints stay gated too;
+	# public claimable-link creation/claim/refund routes are not behind this
+	# shared password.
+	#
+	# The bcrypt hash for the operator gate is sourced from BASIC_AUTH_HASH
+	# in .env. Caddyfile parser quirk: a bare $-prefixed bcrypt
+	# hash like $2a$14$… would be silently dropped, so we keep it in env.
+	# Rotate with `caddy hash-password --plaintext '...'` inside the caddy
+	# container and update BASIC_AUTH_HASH in .env.
+	@operator path /operator-stats /operator-stats/* /toccata-lab/batch /toccata-lab/batch/* /api/toccata-lab/batch-scripts /api/toccata-lab/batch-allocator-script /api/toccata-lab/batch-activate /api/toccata-lab/batch-refund /api/toccata-lab/pskt-smoke /api/toccata-lab/safe-json-smoke
+	basic_auth @operator {
+		kaspa {$BASIC_AUTH_HASH}
+	}
+
+	header {
+		# Transport security — keep HTTPS sticky for one year, include subdomains.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+		# MIME / framing / referrer / permissions hardening (pre-existing).
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+
+		# Content Security Policy.
+		# 'unsafe-inline' / 'unsafe-eval' for scripts and styles is required by
+		# Next.js streaming SSR + hydration — Next inlines the React payload as
+		# <script> tags during streaming, and inline style= attributes are used
+		# throughout the app. Tighter modes (nonces / strict-dynamic) need
+		# middleware support we haven't wired up yet.
+		# img-src allows data: and blob: so the QR code data-URLs and the OG
+		# image render. connect-src is intentionally tight — the only XHR/
+		# fetch destination from the client is our own API.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+
+		-Server
+	}
+
+	log {
+		output file /data/logs/kaspa-access.log {
+			mode 0644
+			roll_size 20MiB
+			roll_keep 10
+			roll_keep_for 720h
+		}
+
+		format filter {
+			wrap json
+			fields {
+				request>headers>Authorization delete
+				request>headers>Proxy-Authorization delete
+				request>headers>Cookie delete
+			}
+		}
+	}
+
+	# Reverse-proxy to the Next.js app. header_down overrides the upstream's
+	# Cache-Control on a few read-only endpoints so downstream caches and
+	# browsers can hold the response for ~30 s. This is mostly insurance for
+	# when a CDN like Cloudflare gets put in front — the application also
+	# caches the upstream indexer fetch at the Next.js layer (revalidate=30),
+	# so even without a CDN one upstream fetch covers all concurrent users.
+	reverse_proxy /api/creator/actions/*/payments app:3000 {
+		header_down Cache-Control "public, max-age=30, stale-while-revalidate=60"
+	}
+
+	@action_qr {
+		path_regexp action_qr ^/api/actions/[^/]+/qr$
+	}
+	reverse_proxy @action_qr app:3000 {
+		header_down Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+	}
+
+	reverse_proxy /api/actions/* app:3000 {
+		header_down Cache-Control "public, max-age=30, stale-while-revalidate=60"
+	}
+
+	reverse_proxy app:3000
+}

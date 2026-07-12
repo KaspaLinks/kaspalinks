@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@11.1.1 --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+
+  claimable-script-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned Silverscript toolchain
+        run: |
+          git clone --filter=blob:none https://github.com/kaspanet/silverscript.git silverscript
+          git -C silverscript checkout d25bd3427a093c17327ca3d6b9e1aa5f7688c863
+      - name: Install the Kaspa Links engine harness
+        run: cp labs/claimable-script/claimable_ui_scriptbuilder_tests.rs silverscript/silverscript-lang/tests/
+      - name: Run claimable-link engine tests
+        working-directory: silverscript
+        env:
+          CARGO_BUILD_JOBS: 1
+          CARGO_PROFILE_DEV_DEBUG: 0
+        run: cargo test -p silverscript-lang --test claimable_ui_scriptbuilder_tests

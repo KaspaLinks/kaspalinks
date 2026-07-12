@@ -1,0 +1,29 @@
+[Unit]
+Description=Kaspa Links Postgres backup (one-shot)
+Documentation=file:///opt/kaspa-actions/deploy/db-backup/README.md
+# Wait for docker to be ready — pg_dump runs via `docker exec`.
+Wants=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+# Optional off-VPS upload config (rsync remote, ssh key). The script no-ops
+# when STORAGE_BOX_REMOTE is unset, so missing this file is harmless.
+EnvironmentFile=-/etc/default/kaspa-backup
+# Make sure the backup root exists. The `+` prefix makes systemd run this
+# step OUTSIDE the namespace sandbox, so it works on a fresh VPS where the
+# directory has never been created.
+ExecStartPre=+/usr/bin/install -d -m 0700 /var/backups/kaspa-actions
+ExecStart=/usr/local/bin/kaspa-backup.sh
+
+# Hardening — the script runs as root because docker socket access requires
+# it, but we keep the rest of the filesystem read-only and block surprises.
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectHome=read-only
+
+# If a dump fails, log it loud rather than silently retrying — humans need
+# to look at why.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kaspa-backup

@@ -1,0 +1,13 @@
+node_modules/
+.next/
+**/.next/
+.env
+.env.*
+out/
+coverage/
+dist/
+packages/db/src/generated/
+vendor/
+pnpm-lock.yaml
+
+AGENTS.md

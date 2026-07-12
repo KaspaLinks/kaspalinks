@@ -1,0 +1,2 @@
+ALTER TABLE "Action"
+  ADD COLUMN "goalAutoClose" BOOLEAN NOT NULL DEFAULT false;
