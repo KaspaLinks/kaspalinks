@@ -13,6 +13,7 @@ import {
   formatSompiAsKas,
   type ActionPaymentBundle,
   type AddressPayment,
+  type ClaimableRecentActivityLink,
   type CreatorAction,
   type CreatorLinkAnalytics,
 } from "./metrics";
@@ -59,13 +60,8 @@ type SupporterWallEntry = {
   txId: null | string;
 };
 
-type ClaimableDashboardLink = {
-  amountSompi: string;
-  feeSompi: string;
-  id: string;
-  linkKey: string;
+type ClaimableDashboardLink = ClaimableRecentActivityLink & {
   status: string;
-  title: string;
 };
 
 type ClaimableDashboardStats = {
@@ -117,6 +113,10 @@ function humanActionType(type: string): string {
       return "Transfer";
     case "kaspa.goal":
       return "Goal";
+    case "kaspa.claimable":
+      return "Claimed";
+    case "kaspa.refund":
+      return "Refunded";
     default:
       return type;
   }
@@ -161,7 +161,11 @@ function calculateClaimableDashboardStats(
       claimedNetSompi += amountSompi > feeSompi ? amountSompi - feeSompi : amountSompi;
     } else if (link.status === "refunded") {
       refunded += 1;
-    } else if (link.status === "funded" || link.status === "shared" || link.status === "refundable") {
+    } else if (
+      link.status === "funded" ||
+      link.status === "shared" ||
+      link.status === "refundable"
+    ) {
       funded += 1;
       lockedSompi += amountSompi;
     }
@@ -317,7 +321,10 @@ export function DashboardClient() {
     [claimableLinks],
   );
 
-  const recentActivity = useMemo(() => buildRecentActivity(bundles, RECENT_LIMIT), [bundles]);
+  const recentActivity = useMemo(
+    () => buildRecentActivity(bundles, RECENT_LIMIT, claimableLinks),
+    [bundles, claimableLinks],
+  );
   const hasPaymentLinks = bundles.length > 0;
   const hasClaimableLinks = claimableStats.total > 0;
 

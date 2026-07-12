@@ -92,6 +92,7 @@ function row(overrides: Record<string, unknown> = {}) {
     amountSompi: 100_000_000n,
     claimPublicKey: CLAIM_PUBLIC_KEY,
     claimTxId: null,
+    claimedAt: null,
     createdAt: CREATED_AT,
     creatorId: "creator-1",
     deletedAt: null,
@@ -107,6 +108,7 @@ function row(overrides: Record<string, unknown> = {}) {
     refundLockTime: "500000000",
     refundPublicKey: REFUND_PUBLIC_KEY,
     refundTxId: null,
+    refundedAt: null,
     status: "awaiting_funding",
     title: "Claim this",
     updatedAt: CREATED_AT,
@@ -158,15 +160,36 @@ describe("creator claimable link API", () => {
   });
 
   it("does not return claimable links removed from My Links", async () => {
-    const response = await GET(
-      new Request("https://kaspalinks.com/api/creator/claimable-links"),
-    );
+    const response = await GET(new Request("https://kaspalinks.com/api/creator/claimable-links"));
 
     expect(response.status).toBe(200);
     expect(mockPrisma.claimableLink.findMany).toHaveBeenCalledWith({
       orderBy: { createdAt: "desc" },
       take: 200,
       where: { creatorId: "creator-1", deletedAt: null },
+    });
+  });
+
+  it("returns terminal transaction details for creator activity", async () => {
+    const claimedAt = new Date("2026-07-10T12:05:00.000Z");
+    mockPrisma.claimableLink.findMany.mockResolvedValue([
+      row({
+        claimedAt,
+        claimTxId: "a".repeat(64),
+        status: "claimed",
+      }),
+    ]);
+
+    const response = await GET(new Request("https://kaspalinks.com/api/creator/claimable-links"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.claimableLinks[0]).toMatchObject({
+      claimedAt: claimedAt.toISOString(),
+      claimTxId: "a".repeat(64),
+      refundedAt: null,
+      refundTxId: null,
+      status: "claimed",
     });
   });
 

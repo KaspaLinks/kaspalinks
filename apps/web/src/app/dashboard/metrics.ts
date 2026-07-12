@@ -85,6 +85,18 @@ export type RecentActivityItem = {
   payment: AddressPayment;
 };
 
+export type ClaimableRecentActivityLink = {
+  amountSompi: string;
+  claimTxId: null | string;
+  claimedAt: null | string;
+  feeSompi: string;
+  id: string;
+  linkKey: string;
+  refundTxId: null | string;
+  refundedAt: null | string;
+  title: string;
+};
+
 export function formatSompiAsKas(sompi: bigint): string {
   if (sompi === 0n) return "0";
   const whole = sompi / SOMPI_PER_KAS;
@@ -262,11 +274,85 @@ export function calculateDashboardMetrics(
 export function buildRecentActivity(
   bundles: ActionPaymentBundle[],
   limit: number,
+  claimableLinks: ClaimableRecentActivityLink[] = [],
 ): RecentActivityItem[] {
-  return dedupeAddressPayments(bundles)
+  return [...dedupeAddressPayments(bundles), ...buildClaimableRecentActivity(claimableLinks)]
     .filter((item) => item.payment.blockTime !== null)
     .sort((a, b) => (b.payment.blockTime ?? 0) - (a.payment.blockTime ?? 0))
     .slice(0, limit);
+}
+
+function buildClaimableRecentActivity(links: ClaimableRecentActivityLink[]): RecentActivityItem[] {
+  const activity: RecentActivityItem[] = [];
+
+  for (const link of links) {
+    const amountSompi = safeSompi(link.amountSompi);
+    const feeSompi = safeSompi(link.feeSompi);
+    const netSompi = amountSompi > feeSompi ? amountSompi - feeSompi : amountSompi;
+
+    addClaimableActivity(
+      activity,
+      link,
+      {
+        occurredAt: link.claimedAt,
+        transactionId: link.claimTxId,
+        type: "kaspa.claimable",
+      },
+      netSompi,
+    );
+    addClaimableActivity(
+      activity,
+      link,
+      {
+        occurredAt: link.refundedAt,
+        transactionId: link.refundTxId,
+        type: "kaspa.refund",
+      },
+      netSompi,
+    );
+  }
+
+  return activity;
+}
+
+function addClaimableActivity(
+  activity: RecentActivityItem[],
+  link: ClaimableRecentActivityLink,
+  event: {
+    occurredAt: null | string;
+    transactionId: null | string;
+    type: "kaspa.claimable" | "kaspa.refund";
+  },
+  netSompi: bigint,
+): void {
+  if (!event.occurredAt || !event.transactionId) return;
+  const blockTime = Date.parse(event.occurredAt);
+  if (!Number.isFinite(blockTime)) return;
+
+  const amountKas = formatSompiAsKas(netSompi);
+  activity.push({
+    action: {
+      amountKas,
+      createdAt: event.occurredAt,
+      disabledAt: null,
+      hiddenFromProfile: true,
+      id: `claimable:${link.id}:${event.type}`,
+      network: "mainnet",
+      publicId: `claimable:${link.linkKey}:${event.type}`,
+      recipientAddress: "",
+      sharePath: "/my-links",
+      slug: null,
+      title: link.title,
+      type: event.type,
+    },
+    payment: {
+      amountKas,
+      amountSompi: netSompi.toString(),
+      blockTime,
+      outputIndex: 0,
+      transactionId: event.transactionId,
+    },
+  });
 }
 
 export function calculateDashboardAnalyticsRollup(

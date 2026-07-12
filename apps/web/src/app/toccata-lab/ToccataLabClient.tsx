@@ -2452,7 +2452,11 @@ function buildFundingWalletUri(link: ClaimableLabLink | null): string {
 }
 
 function buildLabClaimUrl(link: ClaimableLabLink | null): string {
-  if (!link?.fundingAddress || !link.fundingMatch || !link.redeemScriptHex) return "";
+  // Manage/refund links intentionally do not contain the claim key. Never try
+  // to derive a public claim URL from that incomplete private state.
+  if (!link?.claimCode || !link.fundingAddress || !link.fundingMatch || !link.redeemScriptHex) {
+    return "";
+  }
   const origin = typeof window === "undefined" ? "https://kaspalinks.com" : window.location.origin;
   return buildCompactClaimUrl(
     `${origin}/claim?link=${encodeURIComponent(link.id)}`,

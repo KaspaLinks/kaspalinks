@@ -239,6 +239,44 @@ describe("dashboard metrics", () => {
     expect(activity.map((item) => item.payment.transactionId)).toEqual(["new", "old"]);
   });
 
+  it("includes claimed and refunded claimable links in recent activity", () => {
+    const activity = buildRecentActivity([bundle()], 6, [
+      {
+        amountSompi: "1000000000",
+        claimedAt: "2026-05-17T11:59:00.000Z",
+        claimTxId: "claim-tx",
+        feeSompi: "200000",
+        id: "claimable-1",
+        linkKey: "reward",
+        refundedAt: null,
+        refundTxId: null,
+        title: "Community reward",
+      },
+      {
+        amountSompi: "500000000",
+        claimedAt: null,
+        claimTxId: null,
+        feeSompi: "200000",
+        id: "claimable-2",
+        linkKey: "expired-reward",
+        refundedAt: "2026-05-17T11:58:00.000Z",
+        refundTxId: "refund-tx",
+        title: "Expired reward",
+      },
+    ]);
+
+    expect(activity.map((item) => item.action.type)).toEqual(["kaspa.claimable", "kaspa.refund"]);
+    expect(activity[0]?.payment).toMatchObject({
+      amountKas: "9.998",
+      amountSompi: "999800000",
+      transactionId: "claim-tx",
+    });
+    expect(activity[1]?.payment).toMatchObject({
+      amountKas: "4.998",
+      transactionId: "refund-tx",
+    });
+  });
+
   it("rolls up creator link analytics and surfaces the strongest link", () => {
     const tip = bundle({
       action: {

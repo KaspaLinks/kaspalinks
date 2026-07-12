@@ -37,7 +37,9 @@ type ClaimableLinkRow = {
   fundingOutputIndex: number | null;
   status: string;
   claimTxId: string | null;
+  claimedAt: Date | null;
   refundTxId: string | null;
+  refundedAt: Date | null;
   network: Network;
   createdAt: Date;
   updatedAt: Date;
@@ -58,6 +60,10 @@ function serialize(link: ClaimableLinkRow) {
     redeemScriptHex: link.redeemScriptHex,
     fundingTxId: link.fundingTxId ?? null,
     fundingOutputIndex: link.fundingOutputIndex ?? null,
+    claimTxId: link.claimTxId,
+    claimedAt: link.claimedAt?.toISOString() ?? null,
+    refundTxId: link.refundTxId,
+    refundedAt: link.refundedAt?.toISOString() ?? null,
     status: link.status,
     network: link.network,
     createdAt: link.createdAt.toISOString(),
