@@ -5,6 +5,7 @@ import {
   formatSompiForToccataLab,
   parseToccataCanaryFeeKasToSompi,
   parseToccataCanaryFundingKasToSompi,
+  planToccataCanaryClaimFromNetKas,
   planToccataCanaryExpiry,
   planToccataCanarySpend,
   planToccataCanarySpendFromKas,
@@ -70,6 +71,19 @@ describe("Claimable link fee planner", () => {
     expect(plan.feeSompi).toBe(300_000n);
     expect(plan.feeKas).toBe("0.003");
     expect(plan.netOutputKas).toBe("1.247");
+  });
+
+  it("adds the fee to a requested net claim amount without floating point arithmetic", () => {
+    const plan = planToccataCanaryClaimFromNetKas({
+      feeKas: "0.002",
+      netAmountKas: "10",
+    });
+
+    expect(plan.netOutputSompi).toBe(1_000_000_000n);
+    expect(plan.netOutputKas).toBe("10");
+    expect(plan.feeSompi).toBe(200_000n);
+    expect(plan.utxoSompi).toBe(1_000_200_000n);
+    expect(plan.utxoKas).toBe("10.002");
   });
 
   it("accepts comma decimal input for mobile KAS amount entry", () => {

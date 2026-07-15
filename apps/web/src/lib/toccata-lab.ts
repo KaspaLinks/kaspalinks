@@ -163,6 +163,73 @@ export const toccataBatchAllocatorScriptInputSchema = z.object({
   refundPublicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, "Refund public key must be 32-byte hex."),
 });
 
+const registeredBatchOutputSchema = toccataBatchAllocatorOutputSchema.extend({
+  linkKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .regex(/^[a-zA-Z0-9_-]+$/, "Claimable link key is invalid."),
+});
+
+export const registeredClaimableBatchInputSchema = z
+  .object({
+    activationFeeSompi: z.string().regex(/^[0-9]+$/, "Activation fee must be whole sompi."),
+    activationPublicKey: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "Activation public key must be 32-byte hex."),
+    batchKey: z
+      .string()
+      .trim()
+      .min(1)
+      .max(128)
+      .regex(/^[a-zA-Z0-9_-]+$/, "Batch key is invalid."),
+    fundingAddress: z.string().min(1).max(200).refine(isValidMainnetAddress, {
+      message: "Funding address must be a valid mainnet kaspa: address.",
+    }),
+    fundingAmountSompi: z.string().regex(/^[0-9]+$/, "Funding amount must be whole sompi."),
+    outputs: z.array(registeredBatchOutputSchema).min(2).max(10),
+    redeemScriptHex: z
+      .string()
+      .regex(/^[0-9a-fA-F]+$/, "Batch redeem script must be hex.")
+      .max(12_000)
+      .refine((value) => value.length % 2 === 0, "Batch redeem script must have even hex length."),
+    refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
+    refundPublicKey: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "Refund public key must be 32-byte hex."),
+    title: z.string().trim().min(1).max(80),
+  })
+  .superRefine((value, context) => {
+    const fundingAmount = BigInt(value.fundingAmountSompi);
+    const activationFee = BigInt(value.activationFeeSompi);
+    const outputTotal = value.outputs.reduce(
+      (total, output) => total + BigInt(output.amountSompi),
+      0n,
+    );
+    if (activationFee <= 0n || fundingAmount !== outputTotal + activationFee) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Batch funding must equal all committed outputs plus the activation fee.",
+        path: ["fundingAmountSompi"],
+      });
+    }
+    if (fundingAmount > MAX_POSTGRES_BIGINT || activationFee > MAX_POSTGRES_BIGINT) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Batch amount exceeds the supported integer range.",
+        path: ["fundingAmountSompi"],
+      });
+    }
+    if (new Set(value.outputs.map((output) => output.linkKey)).size !== value.outputs.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Batch output link keys must be unique.",
+        path: ["outputs"],
+      });
+    }
+  });
+
 export const toccataFundingStatusInputSchema = z
   .object({
     amountSompi: z
@@ -217,6 +284,12 @@ export const toccataClaimableBroadcastInputSchema = z.object({
 });
 
 export const toccataBatchActivationBroadcastInputSchema = z.object({
+  batchKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .regex(/^[a-zA-Z0-9_-]+$/, "Batch key is invalid."),
   expectedTransactionId: z
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, "Expected transaction id must be 32-byte hex."),
@@ -227,6 +300,12 @@ export const toccataBatchActivationBroadcastInputSchema = z.object({
 });
 
 export const toccataBatchRefundBroadcastInputSchema = z.object({
+  batchKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .regex(/^[a-zA-Z0-9_-]+$/, "Batch key is invalid."),
   expectedTransactionId: z
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, "Expected transaction id must be 32-byte hex."),
@@ -408,6 +487,41 @@ export function createToccataBatchAllocatorLabScript(
     }
     throw error;
   }
+}
+
+export function validateRegisteredClaimableBatchMetadata(
+  input: z.infer<typeof registeredClaimableBatchInputSchema>,
+) {
+  const parsed = registeredClaimableBatchInputSchema.parse(input);
+  const allocator = createToccataBatchAllocatorLabScript({
+    activationPublicKey: parsed.activationPublicKey,
+    outputs: parsed.outputs,
+    refundLockTime: parsed.refundLockTime,
+    refundPublicKey: parsed.refundPublicKey,
+  });
+  if (allocator.fundingAddress !== parsed.fundingAddress) {
+    throw new Error("Batch funding address does not match the canonical allocator script.");
+  }
+  if (allocator.redeemScriptHex !== parsed.redeemScriptHex.toLowerCase()) {
+    throw new Error("Batch redeem script does not match the canonical allocator script.");
+  }
+
+  return {
+    activationFeeSompi: BigInt(parsed.activationFeeSompi),
+    activationPublicKey: allocator.activationPublicKey,
+    batchKey: parsed.batchKey,
+    fundingAddress: allocator.fundingAddress,
+    fundingAmountSompi: BigInt(parsed.fundingAmountSompi),
+    outputs: parsed.outputs.map((output, index) => ({
+      amountSompi: BigInt(output.amountSompi),
+      linkKey: output.linkKey,
+      scriptPublicKeyHex: allocator.outputs[index]!.scriptPublicKeyHex,
+    })),
+    redeemScriptHex: allocator.redeemScriptHex,
+    refundLockTime: allocator.refundLockTime,
+    refundPublicKey: allocator.refundPublicKey,
+    title: parsed.title,
+  };
 }
 
 export type ToccataClaimableBroadcastResult = {
@@ -647,7 +761,19 @@ export function validateClaimableBroadcastSafeJson(transactionSafeJson: string):
   return readClaimableBroadcastSafeJsonSummary(transactionSafeJson).transactionId;
 }
 
-export function validateBatchActivationBroadcastSafeJson(transactionSafeJson: string): string {
+export type BatchActivationBroadcastSafeJsonSummary = {
+  fundingAmountSompi: string;
+  fundingOutputIndex: number;
+  fundingTransactionId: string;
+  lockTime: string;
+  outputs: Array<{ amountSompi: string; scriptPublicKeyHex: string }>;
+  signatureScriptHex: string;
+  transactionId: string;
+};
+
+export function readBatchActivationBroadcastSafeJsonSummary(
+  transactionSafeJson: string,
+): BatchActivationBroadcastSafeJsonSummary {
   let parsed: SafeJsonClaimableTransaction;
   try {
     parsed = JSON.parse(transactionSafeJson) as SafeJsonClaimableTransaction;
@@ -670,30 +796,48 @@ export function validateBatchActivationBroadcastSafeJson(transactionSafeJson: st
 
   const input = parsed.inputs[0] as SafeJsonClaimableInput;
   parseComputeBudget(input.computeBudget);
-  parseOutputIndex(input.index);
-  parseTransactionId(input.transactionId);
+  const fundingOutputIndex = parseOutputIndex(input.index);
+  const fundingTransactionId = parseTransactionId(input.transactionId);
   parseSequence(input.sequence);
   parseSigOpCount(input.sigOpCount);
-  parseSignatureScript(input.signatureScript);
-  parseLockTime(parsed.lockTime);
+  const signatureScriptHex = parseSignatureScript(input.signatureScript);
+  const lockTime = parseLockTimeBigInt(parsed.lockTime);
+  const fundingAmountSompi = parseClaimableInputUtxoAmount(input.utxo);
 
-  for (const output of parsed.outputs) {
+  const outputs = parsed.outputs.map((output) => {
     const candidate = output as SafeJsonClaimableOutput;
-    parseLabPositiveBigInt(candidate.value, "Batch activation output amount");
-    parseSafeJsonScriptPublicKey(candidate.scriptPublicKey);
-  }
+    return {
+      amountSompi: parseLabPositiveBigInt(
+        candidate.value,
+        "Batch activation output amount",
+      ).toString(),
+      scriptPublicKeyHex: parseSafeJsonScriptPublicKey(candidate.scriptPublicKey),
+    };
+  });
 
-  return parsed.id.toLowerCase();
+  return {
+    fundingAmountSompi: fundingAmountSompi.toString(),
+    fundingOutputIndex,
+    fundingTransactionId,
+    lockTime: lockTime.toString(),
+    outputs,
+    signatureScriptHex,
+    transactionId: parsed.id.toLowerCase(),
+  };
 }
 
-function parseSafeJsonScriptPublicKey(value: unknown): void {
+export function validateBatchActivationBroadcastSafeJson(transactionSafeJson: string): string {
+  return readBatchActivationBroadcastSafeJsonSummary(transactionSafeJson).transactionId;
+}
+
+function parseSafeJsonScriptPublicKey(value: unknown): string {
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
     if (!/^[0-9a-f]+$/.test(normalized) || normalized.length < 6 || normalized.length % 2 !== 0) {
       throw new Error("Output scriptPublicKey must be hex.");
     }
 
-    return;
+    return normalized;
   }
 
   if (isRecord(value)) {
@@ -711,7 +855,7 @@ function parseSafeJsonScriptPublicKey(value: unknown): void {
       throw new Error("Output scriptPublicKey script must be hex.");
     }
 
-    return;
+    return version.toString(16).padStart(4, "0") + script.toLowerCase();
   }
 
   throw new Error("Output scriptPublicKey is invalid.");
@@ -758,14 +902,6 @@ function parseSigOpCount(value: unknown): number {
     throw new Error("Signed transaction input has an invalid sigOpCount.");
   }
   return value;
-}
-
-function parseLockTime(value: unknown): number {
-  const parsed = parseLabSafeNumber(value, "Lock time");
-  if (parsed < 0) {
-    throw new Error("Lock time must not be negative.");
-  }
-  return parsed;
 }
 
 function parseLockTimeBigInt(value: unknown): bigint {

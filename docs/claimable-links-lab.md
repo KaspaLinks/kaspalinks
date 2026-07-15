@@ -151,7 +151,8 @@ Pricing observations from the accepted claim:
 
 UI update (2026-07-04): the claimable-link flow now follows the intended product
 shape instead of an operator-command workflow. The page lets the creator choose
-an amount, fee, and expiry, previews the net claim amount and refund lock time,
+the amount the recipient should receive, a fee, and an expiry, previews the exact
+funding amount and refund lock time,
 derives a one-time experimental P2SH funding address from browser-generated
 claim/refund public keys, and keeps the claim link locked until exact on-chain
 funding is detected. The old setup/claim/refund command blocks, PSKT internals,
@@ -431,19 +432,15 @@ spent and the claim link is closed.
 
 ## Fee Model
 
-This must be decided before implementation.
+The creator enters the advertised amount the recipient should receive. Kaspa
+Links adds the claim/refund fee to the one-time funding output, so a `10 KAS`
+claim with a `0.002 KAS` fee requires exactly `10.002 KAS` of funding and pays
+the claimant exactly `10 KAS`. Batch funding applies the same calculation to
+each child output and adds the separate activation-transaction fee to the exact
+batch total.
 
-Candidate v1:
-
-- claim/refund fee comes out of the locked amount
-- UI shows "claim amount before network fee" and "estimated received amount"
-- minimum claimable amount must be high enough to avoid dust and fee surprises
-
-Alternative:
-
-- claimant provides an additional wallet input to pay the fee
-- more complex wallet transaction payload, but the full advertised amount can
-  remain intact
+All calculations use sompi and integer arithmetic. The claimant does not provide
+an additional wallet input.
 
 New public claimable-link creation starts at 1 KAS and has no artificial
 Kaspa Links maximum. Older lab links below 1 KAS can still be resolved for

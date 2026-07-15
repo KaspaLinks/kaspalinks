@@ -14,7 +14,9 @@ export type EncryptedLocalRead<T> = {
   value: T | null;
 };
 
-export async function readEncryptedLocalJson<T>(storageKey: string): Promise<EncryptedLocalRead<T>> {
+export async function readEncryptedLocalJson<T>(
+  storageKey: string,
+): Promise<EncryptedLocalRead<T>> {
   if (typeof window === "undefined") return { locked: false, value: null };
   const raw = window.localStorage.getItem(storageKey);
   if (!raw) return { locked: false, value: null };
@@ -39,10 +41,14 @@ export async function readEncryptedLocalJson<T>(storageKey: string): Promise<Enc
     }
   }
 
-  // Migrate legacy plaintext only when the creator token is available. Never
-  // destroy the old value merely because the vault is currently locked.
-  if (secret) {
-    await writeEncryptedLocalJson(storageKey, parsed).catch(() => undefined);
+  // Legacy plaintext may contain bearer recovery material. Do not expose it
+  // while signed out; migrate it in place as soon as the creator token is
+  // available so future reads are authenticated AES-GCM reads.
+  if (!secret) return { locked: true, value: null };
+  try {
+    await writeEncryptedLocalJson(storageKey, parsed);
+  } catch {
+    return { locked: true, value: null };
   }
   return { locked: false, value: parsed as T };
 }

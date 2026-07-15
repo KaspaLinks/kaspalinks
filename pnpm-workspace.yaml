@@ -9,4 +9,7 @@ allowBuilds:
   sharp: true
 
 overrides:
+  "@hono/node-server": 1.19.13
+  hono: 4.12.30
+  postcss: 8.5.19
   vite: 4.5.14

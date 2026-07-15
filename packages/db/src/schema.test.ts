@@ -38,6 +38,15 @@ describe("Prisma schema", () => {
   it("stores sompi amounts as BigInt fields", () => {
     expect(schema).toMatch(/amountSompi\s+BigInt/);
   });
+
+  it("stores only public claimable batch contract metadata", () => {
+    const batchModel = schema.match(/model ClaimableBatch \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(batchModel).toContain("activationPublicKey");
+    expect(batchModel).toContain("refundPublicKey");
+    expect(batchModel).toContain("expectedOutputs");
+    expect(batchModel).not.toMatch(/privateKey|claimCode|refundCode|seedPhrase|walletCredential/i);
+  });
 });
 
 describe("initial migration", () => {

@@ -2,6 +2,7 @@ export { createPrismaClient, prisma } from "./client.ts";
 export type {
   Action,
   AuditLog,
+  ClaimableBatch,
   Creator,
   PaymentRequest,
   PrismaClient,

@@ -6,7 +6,7 @@ import type { NextRequest } from "next/server";
 // script-src 'unsafe-inline' here and require a per-request nonce instead.
 // 'unsafe-eval' stays because the kaspa-wasm signer needs it. This is scoped to
 // claimable routes only so the broader public site keeps the existing Caddy CSP.
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const nonceBytes = crypto.getRandomValues(new Uint8Array(16));
   const nonce = btoa(String.fromCharCode(...nonceBytes));
 

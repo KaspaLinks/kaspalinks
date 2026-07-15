@@ -1,34 +1,59 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToccataBatchAllocatorLabScript } from "@/lib/toccata-lab";
 import { resetRateLimits } from "@/lib/rate-limit";
 
-const { mockPrisma, mockRequireCreator } = vi.hoisted(() => ({
-  mockPrisma: {},
+const { mockIndexer, mockPrisma, mockRequireCreator } = vi.hoisted(() => ({
+  mockIndexer: { findTransactionPayment: vi.fn() },
+  mockPrisma: {
+    $transaction: vi.fn(),
+    claimableBatch: { findUnique: vi.fn(), update: vi.fn() },
+    claimableLink: { updateMany: vi.fn() },
+  },
   mockRequireCreator: vi.fn(),
 }));
 
-vi.mock("@kaspa-actions/db", () => ({ prisma: mockPrisma }));
+vi.mock("@kaspa-actions/db", () => ({
+  AuditActorType: { CREATOR: "CREATOR" },
+  prisma: mockPrisma,
+}));
+vi.mock("@kaspa-actions/kaspa-indexer", () => ({ createRestKaspaIndexer: () => mockIndexer }));
 vi.mock("@/lib/creator-guard", () => ({ requireCreator: mockRequireCreator }));
+vi.mock("@/lib/audit", () => ({ writeAuditLog: vi.fn() }));
 
 import { GET, POST } from "./route";
 
+const BATCH_KEY = "batch-test";
 const TRANSACTION_ID = "d".repeat(64);
+const FUNDING_TX_ID = "a".repeat(64);
 const REFUND_LOCK_TIME = "500000000";
+const ACTIVATION_PUBLIC_KEY = "bb14a257083f78158e5f69ab772e4608353a7f102198ebf8d85cc98326e29e72";
+const REFUND_PUBLIC_KEY = "1730fc2b967d30f6854d7e7e45b70f63153c51c46f2048a92b45fdd74be5bb8c";
+const OUTPUTS = [
+  { amountSompi: "100000000", linkKey: "batch-test-01", scriptPublicKeyHex: "0000aa" },
+  { amountSompi: "100000000", linkKey: "batch-test-02", scriptPublicKeyHex: "0000bb" },
+];
+const ALLOCATOR = createToccataBatchAllocatorLabScript({
+  activationPublicKey: ACTIVATION_PUBLIC_KEY,
+  outputs: OUTPUTS,
+  refundLockTime: REFUND_LOCK_TIME,
+  refundPublicKey: REFUND_PUBLIC_KEY,
+});
 const SAFE_JSON = JSON.stringify({
   id: TRANSACTION_ID,
   inputs: [
     {
-      computeBudget: 11,
+      computeBudget: 30,
       index: 0,
       sequence: "0",
       sigOpCount: 0,
-      signatureScript: `41${"11".repeat(65)}00${`4c50${"ab".repeat(80)}`}`,
-      transactionId: "a".repeat(64),
-      utxo: { amount: "100000000" },
+      signatureScript: `41${"11".repeat(65)}00${pushData(ALLOCATOR.redeemScriptHex)}`,
+      transactionId: FUNDING_TX_ID,
+      utxo: { amount: "201000000" },
     },
   ],
   lockTime: REFUND_LOCK_TIME,
-  outputs: [{ scriptPublicKey: `0000${"aa".repeat(34)}`, value: "99000000" }],
+  outputs: [{ scriptPublicKey: `0000${"aa".repeat(34)}`, value: "200000000" }],
   subnetworkId: "0".repeat(40),
   version: 1,
 });
@@ -36,6 +61,7 @@ const SAFE_JSON = JSON.stringify({
 function request() {
   return new Request("https://kaspalinks.com/api/toccata-lab/batch-refund", {
     body: JSON.stringify({
+      batchKey: BATCH_KEY,
       expectedTransactionId: TRANSACTION_ID,
       refundLockTime: REFUND_LOCK_TIME,
       transactionSafeJson: SAFE_JSON,
@@ -45,38 +71,68 @@ function request() {
   });
 }
 
+function registeredBatch() {
+  return {
+    activationFeeSompi: 1_000_000n,
+    activationPublicKey: ACTIVATION_PUBLIC_KEY,
+    createdAt: new Date(0),
+    expectedOutputs: OUTPUTS,
+    fundingAddress: ALLOCATOR.fundingAddress,
+    fundingAmountSompi: 201_000_000n,
+    fundingOutputIndex: 0,
+    fundingTxId: FUNDING_TX_ID,
+    id: "batch-db-1",
+    pendingRefundTxId: null,
+    redeemScriptHex: ALLOCATOR.redeemScriptHex,
+    refundLockTime: REFUND_LOCK_TIME,
+    refundPublicKey: REFUND_PUBLIC_KEY,
+    refundTxId: null,
+    status: "funded",
+    batchKey: BATCH_KEY,
+  };
+}
+
 describe("POST /api/toccata-lab/batch-refund", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
-    resetRateLimits();
-  });
-
-  it("is disabled unless the separate batch lab flag is enabled", async () => {
-    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
-
-    expect((await POST(request())).status).toBe(403);
-  });
-
-  it("relays a signed expired batch refund through the protected path", async () => {
-    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
-    vi.stubEnv("TOCCATA_BATCH_LAB_ENABLED", "true");
-    vi.stubEnv("TOCCATA_WRPC_RELAY_URL", "http://toccata-relay:3010");
+  beforeEach(() => {
     mockRequireCreator.mockResolvedValue({
       creator: { id: "creator-1" },
       ipHash: "ip-hash",
       ok: true,
     });
+    mockPrisma.claimableBatch.findUnique.mockResolvedValue(registeredBatch());
+    mockPrisma.claimableBatch.update.mockResolvedValue(registeredBatch());
+    mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.$transaction.mockResolvedValue([]);
+    mockIndexer.findTransactionPayment.mockResolvedValue({
+      matchedSompi: 201_000_000n,
+      outputIndex: 0,
+      transactionId: FUNDING_TX_ID,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    resetRateLimits();
+  });
+
+  it("is disabled unless the separate batch lab flag is enabled", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    expect((await POST(request())).status).toBe(403);
+  });
+
+  it("relays only a signed refund bound to the creator's expired batch", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_BATCH_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_WRPC_RELAY_URL", "http://toccata-relay:3010");
     vi.stubGlobal(
       "fetch",
       vi
         .fn()
         .mockResolvedValueOnce(
           new Response(
-            JSON.stringify({
-              networkName: "kaspa-mainnet",
-              virtualDaaScore: REFUND_LOCK_TIME,
-            }),
+            JSON.stringify({ networkName: "kaspa-mainnet", virtualDaaScore: REFUND_LOCK_TIME }),
             { status: 200 },
           ),
         )
@@ -97,12 +153,25 @@ describe("POST /api/toccata-lab/batch-refund", () => {
     await expect(response.json()).resolves.toMatchObject({
       broadcast: { submittedTransactionId: TRANSACTION_ID },
     });
+    expect(mockPrisma.claimableBatch.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ pendingRefundTxId: TRANSACTION_ID }),
+      }),
+    );
   });
 
   it("returns JSON for unsupported methods", () => {
     const response = GET();
-
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("POST");
   });
 });
+
+function pushData(hex: string): string {
+  const length = hex.length / 2;
+  if (length <= 75) return `${length.toString(16).padStart(2, "0")}${hex}`;
+  if (length <= 255) return `4c${length.toString(16).padStart(2, "0")}${hex}`;
+  return `4d${(length & 0xff).toString(16).padStart(2, "0")}${((length >> 8) & 0xff)
+    .toString(16)
+    .padStart(2, "0")}${hex}`;
+}

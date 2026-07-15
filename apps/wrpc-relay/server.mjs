@@ -35,6 +35,18 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && request.url === "/ready") {
+      void warmRpcClient("readiness");
+      const connected = Boolean(rpc);
+      writeJson(response, connected ? 200 : 503, {
+        connected,
+        network: NETWORK_ID,
+        ok: connected,
+        service: "kaspa-wrpc-relay",
+      });
+      return;
+    }
+
     if (request.method === "POST" && request.url === "/submit") {
       const input = await readJsonBody(request);
       const result = await submitSignedTransaction(input);

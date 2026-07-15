@@ -64,6 +64,7 @@ model Creator {
   updatedAt   DateTime   @updatedAt
   actions        Action[]
   auditLogs      AuditLog[]
+  claimableBatches ClaimableBatch[]
   claimableLinks ClaimableLink[]
 
   @@index([createdAt])
@@ -253,5 +254,39 @@ model ClaimableLink {
   @@index([status])
   @@index([claimedAt])
   @@index([refundedAt])
+  @@index([fundingAddress])
+}
+
+// Public, non-secret manifest for a one-time batch allocator. It commits the
+// exact ordered child outputs that the browser-created covenant can produce.
+// Activation and refund private keys remain exclusively in browser storage.
+model ClaimableBatch {
+  id                     String   @id @default(cuid())
+  creatorId              String
+  creator                Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  batchKey               String   @unique
+  title                  String
+  activationPublicKey    String
+  refundPublicKey        String
+  refundLockTime         String
+  fundingAddress         String
+  fundingAmountSompi     BigInt
+  activationFeeSompi     BigInt
+  redeemScriptHex        String
+  expectedOutputs        Json
+  fundingTxId            String?
+  fundingOutputIndex     Int?
+  pendingActivationTxId  String?
+  activationTxId         String?
+  pendingRefundTxId      String?
+  refundTxId             String?
+  status                 String   @default("awaiting_funding")
+  network                Network  @default(MAINNET)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@unique([creatorId, batchKey])
+  @@index([creatorId])
+  @@index([status])
   @@index([fundingAddress])
 }

@@ -490,7 +490,10 @@ function mergeClaimable(
   return Array.from(byKey.values()).sort((a, b) => b.createdAtMs - a.createdAtMs);
 }
 
-function computeClaimableStats(records: Array<{ amountKas: string; status: string }>): {
+function computeClaimableStats(
+  records: Array<{ amountKas: string; refundLockTime: string; status: string }>,
+  expiryContext: { currentDaaScore: string; daaLoadedAtMs: null | number; nowMs: number },
+): {
   total: number;
   lockedKas: string;
   claimed: number;
@@ -510,7 +513,13 @@ function computeClaimableStats(records: Array<{ amountKas: string; status: strin
     }
     const amount = Number.parseFloat(record.amountKas);
     if (Number.isFinite(amount)) locked += amount;
-    if (record.status === "refundable") refundable += 1;
+    const expiry = estimateClaimableExpiry({
+      currentDaaScore: expiryContext.currentDaaScore,
+      daaLoadedAtMs: expiryContext.daaLoadedAtMs,
+      nowMs: expiryContext.nowMs,
+      refundLockTime: record.refundLockTime,
+    });
+    if (record.status === "refundable" || expiry?.expired === true) refundable += 1;
   }
   return {
     total: records.length,
@@ -621,6 +630,14 @@ export function MyLinksClient() {
   }
   const [claimableRecords, setClaimableRecords] = useState<ClaimableStoreRecord[]>([]);
   const [loadingClaimables, setLoadingClaimables] = useState(false);
+  const [claimableSelectionMode, setClaimableSelectionMode] = useState(false);
+  const [claimableQuery, setClaimableQuery] = useState("");
+  const [claimableStatusFilter, setClaimableStatusFilter] = useState<
+    "all" | "available" | "claimable_closed" | "claimed" | "refundable"
+  >("all");
+  const [selectedClaimableKeys, setSelectedClaimableKeys] = useState<Set<string>>(new Set());
+  const [bulkDeletingClaimables, setBulkDeletingClaimables] = useState(false);
+  const [showClaimableDeleteDialog, setShowClaimableDeleteDialog] = useState(false);
 
   useEffect(() => {
     const refresh = () => {
@@ -687,7 +704,71 @@ export function MyLinksClient() {
     () => mergeClaimable(dbClaimableLinks, claimableRecords),
     [claimableRecords, dbClaimableLinks],
   );
-  const claimableStats = useMemo(() => computeClaimableStats(mergedClaimable), [mergedClaimable]);
+  const claimableStats = useMemo(
+    () =>
+      computeClaimableStats(mergedClaimable, {
+        currentDaaScore: claimableDaaScore,
+        daaLoadedAtMs: claimableDaaLoadedAtMs,
+        nowMs: claimableNowMs,
+      }),
+    [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs, mergedClaimable],
+  );
+  const filteredClaimables = useMemo(() => {
+    const normalizedQuery = claimableQuery.trim().toLowerCase();
+    return mergedClaimable.filter((record) => {
+      const expiry = estimateClaimableExpiry({
+        currentDaaScore: claimableDaaScore,
+        daaLoadedAtMs: claimableDaaLoadedAtMs,
+        nowMs: claimableNowMs,
+        refundLockTime: record.refundLockTime,
+      });
+      const terminal = isClaimableTerminal(record.status);
+      const refundable = !terminal && (record.status === "refundable" || expiry?.expired === true);
+      const matchesStatus =
+        claimableStatusFilter === "all" ||
+        (claimableStatusFilter === "available" && !terminal && !refundable) ||
+        (claimableStatusFilter === "refundable" && refundable) ||
+        (claimableStatusFilter === "claimed" && record.status === "claimed") ||
+        (claimableStatusFilter === "claimable_closed" &&
+          (record.status === "refunded" || record.status === "spent_unknown"));
+      if (!matchesStatus) return false;
+      if (!normalizedQuery) return true;
+      return [record.title, record.fundingAddress, record.status, "kaspa.claimable"]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery);
+    });
+  }, [
+    claimableDaaLoadedAtMs,
+    claimableDaaScore,
+    claimableNowMs,
+    claimableStatusFilter,
+    claimableQuery,
+    mergedClaimable,
+  ]);
+  const deletableClaimables = useMemo(
+    () => mergedClaimable.filter((record) => canDeleteClaimable(record.status)),
+    [mergedClaimable],
+  );
+  const selectedDeletableClaimables = useMemo(
+    () => deletableClaimables.filter((record) => selectedClaimableKeys.has(record.linkKey)),
+    [deletableClaimables, selectedClaimableKeys],
+  );
+  const allDeletableClaimablesSelected =
+    deletableClaimables.length > 0 &&
+    deletableClaimables.every((record) => selectedClaimableKeys.has(record.linkKey));
+
+  useEffect(() => {
+    setSelectedClaimableKeys((current) => {
+      const availableKeys = new Set(
+        mergedClaimable
+          .filter((record) => canDeleteClaimable(record.status))
+          .map((record) => record.linkKey),
+      );
+      const next = new Set(Array.from(current).filter((linkKey) => availableKeys.has(linkKey)));
+      return next.size === current.size ? current : next;
+    });
+  }, [mergedClaimable]);
 
   useEffect(() => {
     const hasLiveClaimable = mergedClaimable.some(
@@ -719,6 +800,39 @@ export function MyLinksClient() {
     };
   }, [mergedClaimable]);
 
+  const removeClaimableLink = useCallback(
+    async (record: MergedClaimable): Promise<null | string> => {
+      try {
+        if (record.hasDb) {
+          const response = await fetch(
+            `/api/creator/claimable-links?linkKey=${encodeURIComponent(record.linkKey)}`,
+            {
+              headers: authHeaders,
+              method: "DELETE",
+            },
+          );
+          const body = (await response.json().catch(() => null)) as null | {
+            error?: { message?: string };
+          };
+          if (!response.ok) {
+            return body?.error?.message ?? "Could not delete claimable link.";
+          }
+          setDbClaimableLinks((current) =>
+            current.filter((link) => link.linkKey !== record.linkKey),
+          );
+        }
+
+        if (record.hasLocal) {
+          setClaimableRecords(await removeClaimableRecord(record.linkKey));
+        }
+        return null;
+      } catch {
+        return "Network error while deleting claimable link.";
+      }
+    },
+    [authHeaders],
+  );
+
   const deleteClaimableLink = useCallback(
     async (record: MergedClaimable) => {
       if (!canDeleteClaimable(record.status)) {
@@ -737,37 +851,46 @@ export function MyLinksClient() {
 
       setListError(null);
       setStatus(null);
-
-      try {
-        if (record.hasDb) {
-          const response = await fetch(
-            `/api/creator/claimable-links?linkKey=${encodeURIComponent(record.linkKey)}`,
-            {
-              headers: authHeaders,
-              method: "DELETE",
-            },
-          );
-          const body = await response.json();
-          if (!response.ok) {
-            setListError(body?.error?.message ?? "Could not delete claimable link.");
-            return;
-          }
-          setDbClaimableLinks((current) =>
-            current.filter((link) => link.linkKey !== record.linkKey),
-          );
-        }
-
-        if (record.hasLocal) {
-          setClaimableRecords(await removeClaimableRecord(record.linkKey));
-        }
-
-        setStatus("Claimable link deleted.");
-      } catch {
-        setListError("Network error while deleting claimable link.");
+      const deletionError = await removeClaimableLink(record);
+      if (deletionError) {
+        setListError(deletionError);
+        return;
       }
+      setStatus("Claimable link deleted.");
     },
-    [authHeaders],
+    [removeClaimableLink],
   );
+
+  const deleteSelectedClaimableLinks = useCallback(async () => {
+    if (selectedDeletableClaimables.length === 0) return;
+
+    setShowClaimableDeleteDialog(false);
+    setBulkDeletingClaimables(true);
+    setListError(null);
+    setStatus(null);
+    const failures: Array<{ linkKey: string; message: string }> = [];
+    let deleted = 0;
+
+    for (const record of selectedDeletableClaimables) {
+      const deletionError = await removeClaimableLink(record);
+      if (deletionError) {
+        failures.push({ linkKey: record.linkKey, message: deletionError });
+      } else {
+        deleted += 1;
+      }
+    }
+
+    setBulkDeletingClaimables(false);
+    setSelectedClaimableKeys(new Set(failures.map((failure) => failure.linkKey)));
+    if (failures.length > 0) {
+      setListError(
+        `${deleted} link${deleted === 1 ? "" : "s"} deleted. ${failures.length} could not be deleted: ${failures[0]?.message}`,
+      );
+      return;
+    }
+    setClaimableSelectionMode(false);
+    setStatus(`${deleted} claimable link${deleted === 1 ? "" : "s"} deleted.`);
+  }, [removeClaimableLink, selectedDeletableClaimables]);
 
   // Hydrate session from sessionStorage and react to sign-out from the brand bar.
   useEffect(() => {
@@ -2071,11 +2194,80 @@ export function MyLinksClient() {
         </>
       )}
 
+      {showClaimableDeleteDialog ? (
+        <div
+          className="batch-wallet-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setShowClaimableDeleteDialog(false);
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="claimable-delete-dialog-title"
+            aria-modal="true"
+            className="batch-wallet-modal claimable-delete-dialog"
+            role="dialog"
+          >
+            <button
+              aria-label="Cancel deleting selected links"
+              className="batch-wallet-modal-close"
+              onClick={() => setShowClaimableDeleteDialog(false)}
+              type="button"
+            >
+              ×
+            </button>
+            <span className="label">Delete selected links</span>
+            <h2 id="claimable-delete-dialog-title">Are you sure?</h2>
+            <p>
+              Delete {selectedDeletableClaimables.length} selected claimable link
+              {selectedDeletableClaimables.length === 1 ? "" : "s"} from My Links and this browser?
+            </p>
+            <p className="notice notice-critical">
+              Unfunded links are checked on-chain first. This action removes link records only and
+              does not move any KAS.
+            </p>
+            <div className="batch-wallet-modal-actions">
+              <button
+                className="btn"
+                onClick={() => setShowClaimableDeleteDialog(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                disabled={selectedDeletableClaimables.length === 0}
+                onClick={() => void deleteSelectedClaimableLinks()}
+                type="button"
+              >
+                Delete {selectedDeletableClaimables.length} link
+                {selectedDeletableClaimables.length === 1 ? "" : "s"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {mergedClaimable.length > 0 && (typeFilter === "all" || typeFilter === "kaspa.claimable") ? (
         <section className="card claimable-mylinks">
-          <div>
-            <span className="label">Claimable links</span>
-            <h2 className="form-section-heading">Your claimable links</h2>
+          <div className="claimable-mylinks-heading">
+            <div>
+              <span className="label">Claimable links</span>
+              <h2 className="form-section-heading">Your claimable links</h2>
+            </div>
+            <button
+              aria-pressed={claimableSelectionMode}
+              className="btn"
+              disabled={bulkDeletingClaimables || deletableClaimables.length === 0}
+              onClick={() => {
+                setClaimableSelectionMode((current) => !current);
+                setSelectedClaimableKeys(new Set());
+                setShowClaimableDeleteDialog(false);
+              }}
+              type="button"
+            >
+              {claimableSelectionMode ? "Done" : "Select links"}
+            </button>
           </div>
           <div className="claimable-mylinks-stats">
             <div>
@@ -2095,8 +2287,81 @@ export function MyLinksClient() {
               <strong>{claimableStats.refundable}</strong>
             </div>
           </div>
+          <div className="claimable-link-filters">
+            <label className="label" htmlFor="claimable-link-search">
+              Search claimable links
+            </label>
+            <input
+              id="claimable-link-search"
+              onChange={(event) => setClaimableQuery(event.target.value)}
+              placeholder="Title, funding address, or status"
+              type="search"
+              value={claimableQuery}
+            />
+            <div
+              className="segmented-control"
+              role="group"
+              aria-label="Filter claimable links by status"
+            >
+              {(
+                [
+                  ["all", "All"],
+                  ["available", "Available"],
+                  ["refundable", "Refundable"],
+                  ["claimed", "Claimed"],
+                  ["claimable_closed", "Closed"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  className={claimableStatusFilter === value ? "is-active" : ""}
+                  key={value}
+                  onClick={() => setClaimableStatusFilter(value)}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {claimableSelectionMode ? (
+            <div className="claimable-selection-toolbar" role="region" aria-label="Link selection">
+              <div>
+                <strong>{selectedDeletableClaimables.length} selected</strong>
+                <span>Only unfunded or closed links can be deleted.</span>
+              </div>
+              <div className="claimable-selection-actions">
+                <button
+                  className="btn"
+                  disabled={bulkDeletingClaimables || deletableClaimables.length === 0}
+                  onClick={() =>
+                    setSelectedClaimableKeys(
+                      allDeletableClaimablesSelected
+                        ? new Set()
+                        : new Set(deletableClaimables.map((record) => record.linkKey)),
+                    )
+                  }
+                  type="button"
+                >
+                  {allDeletableClaimablesSelected ? "Clear selection" : "Select all deletable"}
+                </button>
+                <button
+                  className="btn btn-danger"
+                  disabled={bulkDeletingClaimables || selectedDeletableClaimables.length === 0}
+                  onClick={() => setShowClaimableDeleteDialog(true)}
+                  type="button"
+                >
+                  {bulkDeletingClaimables
+                    ? "Deleting…"
+                    : `Delete selected${selectedDeletableClaimables.length > 0 ? ` (${selectedDeletableClaimables.length})` : ""}`}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {filteredClaimables.length === 0 ? (
+            <p className="muted">No claimable links match this filter.</p>
+          ) : null}
           <ul className="claimable-mylinks-list">
-            {mergedClaimable.map((record) =>
+            {filteredClaimables.map((record) =>
               (() => {
                 const expiry = estimateClaimableExpiry({
                   currentDaaScore: claimableDaaScore,
@@ -2118,12 +2383,35 @@ export function MyLinksClient() {
                   !versionedClaimUrl &&
                   record.status !== "awaiting_funding" &&
                   !terminal;
+                const deletable = canDeleteClaimable(record.status);
+                const selected = selectedClaimableKeys.has(record.linkKey);
 
                 return (
                   <li
-                    className={`claimable-mylinks-item ${expired ? "is-expired" : ""}`}
+                    className={`claimable-mylinks-item${expired ? " is-expired" : ""}${selected ? " is-selected" : ""}`}
                     key={record.linkKey}
                   >
+                    {claimableSelectionMode ? (
+                      <label className="claimable-select-control">
+                        <input
+                          checked={selected}
+                          disabled={!deletable || bulkDeletingClaimables}
+                          onChange={(event) => {
+                            setSelectedClaimableKeys((current) => {
+                              const next = new Set(current);
+                              if (event.target.checked) {
+                                next.add(record.linkKey);
+                              } else {
+                                next.delete(record.linkKey);
+                              }
+                              return next;
+                            });
+                          }}
+                          type="checkbox"
+                        />
+                        <span>{deletable ? "Select link" : "Close on-chain before deleting"}</span>
+                      </label>
+                    ) : null}
                     <div className="claimable-mylinks-main">
                       <div className="claimable-mylinks-info">
                         <div className="claimable-mylinks-title-row">
@@ -2137,7 +2425,7 @@ export function MyLinksClient() {
                           </span>
                         </div>
                         <p className="muted claimable-mylinks-meta">
-                          <strong>{record.amountKas} KAS</strong>
+                          <strong>{record.netClaimKas} KAS claim</strong>
                           {expired ? (
                             <span className="claimable-mylinks-expired">Claim window expired</span>
                           ) : expiry ? (

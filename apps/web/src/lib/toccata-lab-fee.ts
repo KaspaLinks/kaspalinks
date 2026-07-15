@@ -58,6 +58,23 @@ export function planToccataCanarySpendFromKas(input: {
   });
 }
 
+export function planToccataCanaryClaimFromNetKas(input: {
+  feeKas?: string;
+  feeSompi?: bigint | string;
+  netAmountKas: string;
+}): ToccataCanarySpendPlan {
+  const netOutputSompi = parseToccataCanaryFundingKasToSompi(input.netAmountKas);
+  const feeSompi =
+    input.feeKas === undefined
+      ? parsePositiveSompi(input.feeSompi ?? TOCCATA_CANARY_DEFAULT_FEE_SOMPI, "Fee sompi")
+      : parseToccataCanaryFeeKasToSompi(input.feeKas);
+
+  return planToccataCanarySpend({
+    feeSompi,
+    utxoSompi: netOutputSompi + feeSompi,
+  });
+}
+
 export function planToccataCanarySpend(input: {
   feeSompi?: bigint | string;
   utxoSompi: bigint | string;
@@ -74,9 +91,7 @@ export function planToccataCanarySpend(input: {
 
   const netOutputSompi = utxoSompi - feeSompi;
   const maxSafeFeeSompi =
-    utxoSompi > TOCCATA_CANARY_MIN_OUTPUT_SOMPI
-      ? utxoSompi - TOCCATA_CANARY_MIN_OUTPUT_SOMPI
-      : 0n;
+    utxoSompi > TOCCATA_CANARY_MIN_OUTPUT_SOMPI ? utxoSompi - TOCCATA_CANARY_MIN_OUTPUT_SOMPI : 0n;
   const allowedScriptUnits = calculateToccataCanaryAllowedScriptUnits();
   const scriptUnitsHeadroom = allowedScriptUnits - TOCCATA_CANARY_SCRIPT_UNITS_USED;
 
