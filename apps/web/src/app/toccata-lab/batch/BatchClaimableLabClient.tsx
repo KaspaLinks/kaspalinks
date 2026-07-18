@@ -76,7 +76,7 @@ export function BatchClaimableLabClient({
 }) {
   const [amountKas, setAmountKas] = useState("1");
   const [batch, setBatch] = useState<BatchRecord | null>(null);
-  const [count, setCount] = useState("10");
+  const [count, setCount] = useState("2");
   const [description, setDescription] = useState(
     "A Kaspa reward for the first person to claim it.",
   );
@@ -86,7 +86,7 @@ export function BatchClaimableLabClient({
   const [feeKas, setFeeKas] = useState(formatSompiForToccataLab(TOCCATA_CANARY_DEFAULT_FEE_SOMPI));
   const [generating, setGenerating] = useState(false);
   const [registering, setRegistering] = useState(false);
-  const [linkTitles, setLinkTitles] = useState(() => defaultLinkTitles(10));
+  const [linkTitles, setLinkTitles] = useState(() => defaultLinkTitles(2));
   const [notice, setNotice] = useState("");
   const [checking, setChecking] = useState(false);
   const [fundingWithKasware, setFundingWithKasware] = useState(false);
