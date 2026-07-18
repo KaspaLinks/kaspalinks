@@ -1124,6 +1124,9 @@ export function ToccataLabClient({
         });
 
         if (body.spent) {
+          if (labLink) {
+            void updateClaimableStatus(labLink.id, registeredTerminalStatus ?? "spent_unknown");
+          }
           setClaimSpend(null);
           setRefundSpend(null);
           setFundingAutoChecking(false);

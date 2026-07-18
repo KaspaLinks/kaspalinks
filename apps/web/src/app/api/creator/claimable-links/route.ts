@@ -494,7 +494,7 @@ export async function DELETE(request: Request) {
   if (!verifiedUnfunded && !DELETABLE_STATUSES.has(resolvedStatus)) {
     return apiError(
       ErrorCodes.INVALID_STATE,
-      "This link still holds KAS on-chain. Complete the refund first, wait for confirmation, then try deleting it again.",
+      `This link still holds ${formatSompiKas(link.amountSompi)} KAS on-chain. Refund it from the browser that has the private refund link, or restore the recovery bundle, before deleting it.`,
       409,
     );
   }
@@ -546,6 +546,12 @@ async function isFundingOutputCurrentlyUnspent(input: {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatSompiKas(value: bigint): string {
+  const whole = value / 100_000_000n;
+  const fraction = (value % 100_000_000n).toString().padStart(8, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
 const methodNotAllowed = () => apiMethodNotAllowed(["GET", "POST", "PATCH", "DELETE"]);

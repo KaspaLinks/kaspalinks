@@ -365,8 +365,16 @@ describe("creator claimable link API", () => {
     );
 
     const response = await DELETE(deleteRequest());
+    const body = await response.json();
 
     expect(response.status).toBe(409);
+    expect(body).toEqual({
+      error: {
+        code: "INVALID_STATE",
+        message:
+          "This link still holds 1 KAS on-chain. Refund it from the browser that has the private refund link, or restore the recovery bundle, before deleting it.",
+      },
+    });
     expect(mockResolveClaimableOnChain).toHaveBeenCalledWith(
       expect.objectContaining({ status: "funded" }),
     );
