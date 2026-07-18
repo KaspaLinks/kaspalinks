@@ -65,22 +65,27 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   const netSompi = claimableLink.amountSompi - claimableLink.feeSompi;
   const amountKas = formatSompiToKaspa(netSompi > 0n ? netSompi : claimableLink.amountSompi);
   const claimed = claimableLink.status === "claimed";
+  const refunded = claimableLink.status === "refunded";
   const spentUnknown = claimableLink.status === "spent_unknown";
-  const expired = claimableLink.status === "refundable" || claimableLink.status === "refunded";
+  const expired = claimableLink.status === "refundable";
   const title = claimed
     ? "Claim already completed"
-    : spentUnknown
-      ? "Claimable output already spent"
-      : expired
-        ? "Claim window expired"
-        : `${claimableLink.title} · Claim ${amountKas} KAS`;
+    : refunded
+      ? "Claim refunded by creator"
+      : spentUnknown
+        ? "Claimable output already spent"
+        : expired
+          ? "Claim window expired"
+          : `${claimableLink.title} · Claim ${amountKas} KAS`;
   const description = claimed
     ? "This Kaspa claimable link has already been claimed and cannot be used again."
-    : spentUnknown
-      ? "This claimable output was spent on-chain outside a recorded Kaspa Links claim or refund."
-      : expired
-        ? "This Kaspa claimable link has expired. The creator can now refund the unclaimed KAS."
-        : `Claim ${amountKas} KAS directly to your own wallet. First come, first served — no account or custody involved.`;
+    : refunded
+      ? "The creator recovered the unclaimed KAS after the claim window ended."
+      : spentUnknown
+        ? "This claimable output was spent on-chain outside a recorded Kaspa Links claim or refund."
+        : expired
+          ? "This Kaspa claimable link has expired. The creator can now refund the unclaimed KAS."
+          : `Claim ${amountKas} KAS directly to your own wallet. First come, first served — no account or custody involved.`;
   const imagePath = `/claim/preview/v${CLAIMABLE_SOCIAL_PREVIEW_VERSION}/${encodeURIComponent(normalizedKey)}/opengraph-image`;
 
   return {

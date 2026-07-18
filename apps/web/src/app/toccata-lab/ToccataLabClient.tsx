@@ -2667,7 +2667,7 @@ function statusTitle(status: ClaimableLabStatus): string {
     case "claimed":
       return "Claimed";
     case "refundable":
-      return "Expired, refund available";
+      return "Ready to refund";
     case "refunded":
       return "Refunded";
     case "spent_unknown":

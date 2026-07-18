@@ -542,7 +542,7 @@ function humanClaimableStatus(status: string): string {
     case "refunded":
       return "Refunded";
     case "refundable":
-      return "Refundable";
+      return "Ready to refund";
     case "spent_unknown":
       return "Spent on-chain";
     default:
@@ -574,20 +574,8 @@ function canDeleteClaimable(status: string): boolean {
   return status === "awaiting_funding" || isClaimableTerminal(status);
 }
 
-function canRequestClaimableDeletion(
-  record: Pick<MergedClaimable, "hasDb" | "manageUrl" | "refundLockTime" | "status">,
-  expiryContext: { currentDaaScore: string; daaLoadedAtMs: null | number; nowMs: number },
-): boolean {
-  if (isClaimableTerminal(record.status)) return true;
-  if (!record.hasDb && !record.manageUrl) return false;
-  if (canDeleteClaimable(record.status) || record.status === "refundable") return true;
-  const expiry = estimateClaimableExpiry({
-    currentDaaScore: expiryContext.currentDaaScore,
-    daaLoadedAtMs: expiryContext.daaLoadedAtMs,
-    nowMs: expiryContext.nowMs,
-    refundLockTime: record.refundLockTime,
-  });
-  return expiry?.expired === true;
+function canRequestClaimableDeletion(record: Pick<MergedClaimable, "status">): boolean {
+  return canDeleteClaimable(record.status);
 }
 
 function formatClaimableEndTime(timestampMs: number): string {
@@ -767,15 +755,8 @@ export function MyLinksClient() {
     mergedClaimable,
   ]);
   const deletableClaimables = useMemo(
-    () =>
-      mergedClaimable.filter((record) =>
-        canRequestClaimableDeletion(record, {
-          currentDaaScore: claimableDaaScore,
-          daaLoadedAtMs: claimableDaaLoadedAtMs,
-          nowMs: claimableNowMs,
-        }),
-      ),
-    [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs, mergedClaimable],
+    () => mergedClaimable.filter((record) => canRequestClaimableDeletion(record)),
+    [mergedClaimable],
   );
   const selectedDeletableClaimables = useMemo(
     () => deletableClaimables.filter((record) => selectedClaimableKeys.has(record.linkKey)),
@@ -789,19 +770,13 @@ export function MyLinksClient() {
     setSelectedClaimableKeys((current) => {
       const availableKeys = new Set(
         mergedClaimable
-          .filter((record) =>
-            canRequestClaimableDeletion(record, {
-              currentDaaScore: claimableDaaScore,
-              daaLoadedAtMs: claimableDaaLoadedAtMs,
-              nowMs: claimableNowMs,
-            }),
-          )
+          .filter((record) => canRequestClaimableDeletion(record))
           .map((record) => record.linkKey),
       );
       const next = new Set(Array.from(current).filter((linkKey) => availableKeys.has(linkKey)));
       return next.size === current.size ? current : next;
     });
-  }, [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs, mergedClaimable]);
+  }, [mergedClaimable]);
 
   useEffect(() => {
     const hasLiveClaimable = mergedClaimable.some(
@@ -854,10 +829,7 @@ export function MyLinksClient() {
             current.filter((link) => link.linkKey !== record.linkKey),
           );
         } else if (!isClaimableTerminal(record.status)) {
-          const proof = extractClaimableFundingProofFromManageUrl(
-            record.manageUrl,
-            record.linkKey,
-          );
+          const proof = extractClaimableFundingProofFromManageUrl(record.manageUrl, record.linkKey);
           const response = await fetch("/api/toccata-lab/funding-status", {
             body: JSON.stringify(proof),
             headers: { "content-type": "application/json" },
@@ -886,25 +858,16 @@ export function MyLinksClient() {
     [authHeaders],
   );
 
-  const deleteClaimableLink = useCallback(
-    (record: MergedClaimable) => {
-      const deletionAllowed = canRequestClaimableDeletion(record, {
-        currentDaaScore: claimableDaaScore,
-        daaLoadedAtMs: claimableDaaLoadedAtMs,
-        nowMs: claimableNowMs,
-      });
-      if (!deletionAllowed) {
-        setListError(
-          "Funded claimable links can only be deleted after they were claimed or refunded.",
-        );
-        return;
-      }
+  const deleteClaimableLink = useCallback((record: MergedClaimable) => {
+    const deletionAllowed = canRequestClaimableDeletion(record);
+    if (!deletionAllowed) {
+      setListError("This link must be claimed or refunded before it can be deleted.");
+      return;
+    }
 
-      setClaimableDeleteError(null);
-      setClaimableDeleteTarget(record);
-    },
-    [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs],
-  );
+    setClaimableDeleteError(null);
+    setClaimableDeleteTarget(record);
+  }, []);
 
   const confirmClaimableDeletion = useCallback(async () => {
     if (!claimableDeleteTarget || deletingClaimable) return;
@@ -2435,7 +2398,7 @@ export function MyLinksClient() {
               <strong>{claimableStats.claimed}</strong>
             </div>
             <div>
-              <span className="label">Refundable</span>
+              <span className="label">Ready to refund</span>
               <strong>{claimableStats.refundable}</strong>
             </div>
           </div>
@@ -2459,7 +2422,7 @@ export function MyLinksClient() {
                 [
                   ["all", "All"],
                   ["available", "Available"],
-                  ["refundable", "Refundable"],
+                  ["refundable", "Ready to refund"],
                   ["claimed", "Claimed"],
                   ["claimable_closed", "Closed"],
                 ] as const
@@ -2531,16 +2494,10 @@ export function MyLinksClient() {
                   ? buildCompactClaimUrl(record.claimUrl)
                   : "";
                 const privateRecoveryMissing =
-                  !record.manageUrl &&
-                  record.status !== "awaiting_funding" &&
-                  !terminal;
+                  !record.manageUrl && record.status !== "awaiting_funding" && !terminal;
                 const batchRecoveryMissing =
                   privateRecoveryMissing && record.linkKey.startsWith("batch-");
-                const deletable = canRequestClaimableDeletion(record, {
-                  currentDaaScore: claimableDaaScore,
-                  daaLoadedAtMs: claimableDaaLoadedAtMs,
-                  nowMs: claimableNowMs,
-                });
+                const deletable = canRequestClaimableDeletion(record);
                 const selected = selectedClaimableKeys.has(record.linkKey);
 
                 return (
@@ -2578,13 +2535,21 @@ export function MyLinksClient() {
                               expired ? "status-expired" : claimableStatusPillClass(record.status)
                             }`}
                           >
-                            {expired ? "Expired" : humanClaimableStatus(record.status)}
+                            {expired ? "Ready to refund" : humanClaimableStatus(record.status)}
                           </span>
                         </div>
                         <p className="muted claimable-mylinks-meta">
                           <strong>{record.netClaimKas} KAS claim</strong>
-                          {expired ? (
-                            <span className="claimable-mylinks-expired">Claim window expired</span>
+                          {record.status === "refunded" ? (
+                            <span>Refund completed</span>
+                          ) : record.status === "claimed" ? (
+                            <span>Claim completed</span>
+                          ) : record.status === "spent_unknown" ? (
+                            <span>Output spent on-chain</span>
+                          ) : expired ? (
+                            <span className="claimable-mylinks-expired">
+                              Claim window closed · refund available
+                            </span>
                           ) : expiry ? (
                             <span>
                               Claimable for about {expiry.remainingLabel} · ends about{" "}
@@ -2597,8 +2562,8 @@ export function MyLinksClient() {
                         </p>
                         {expired ? (
                           <p className="claimable-mylinks-expiry-notice">
-                            This link can no longer be claimed. Use your private refund link to
-                            recover the unclaimed KAS.
+                            This link can no longer be claimed. The locked KAS are ready to refund
+                            with your private refund link.
                           </p>
                         ) : null}
                         {privateRecoveryMissing ? (
@@ -2633,17 +2598,6 @@ export function MyLinksClient() {
                           <a className="btn btn-primary" href="/toccata-lab/batch">
                             Open batch recovery
                           </a>
-                        ) : null}
-                        {expired && deletable ? (
-                          <button
-                            className="btn btn-danger"
-                            onClick={() => void deleteClaimableLink(record)}
-                            type="button"
-                          >
-                            {record.status === "refundable"
-                              ? "Check refund & delete"
-                              : "Check & delete"}
-                          </button>
                         ) : null}
                       </div>
                     </div>
@@ -2739,11 +2693,7 @@ export function MyLinksClient() {
                               onClick={() => void deleteClaimableLink(record)}
                               type="button"
                             >
-                              {expired && !isClaimableTerminal(record.status)
-                                ? record.status === "refundable"
-                                  ? "Check refund & delete"
-                                  : "Check & delete"
-                                : "Delete"}
+                              Delete
                             </button>
                           ) : null}
                         </div>

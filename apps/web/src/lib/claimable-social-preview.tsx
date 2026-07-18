@@ -29,13 +29,12 @@ export async function renderClaimableSocialPreview(linkKey: string): Promise<Ima
   }
 
   const netSompi = claimableLink.amountSompi - claimableLink.feeSompi;
-  const amountKas = formatSompiToKaspa(
-    netSompi > 0n ? netSompi : claimableLink.amountSompi,
-  );
+  const amountKas = formatSompiToKaspa(netSompi > 0n ? netSompi : claimableLink.amountSompi);
   const claimed = claimableLink.status === "claimed";
+  const refunded = claimableLink.status === "refunded";
   const spentUnknown = claimableLink.status === "spent_unknown";
-  const closed = claimed || spentUnknown;
-  const expired = claimableLink.status === "refundable" || claimableLink.status === "refunded";
+  const closed = claimed || refunded || spentUnknown;
+  const expired = claimableLink.status === "refundable";
 
   return new ImageResponse(
     <SocialPreviewImage
@@ -43,29 +42,35 @@ export async function renderClaimableSocialPreview(linkKey: string): Promise<Ima
       eyebrow={
         claimed
           ? "Claim complete"
-          : spentUnknown
-            ? "Output already spent"
-            : expired
-              ? "Claim window expired"
-              : "Claimable Kaspa link"
+          : refunded
+            ? "Refund complete"
+            : spentUnknown
+              ? "Output already spent"
+              : expired
+                ? "Claim window expired"
+                : "Claimable Kaspa link"
       }
       subtitle={
         claimed
           ? "This one-time Kaspa claim link has already been used."
-          : spentUnknown
-            ? "This funding output was spent outside a recorded Kaspa Links claim or refund."
-            : expired
-              ? "The claim window has ended and the creator can refund the unclaimed KAS."
-              : "Claim directly to your own wallet. First come, first served — no account and no custody."
+          : refunded
+            ? "The creator recovered the unclaimed KAS after the claim window ended."
+            : spentUnknown
+              ? "This funding output was spent outside a recorded Kaspa Links claim or refund."
+              : expired
+                ? "The claim window has ended and the creator can refund the unclaimed KAS."
+                : "Claim directly to your own wallet. First come, first served — no account and no custody."
       }
       title={
         claimed
           ? "Already claimed"
-          : spentUnknown
-            ? "Already spent on-chain"
-            : expired
-              ? "Claim window expired"
-              : claimableLink.title
+          : refunded
+            ? "Refunded by the creator"
+            : spentUnknown
+              ? "Already spent on-chain"
+              : expired
+                ? "Claim window expired"
+                : claimableLink.title
       }
       typeLabel={closed || expired ? "Closed" : "Claim KAS"}
     />,
