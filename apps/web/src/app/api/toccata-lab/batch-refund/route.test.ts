@@ -57,14 +57,24 @@ const SAFE_JSON = JSON.stringify({
   subnetworkId: "0".repeat(40),
   version: 1,
 });
+const MISMATCH_SAFE_JSON = JSON.stringify({
+  ...JSON.parse(SAFE_JSON),
+  inputs: [
+    {
+      ...JSON.parse(SAFE_JSON).inputs[0],
+      utxo: { amount: "200000000" },
+    },
+  ],
+  outputs: [{ scriptPublicKey: `0000${"aa".repeat(34)}`, value: "199000000" }],
+});
 
-function request() {
+function request(transactionSafeJson = SAFE_JSON) {
   return new Request("https://kaspalinks.com/api/toccata-lab/batch-refund", {
     body: JSON.stringify({
       batchKey: BATCH_KEY,
       expectedTransactionId: TRANSACTION_ID,
       refundLockTime: REFUND_LOCK_TIME,
-      transactionSafeJson: SAFE_JSON,
+      transactionSafeJson,
     }),
     headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.30" },
     method: "POST",
@@ -96,6 +106,12 @@ function registeredBatch() {
 
 describe("POST /api/toccata-lab/batch-refund", () => {
   beforeEach(() => {
+    mockPrisma.claimableBatch.findUnique.mockReset();
+    mockPrisma.claimableBatch.update.mockReset();
+    mockPrisma.claimableBatch.updateMany.mockReset();
+    mockPrisma.claimableLink.updateMany.mockReset();
+    mockPrisma.$transaction.mockReset();
+    mockIndexer.findTransactionPayment.mockReset();
     mockRequireCreator.mockResolvedValue({
       creator: { id: "creator-1" },
       ipHash: "ip-hash",
@@ -179,6 +195,55 @@ describe("POST /api/toccata-lab/batch-refund", () => {
     expect(response.status).toBe(409);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mockPrisma.claimableBatch.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("recovers a mismatched allocator output without changing an activated batch", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_BATCH_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_WRPC_RELAY_URL", "http://toccata-relay:3010");
+    mockPrisma.claimableBatch.findUnique.mockResolvedValue({
+      ...registeredBatch(),
+      activationTxId: "e".repeat(64),
+      status: "activated",
+    });
+    mockIndexer.findTransactionPayment.mockResolvedValue({
+      matchedSompi: 200_000_000n,
+      outputIndex: 0,
+      transactionId: FUNDING_TX_ID,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ networkName: "kaspa-mainnet", virtualDaaScore: REFUND_LOCK_TIME }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              localTransactionId: TRANSACTION_ID,
+              submittedTransactionId: TRANSACTION_ID,
+            }),
+            { status: 200 },
+          ),
+        ),
+    );
+
+    const response = await POST(request(MISMATCH_SAFE_JSON));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      broadcast: { submittedTransactionId: TRANSACTION_ID },
+      mismatchRecovery: true,
+    });
+    expect(mockIndexer.findTransactionPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ amountSompi: 200_000_000n }),
+    );
+    expect(mockPrisma.claimableBatch.updateMany).not.toHaveBeenCalled();
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("returns JSON for unsupported methods", () => {

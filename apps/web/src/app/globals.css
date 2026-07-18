@@ -1303,6 +1303,59 @@ textarea {
   background: rgba(73, 234, 203, 0.07);
 }
 
+.claimable-unmatched-funding {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  overflow: hidden;
+}
+
+.claimable-unmatched-funding > strong {
+  color: var(--fg);
+  font-size: 1.05rem;
+}
+
+.claimable-unmatched-funding > p {
+  margin: 0;
+}
+
+.claimable-unmatched-list {
+  display: grid;
+  gap: 8px;
+}
+
+.claimable-unmatched-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(251, 113, 133, 0.24);
+  border-radius: var(--radius-sm);
+  background: rgba(8, 15, 19, 0.32);
+}
+
+.claimable-unmatched-row > div {
+  min-width: 0;
+}
+
+.claimable-unmatched-row p {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .claimable-unmatched-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .claimable-unmatched-row .btn {
+    width: 100%;
+  }
+}
+
 .claimable-address-panel,
 .claimable-funding-wallet-card,
 .claimable-share-card,

@@ -51,8 +51,7 @@ describe("POST /api/toccata-lab/funding-status", () => {
                   script_public_key_address: FUNDING_ADDRESS,
                 },
               ],
-              transaction_id:
-                "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+              transaction_id: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
             },
           ]),
           { status: 200 },
@@ -65,8 +64,7 @@ describe("POST /api/toccata-lab/funding-status", () => {
               address: FUNDING_ADDRESS,
               outpoint: {
                 index: 0,
-                transactionId:
-                  "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+                transactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
               },
               utxoEntry: {
                 amount: "25000000",
@@ -96,6 +94,8 @@ describe("POST /api/toccata-lab/funding-status", () => {
       outputStatus: "funded_unspent",
       registeredStatus: null,
       spent: false,
+      unmatchedOutputs: [],
+      utxoScanAvailable: true,
     });
   });
 
@@ -115,8 +115,7 @@ describe("POST /api/toccata-lab/funding-status", () => {
                   script_public_key_address: FUNDING_ADDRESS,
                 },
               ],
-              transaction_id:
-                "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+              transaction_id: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
             },
           ]),
           { status: 200 },
@@ -143,6 +142,8 @@ describe("POST /api/toccata-lab/funding-status", () => {
       outputStatus: "spent",
       registeredStatus: null,
       spent: true,
+      unmatchedOutputs: [],
+      utxoScanAvailable: true,
     });
   });
 
@@ -161,8 +162,7 @@ describe("POST /api/toccata-lab/funding-status", () => {
                 script_public_key_address: FUNDING_ADDRESS,
               },
             ],
-            transaction_id:
-              "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+            transaction_id: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
           }),
           { status: 200 },
         ),
@@ -174,8 +174,7 @@ describe("POST /api/toccata-lab/funding-status", () => {
         amountSompi: "25000000",
         fundingAddress: FUNDING_ADDRESS,
         fundingOutputIndex: 0,
-        fundingTransactionId:
-          "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+        fundingTransactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
       }),
     );
 
@@ -189,25 +188,39 @@ describe("POST /api/toccata-lab/funding-status", () => {
 
   it("keeps the link locked when no exact amount is found", async () => {
     vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            is_accepted: true,
-            outputs: [
-              {
-                amount: "24000000",
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              is_accepted: true,
+              outputs: [
+                {
+                  amount: "24000000",
+                  index: 0,
+                  script_public_key_address: FUNDING_ADDRESS,
+                },
+              ],
+              transaction_id: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              outpoint: {
                 index: 0,
-                script_public_key_address: FUNDING_ADDRESS,
+                transactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
               },
-            ],
-            transaction_id:
-              "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
-          },
-        ]),
-        { status: 200 },
-      ),
-    );
+              utxoEntry: { amount: "24000000" },
+            },
+          ]),
+          { status: 200 },
+        ),
+      );
 
     const response = await POST(
       fundingStatusRequest({
@@ -223,6 +236,14 @@ describe("POST /api/toccata-lab/funding-status", () => {
       outputStatus: "unfunded",
       registeredStatus: null,
       spent: false,
+      unmatchedOutputs: [
+        {
+          amountSompi: "24000000",
+          outputIndex: 0,
+          transactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+        },
+      ],
+      utxoScanAvailable: true,
     });
   });
 

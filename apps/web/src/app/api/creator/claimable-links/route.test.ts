@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockEnforceRateLimit,
+  mockIndexer,
   mockPrisma,
   mockReadCreatorActionDailyLimit,
   mockRequireCreator,
@@ -10,6 +11,7 @@ const {
   mockWriteAuditLog,
 } = vi.hoisted(() => ({
   mockEnforceRateLimit: vi.fn(),
+  mockIndexer: { findTransactionPayment: vi.fn() },
   mockPrisma: {
     action: { count: vi.fn() },
     claimableLink: {
@@ -18,6 +20,7 @@ const {
       findMany: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
   },
   mockReadCreatorActionDailyLimit: vi.fn(),
@@ -32,6 +35,7 @@ vi.mock("@kaspa-actions/db", () => ({
   Network: { MAINNET: "MAINNET" },
   prisma: mockPrisma,
 }));
+vi.mock("@kaspa-actions/kaspa-indexer", () => ({ createRestKaspaIndexer: () => mockIndexer }));
 vi.mock("@/lib/audit", () => ({ writeAuditLog: mockWriteAuditLog }));
 vi.mock("@/lib/creator-auth", () => ({
   readCreatorActionDailyLimit: mockReadCreatorActionDailyLimit,
@@ -43,7 +47,10 @@ vi.mock("@/lib/claimable-onchain", () => ({
 }));
 vi.mock("@/lib/rate-limit-helpers", () => ({
   enforceRateLimit: mockEnforceRateLimit,
-  RateBuckets: { CREATOR_ACTION_CREATE: "creator.action.create" },
+  RateBuckets: {
+    CREATOR_ACTION_CREATE: "creator.action.create",
+    CREATOR_PROFILE_UPDATE: "creator.profile.update",
+  },
 }));
 
 import { DELETE, GET, PATCH, POST } from "./route";
@@ -69,6 +76,14 @@ function deleteRequest(linkKey = "lab-safe-link") {
     `https://kaspalinks.com/api/creator/claimable-links?linkKey=${encodeURIComponent(linkKey)}`,
     { method: "DELETE" },
   );
+}
+
+function patchRequest(body: unknown) {
+  return new Request("https://kaspalinks.com/api/creator/claimable-links", {
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+    method: "PATCH",
+  });
 }
 
 function payload(overrides: Record<string, unknown> = {}) {
@@ -133,7 +148,13 @@ describe("creator claimable link API", () => {
     mockPrisma.action.count.mockResolvedValue(0);
     mockPrisma.claimableLink.create.mockImplementation(async ({ data }) => row(data));
     mockPrisma.claimableLink.update.mockImplementation(async ({ data }) => row(data));
+    mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 1 });
+    mockIndexer.findTransactionPayment.mockResolvedValue(null);
     mockResolveClaimableOnChain.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("creates only an awaiting-funding record and ignores client status claims", async () => {
@@ -226,11 +247,65 @@ describe("creator claimable link API", () => {
     expect(mockPrisma.claimableLink.create).not.toHaveBeenCalled();
   });
 
-  it("does not expose a client-controlled status PATCH", () => {
-    const response = PATCH();
+  it("rejects arbitrary client-controlled status PATCH data", async () => {
+    const response = await PATCH(patchRequest({ linkKey: "lab-safe-link", status: "claimed" }));
 
-    expect(response.status).toBe(405);
-    expect(response.headers.get("allow")).toBe("GET, POST, DELETE");
+    expect(response.status).toBe(400);
+    expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("adopts one verified unspent amount without receiving any private code", async () => {
+    const fundingTxId = "c".repeat(64);
+    mockPrisma.claimableLink.findUnique.mockResolvedValue(row());
+    mockIndexer.findTransactionPayment.mockResolvedValue({
+      matchedSompi: 120_000_000n,
+      outputIndex: 1,
+      transactionId: fundingTxId,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              outpoint: { index: 1, transactionId: fundingTxId },
+              utxoEntry: { amount: "120000000" },
+            },
+          ]),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const response = await PATCH(
+      patchRequest({
+        amountSompi: "120000000",
+        fundingOutputIndex: 1,
+        fundingTransactionId: fundingTxId,
+        linkKey: "lab-safe-link",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith({
+      data: {
+        amountSompi: 120_000_000n,
+        fundingOutputIndex: 1,
+        fundingTxId,
+        status: "funded",
+      },
+      where: {
+        creatorId: "creator-1",
+        deletedAt: null,
+        fundingTxId: null,
+        id: "claimable-1",
+        status: "awaiting_funding",
+      },
+    });
+    expect(mockWriteAuditLog).toHaveBeenCalledWith(
+      mockPrisma,
+      expect.objectContaining({ event: "claimable_link.funding_amount_adopted" }),
+    );
   });
 
   it("hides an awaiting-funding link only after verifying that it is unfunded", async () => {

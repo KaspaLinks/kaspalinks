@@ -8,6 +8,7 @@ import { requireCreator } from "@/lib/creator-guard";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 import { readCurrentMainnetDaaScore } from "@/lib/kaspa-daa";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
+import { TOCCATA_CANARY_MIN_OUTPUT_SOMPI } from "@/lib/toccata-lab-fee";
 import {
   broadcastToccataBatchRefundTransaction,
   createToccataBatchAllocatorLabScript,
@@ -53,22 +54,10 @@ export async function POST(request: Request) {
     },
   });
   if (!batch) return apiError(ErrorCodes.NOT_FOUND, "Registered claimable batch not found.", 404);
-  if (batch.status === "activated") {
-    return apiError(
-      ErrorCodes.INVALID_STATE,
-      "Activated child outputs must be refunded individually.",
-      409,
-    );
-  }
-  if (batch.pendingActivationTxId) {
-    return apiError(
-      ErrorCodes.INVALID_STATE,
-      "Batch activation is already pending. Refresh its status before attempting a refund.",
-      409,
-    );
-  }
 
   let summary: ReturnType<typeof readClaimableBroadcastSafeJsonSummary>;
+  let mismatchRecovery: boolean;
+  let actualFundingSompi: bigint;
   try {
     summary = readClaimableBroadcastSafeJsonSummary(parsed.data.transactionSafeJson);
     const outputs = parseStoredClaimableBatchOutputs(batch.expectedOutputs);
@@ -98,11 +87,19 @@ export async function POST(request: Request) {
     ) {
       throw new Error("Signed batch refund lock time does not match the registered expiry.");
     }
-    if (
-      summary.fundingAmountSompi !== batch.fundingAmountSompi.toString() ||
-      summary.outputAmountSompi !== (batch.fundingAmountSompi - batch.activationFeeSompi).toString()
-    ) {
-      throw new Error("Signed batch refund amount does not match the registered contract.");
+    actualFundingSompi = BigInt(summary.fundingAmountSompi);
+    const matchesRegisteredOutpoint =
+      (batch.fundingTxId === null || batch.fundingTxId === summary.fundingTransactionId) &&
+      (batch.fundingOutputIndex === null ||
+        batch.fundingOutputIndex === summary.fundingOutputIndex);
+    mismatchRecovery =
+      actualFundingSompi !== batch.fundingAmountSompi || !matchesRegisteredOutpoint;
+    const expectedOutputSompi = actualFundingSompi - batch.activationFeeSompi;
+    if (expectedOutputSompi < TOCCATA_CANARY_MIN_OUTPUT_SOMPI) {
+      throw new Error("Batch funding output is too small to recover after the network fee.");
+    }
+    if (summary.outputAmountSompi !== expectedOutputSompi.toString()) {
+      throw new Error("Signed batch refund output does not match its funding amount and fee.");
     }
   } catch (error) {
     return apiError(
@@ -112,7 +109,22 @@ export async function POST(request: Request) {
     );
   }
 
-  if (batch.refundTxId) {
+  if (batch.status === "activated" && !mismatchRecovery) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "Activated child outputs must be refunded individually.",
+      409,
+    );
+  }
+  if (batch.pendingActivationTxId && !mismatchRecovery) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "Batch activation is already pending. Refresh its status before attempting a refund.",
+      409,
+    );
+  }
+
+  if (batch.refundTxId && !mismatchRecovery) {
     if (batch.refundTxId === summary.transactionId) {
       return apiJson({
         broadcast: {
@@ -135,7 +147,7 @@ export async function POST(request: Request) {
 
   const fundingMatch = await createRestKaspaIndexer({ cacheRevalidateSeconds: 3, limit: 20 })
     .findTransactionPayment({
-      amountSompi: batch.fundingAmountSompi,
+      amountSompi: actualFundingSompi,
       notBefore: batch.createdAt.getTime(),
       recipientAddress: batch.fundingAddress,
       transactionId: summary.fundingTransactionId,
@@ -149,14 +161,50 @@ export async function POST(request: Request) {
     );
   }
   if (
-    (batch.fundingTxId && batch.fundingTxId !== summary.fundingTransactionId) ||
-    (batch.fundingOutputIndex !== null && batch.fundingOutputIndex !== summary.fundingOutputIndex)
+    (!mismatchRecovery &&
+      batch.fundingTxId &&
+      batch.fundingTxId !== summary.fundingTransactionId) ||
+    (!mismatchRecovery &&
+      batch.fundingOutputIndex !== null &&
+      batch.fundingOutputIndex !== summary.fundingOutputIndex)
   ) {
     return apiError(
       ErrorCodes.INVALID_STATE,
       "Signed refund does not spend the registered batch funding output.",
       409,
     );
+  }
+
+  if (mismatchRecovery) {
+    try {
+      const broadcast = await broadcastToccataBatchRefundTransaction(parsed.data);
+      await writeAuditLog(prisma, {
+        actorType: AuditActorType.CREATOR,
+        creatorId: guard.creator.id,
+        event: "claimable_batch.unmatched_funding_recovered",
+        ipHash: guard.ipHash,
+        metadata: { batchKey: batch.batchKey },
+      });
+      return apiJson({ broadcast, mismatchRecovery: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown batch recovery error.";
+      if (isAlreadyAcceptedMessage(message)) {
+        return apiJson({
+          broadcast: {
+            submittedTransactionId: summary.transactionId,
+            transactionId: summary.transactionId,
+          },
+          mismatchRecovery: true,
+          reconciled: true,
+        });
+      }
+      const timedOut = message.toLowerCase().includes("timed out");
+      return apiError(
+        timedOut ? ErrorCodes.UPSTREAM_TIMEOUT : ErrorCodes.INVALID_BODY,
+        message,
+        timedOut ? 504 : 400,
+      );
+    }
   }
 
   const reservation = await prisma.claimableBatch.updateMany({

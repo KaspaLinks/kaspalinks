@@ -4,14 +4,18 @@ import { prisma } from "@kaspa-actions/db";
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
-import {
-  isToccataLabEnabled,
-  toccataFundingStatusInputSchema,
-} from "@/lib/toccata-lab";
+import { isToccataLabEnabled, toccataFundingStatusInputSchema } from "@/lib/toccata-lab";
 
 const KASPA_REST_BASE_URL = "https://api.kaspa.org";
 const UTXO_REQUEST_TIMEOUT_MS = 7_000;
 const RECENT_FUNDING_SPENT_GRACE_MS = 10_000;
+const MAX_UNMATCHED_OUTPUTS = 20;
+
+type FundingUtxo = {
+  amountSompi: bigint;
+  outputIndex: number;
+  transactionId: string;
+};
 
 export async function POST(request: Request) {
   if (!isToccataLabEnabled()) {
@@ -86,21 +90,49 @@ export async function POST(request: Request) {
         match.outputIndex === parsed.data.fundingOutputIndex)
         ? match
         : null;
+    let currentUtxos: FundingUtxo[] | null = null;
+    try {
+      currentUtxos = await readFundingUtxos(parsed.data.fundingAddress);
+    } catch (error) {
+      const needsAuthoritativeSpentCheck =
+        verifiedMatch !== null && !isInsideRecentFundingGrace(verifiedMatch.blockTime);
+      if (needsAuthoritativeSpentCheck) throw error;
+    }
     const spent =
       verifiedMatch === null
         ? false
-        : await isFundingOutputSpent({
+        : isInsideRecentFundingGrace(verifiedMatch.blockTime)
+          ? false
+          : !currentUtxos?.some((output) =>
+              isSameFundingOutput(output, {
+                amountSompi: verifiedMatch.matchedSompi,
+                outputIndex: verifiedMatch.outputIndex,
+                transactionId: verifiedMatch.transactionId,
+              }),
+            );
+    const unmatchedOutputs = (currentUtxos ?? [])
+      .filter(
+        (output) =>
+          verifiedMatch === null ||
+          !isSameFundingOutput(output, {
             amountSompi: verifiedMatch.matchedSompi,
-            blockTime: verifiedMatch.blockTime,
-            fundingAddress: parsed.data.fundingAddress,
             outputIndex: verifiedMatch.outputIndex,
             transactionId: verifiedMatch.transactionId,
-          });
+          }),
+      )
+      .slice(0, MAX_UNMATCHED_OUTPUTS)
+      .map((output) => ({
+        amountSompi: output.amountSompi.toString(),
+        outputIndex: output.outputIndex,
+        transactionId: output.transactionId,
+      }));
 
     return apiJson({
       funded: verifiedMatch !== null,
       outputStatus: verifiedMatch === null ? "unfunded" : spent ? "spent" : "funded_unspent",
       spent,
+      unmatchedOutputs,
+      utxoScanAvailable: currentUtxos !== null,
       registeredStatus: registeredLink?.status ?? null,
       match:
         verifiedMatch === null
@@ -130,27 +162,13 @@ export {
   methodNotAllowed as PUT,
 };
 
-async function isFundingOutputSpent(input: {
-  amountSompi: bigint;
-  blockTime: null | number;
-  fundingAddress: string;
-  outputIndex: number;
-  transactionId: string;
-}): Promise<boolean> {
-  if (
-    input.blockTime !== null &&
-    Date.now() - input.blockTime >= 0 &&
-    Date.now() - input.blockTime < RECENT_FUNDING_SPENT_GRACE_MS
-  ) {
-    return false;
-  }
-
+async function readFundingUtxos(fundingAddress: string): Promise<FundingUtxo[]> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), UTXO_REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch(
-      `${KASPA_REST_BASE_URL}/addresses/${encodeURIComponent(input.fundingAddress)}/utxos`,
+      `${KASPA_REST_BASE_URL}/addresses/${encodeURIComponent(fundingAddress)}/utxos`,
       {
         headers: { accept: "application/json" },
         signal: controller.signal,
@@ -170,13 +188,10 @@ async function isFundingOutputSpent(input: {
       });
     }
 
-    return !payload.some((entry) =>
-      isMatchingFundingUtxo(entry, {
-        amountSompi: input.amountSompi,
-        outputIndex: input.outputIndex,
-        transactionId: input.transactionId,
-      }),
-    );
+    return payload.flatMap((entry) => {
+      const parsed = parseFundingUtxo(entry);
+      return parsed ? [parsed] : [];
+    });
   } catch (error) {
     if (error instanceof KaspaIndexerError) throw error;
     throw new KaspaIndexerError(
@@ -188,25 +203,47 @@ async function isFundingOutputSpent(input: {
   }
 }
 
-function isMatchingFundingUtxo(
-  value: unknown,
-  expected: { amountSompi: bigint; outputIndex: number; transactionId: string },
-): boolean {
+function parseFundingUtxo(value: unknown): FundingUtxo | null {
   if (!isRecord(value) || !isRecord(value.outpoint) || !isRecord(value.utxoEntry)) {
-    return false;
+    return null;
   }
 
   const transactionId = value.outpoint.transactionId;
-  const index = value.outpoint.index;
-  const amount = parseSompi(value.utxoEntry.amount);
+  const outputIndex = parseOutputIndex(value.outpoint.index);
+  const amountSompi = parseSompi(value.utxoEntry.amount);
 
+  return typeof transactionId === "string" &&
+    /^[0-9a-fA-F]{64}$/.test(transactionId) &&
+    outputIndex !== null &&
+    amountSompi !== null
+    ? { amountSompi, outputIndex, transactionId: transactionId.toLowerCase() }
+    : null;
+}
+
+function isSameFundingOutput(
+  output: FundingUtxo,
+  expected: { amountSompi: bigint; outputIndex: number; transactionId: string },
+): boolean {
   return (
-    typeof transactionId === "string" &&
-    transactionId.toLowerCase() === expected.transactionId.toLowerCase() &&
-    typeof index === "number" &&
-    index === expected.outputIndex &&
-    amount === expected.amountSompi
+    output.transactionId === expected.transactionId.toLowerCase() &&
+    output.outputIndex === expected.outputIndex &&
+    output.amountSompi === expected.amountSompi
   );
+}
+
+function isInsideRecentFundingGrace(blockTime: null | number): boolean {
+  if (blockTime === null) return false;
+  const ageMs = Date.now() - blockTime;
+  return ageMs >= 0 && ageMs < RECENT_FUNDING_SPENT_GRACE_MS;
+}
+
+function parseOutputIndex(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+  if (typeof value !== "string" || !/^[0-9]+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 function parseSompi(value: unknown): bigint | null {

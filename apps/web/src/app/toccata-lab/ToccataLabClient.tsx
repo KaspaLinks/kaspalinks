@@ -26,7 +26,11 @@ import {
   decodeSharedClaimCode,
 } from "@/lib/claimable-share";
 
-import { TOCCATA_LAB_DEFAULT_AMOUNT_KAS, TOCCATA_LAB_MIN_KAS } from "@/lib/toccata-lab-constants";
+import {
+  TOCCATA_LAB_DEFAULT_AMOUNT_KAS,
+  TOCCATA_LAB_MIN_KAS,
+  TOCCATA_LAB_MIN_SOMPI,
+} from "@/lib/toccata-lab-constants";
 import { createToccataLabKeyPair, deriveToccataLabKeyPair } from "@/lib/toccata-lab-keys";
 import {
   formatSompiForToccataLab,
@@ -34,6 +38,7 @@ import {
   planToccataCanaryExpiry,
   TOCCATA_CANARY_DAA_PER_SECOND_ESTIMATE,
   TOCCATA_CANARY_DEFAULT_FEE_SOMPI,
+  TOCCATA_CANARY_MIN_OUTPUT_SOMPI,
   type ToccataCanaryExpiryUnit,
 } from "@/lib/toccata-lab-fee";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
@@ -110,6 +115,8 @@ type FundingStatusResponse =
       outputStatus: "funded_unspent" | "spent" | "unfunded";
       spent: boolean;
       registeredStatus: null | string;
+      unmatchedOutputs: UnmatchedFundingOutput[];
+      utxoScanAvailable: boolean;
     }
   | {
       error: {
@@ -128,6 +135,7 @@ type ClaimableBroadcast = {
 type ClaimableBroadcastResponse =
   | {
       broadcast: ClaimableBroadcast;
+      mismatchRecovery?: boolean;
       warning: string;
     }
   | {
@@ -136,6 +144,12 @@ type ClaimableBroadcastResponse =
         message: string;
       };
     };
+
+type UnmatchedFundingOutput = {
+  amountSompi: string;
+  outputIndex: number;
+  transactionId: string;
+};
 
 export type ClaimableLabStatus =
   | "draft"
@@ -353,6 +367,12 @@ export function ToccataLabClient({
   const [refundBroadcast, setRefundBroadcast] = useState<ClaimableBroadcast | null>(null);
   const [refundSendError, setRefundSendError] = useState("");
   const [refundSendNotice, setRefundSendNotice] = useState("");
+  const [unmatchedFundingOutputs, setUnmatchedFundingOutputs] = useState<UnmatchedFundingOutput[]>(
+    [],
+  );
+  const [unmatchedRefundSpend, setUnmatchedRefundSpend] = useState<ClaimableSpend | null>(null);
+  const [unmatchedRecoveryTxId, setUnmatchedRecoveryTxId] = useState("");
+  const [adoptingOutputId, setAdoptingOutputId] = useState("");
   const [broadcasting, setBroadcasting] = useState<"claim" | "refund" | null>(null);
   const [fundingWithKasware, setFundingWithKasware] = useState(false);
   const [isTouchOnly, setIsTouchOnly] = useState<null | boolean>(null);
@@ -398,6 +418,13 @@ export function ToccataLabClient({
   const claimUrl = useMemo(() => buildLabClaimUrl(labLink), [labLink]);
   const claimUrlPreview = claimUrl ? previewLabClaimUrl(claimUrl) : "";
   const manageUrl = useMemo(() => buildLabManageUrl(labLink), [labLink]);
+
+  useEffect(() => {
+    setUnmatchedFundingOutputs([]);
+    setUnmatchedRefundSpend(null);
+    setUnmatchedRecoveryTxId("");
+    setAdoptingOutputId("");
+  }, [labLink?.id]);
 
   useEffect(() => {
     // Persist creator-created claimable links to THIS browser only (non-custodial)
@@ -532,7 +559,11 @@ export function ToccataLabClient({
   const claimWindowExpired = labLink?.status === "refundable";
 
   useEffect(() => {
-    if (!labLink?.refundLockTime || claimAlreadyClosed || labLink.status === "refundable") {
+    if (
+      !labLink?.refundLockTime ||
+      (claimAlreadyClosed && unmatchedFundingOutputs.length === 0) ||
+      labLink.status === "refundable"
+    ) {
       return;
     }
 
@@ -541,10 +572,17 @@ export function ToccataLabClient({
     }, 1_000);
 
     return () => window.clearInterval(timer);
-  }, [claimAlreadyClosed, labLink?.id, labLink?.refundLockTime, labLink?.status]);
+  }, [
+    claimAlreadyClosed,
+    labLink?.id,
+    labLink?.refundLockTime,
+    labLink?.status,
+    unmatchedFundingOutputs.length,
+  ]);
 
   useEffect(() => {
-    if (!labLink?.refundLockTime || claimAlreadyClosed) return;
+    if (!labLink?.refundLockTime || (claimAlreadyClosed && unmatchedFundingOutputs.length === 0))
+      return;
 
     void fetchCurrentDaaScore({ quiet: true });
     const timer = window.setInterval(() => {
@@ -552,7 +590,13 @@ export function ToccataLabClient({
     }, 30_000);
 
     return () => window.clearInterval(timer);
-  }, [claimAlreadyClosed, labLink?.id, labLink?.refundLockTime, labLink?.status]);
+  }, [
+    claimAlreadyClosed,
+    labLink?.id,
+    labLink?.refundLockTime,
+    labLink?.status,
+    unmatchedFundingOutputs.length,
+  ]);
 
   useEffect(() => {
     if (!labLink?.fundingMatch) return;
@@ -598,6 +642,13 @@ export function ToccataLabClient({
     // checkFundingStatus intentionally reads the latest labLink state; keeping
     // this effect keyed to status avoids a new interval on every poll result.
   }, [labLink?.amountSompi, labLink?.fundingAddress, labLink?.id, labLink?.status]);
+
+  useEffect(() => {
+    if (!manageOnlyView || !labLink?.fundingAddress || labLink.status === "awaiting_funding") {
+      return;
+    }
+    void checkFundingStatus({ auto: true, quiet: true });
+  }, [labLink?.fundingAddress, labLink?.id, labLink?.status, manageOnlyView]);
 
   useEffect(() => {
     if (!labLink?.fundingAddress || !labLink.fundingMatch) return;
@@ -1047,6 +1098,8 @@ export function ToccataLabClient({
         return;
       }
 
+      setUnmatchedFundingOutputs(body.unmatchedOutputs);
+
       if (body.funded && body.match) {
         const registeredTerminalStatus =
           body.registeredStatus === "claimed" ||
@@ -1089,7 +1142,11 @@ export function ToccataLabClient({
           setNotice("Funding detected. The claim link can now be shared.");
         }
       } else if (!options.quiet) {
-        setNotice("No exact funding transaction detected yet.");
+        setNotice(
+          body.unmatchedOutputs.length > 0
+            ? "A payment reached this address, but it does not match the required funding output. Review it below."
+            : "No exact funding transaction detected yet.",
+        );
       }
     } catch {
       if (!options.quiet) {
@@ -1204,6 +1261,131 @@ export function ToccataLabClient({
     }
   }
 
+  async function prepareUnmatchedFundingRecovery(output: UnmatchedFundingOutput) {
+    if (!labLink?.fundingAddress || !labLink.redeemScriptHex) return;
+    if (!refundTiming.unlocked) {
+      setRefundSendError(
+        "Unexpected funding can be recovered only after the claim window expires.",
+      );
+      return;
+    }
+    const destinationAddress = refundDestination.trim();
+    if (!destinationAddress.startsWith("kaspa:")) {
+      setRefundSendError("Enter your valid Kaspa mainnet refund address first.");
+      return;
+    }
+
+    setError("");
+    setRefundSendError("");
+    setRefundSendNotice("Preparing the recovery refund locally in this browser...");
+    setUnmatchedRefundSpend(null);
+    setUnmatchedRecoveryTxId("");
+    setSpendBuilding("refund");
+    try {
+      await paintNextFrame();
+      const spend = await buildClaimableSpendInBrowser({
+        destinationAddress,
+        expectedFundingAddress: labLink.fundingAddress,
+        feeSompi: labLink.feeSompi,
+        fundingAmountSompi: output.amountSompi,
+        fundingOutputIndex: output.outputIndex,
+        fundingTransactionId: output.transactionId,
+        lockTime: labLink.refundLockTime,
+        mode: "refund",
+        privateKey: labLink.refundCode,
+        redeemScriptHex: labLink.redeemScriptHex,
+      });
+      setUnmatchedRefundSpend(spend);
+      setRefundSendNotice(
+        'Recovery refund is prepared. Press "Recover unexpected payment" to send it.',
+      );
+    } catch (recoveryError) {
+      const message =
+        recoveryError instanceof Error
+          ? recoveryError.message
+          : "Could not prepare the recovery refund.";
+      setError(message);
+      setRefundSendError(message);
+      setRefundSendNotice("");
+    } finally {
+      setSpendBuilding(null);
+    }
+  }
+
+  async function adoptUnmatchedFundingAmount(output: UnmatchedFundingOutput) {
+    if (
+      !labLink ||
+      labLink.status !== "awaiting_funding" ||
+      labLink.fundingMatch ||
+      refundTiming.unlocked
+    ) {
+      return;
+    }
+    const creatorHeaders = readCreatorAuthHeaders();
+    if (!creatorHeaders) {
+      setError("Sign in again before changing this claimable link amount.");
+      return;
+    }
+    const outputId = `${output.transactionId}:${output.outputIndex}`;
+    setAdoptingOutputId(outputId);
+    setError("");
+    try {
+      const response = await fetch("/api/creator/claimable-links", {
+        body: JSON.stringify({
+          amountSompi: output.amountSompi,
+          fundingOutputIndex: output.outputIndex,
+          fundingTransactionId: output.transactionId,
+          linkKey: labLink.id,
+        }),
+        headers: creatorHeaders,
+        method: "PATCH",
+      });
+      const body = (await response.json()) as {
+        claimableLink?: { amountSompi: string; status: string };
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.claimableLink) {
+        throw new Error(body.error?.message ?? "Could not use the received amount for this link.");
+      }
+
+      const amountSompi = BigInt(output.amountSompi);
+      const feeSompi = BigInt(labLink.feeSompi);
+      const amountKas = formatSompiForToccataLab(amountSompi);
+      const netClaimKas = formatSompiForToccataLab(amountSompi - feeSompi);
+      setLabLink((current) =>
+        current?.id === labLink.id
+          ? {
+              ...current,
+              amountKas,
+              amountSompi: output.amountSompi,
+              fundingMatch: { ...output, blockTime: null },
+              netClaimKas,
+              status: "funded",
+            }
+          : current,
+      );
+      setAmountKas(netClaimKas);
+      setUnmatchedFundingOutputs((current) =>
+        current.filter(
+          (candidate) =>
+            candidate.transactionId !== output.transactionId ||
+            candidate.outputIndex !== output.outputIndex,
+        ),
+      );
+      setNotice(
+        `Received amount adopted. The claim link now pays ${netClaimKas} KAS after the ${labLink.feeKas} KAS fee and is ready to share.`,
+      );
+    } catch (adoptionError) {
+      setError(
+        adoptionError instanceof Error
+          ? adoptionError.message
+          : "Could not use the received amount for this link.",
+      );
+    } finally {
+      setAdoptingOutputId("");
+    }
+  }
+
   async function broadcastLabSpend(spend: ClaimableSpend) {
     setError("");
     setNotice("");
@@ -1245,7 +1427,19 @@ export function ToccataLabClient({
         return;
       }
 
-      if (spend.mode === "claim") {
+      const mismatchRecovery =
+        body.mismatchRecovery === true || isUnmatchedRefundSpend(spend, labLink);
+      if (mismatchRecovery) {
+        setUnmatchedFundingOutputs((current) =>
+          current.filter(
+            (output) =>
+              output.transactionId !== spend.fundingTransactionId ||
+              output.outputIndex !== spend.fundingOutputIndex,
+          ),
+        );
+        setUnmatchedRefundSpend(null);
+        setUnmatchedRecoveryTxId(body.broadcast.submittedTransactionId);
+      } else if (spend.mode === "claim") {
         setClaimBroadcast(body.broadcast);
         setLabLink((current) => (current ? { ...current, status: "claimed" } : current));
         if (labLink) void updateClaimableStatus(labLink.id, "claimed");
@@ -1255,15 +1449,21 @@ export function ToccataLabClient({
         if (labLink) void updateClaimableStatus(labLink.id, "refunded");
       }
       setNotice(
-        `${spend.mode === "claim" ? "Claim" : "Refund"} transaction broadcast: ${compactHex(
-          body.broadcast.submittedTransactionId,
-        )}.`,
+        mismatchRecovery
+          ? `Unexpected payment recovered: ${compactHex(body.broadcast.submittedTransactionId)}.`
+          : `${spend.mode === "claim" ? "Claim" : "Refund"} transaction broadcast: ${compactHex(
+              body.broadcast.submittedTransactionId,
+            )}.`,
       );
       setBroadcastFeedback(spend.mode, {
         error: "",
-        notice: `${spend.mode === "claim" ? "Claim" : "Refund"} sent to Kaspa: ${compactHex(
-          body.broadcast.submittedTransactionId,
-        )}.`,
+        notice: mismatchRecovery
+          ? `Unexpected payment recovered to your address: ${compactHex(
+              body.broadcast.submittedTransactionId,
+            )}.`
+          : `${spend.mode === "claim" ? "Claim" : "Refund"} sent to Kaspa: ${compactHex(
+              body.broadcast.submittedTransactionId,
+            )}.`,
       });
     } catch (broadcastError) {
       const message =
@@ -1311,8 +1511,19 @@ export function ToccataLabClient({
       submittedTransactionId: spend.transactionId,
       transactionId: spend.transactionId,
     };
+    const mismatchRecovery = isUnmatchedRefundSpend(spend, labLink);
 
-    if (spend.mode === "claim") {
+    if (mismatchRecovery) {
+      setUnmatchedFundingOutputs((current) =>
+        current.filter(
+          (output) =>
+            output.transactionId !== spend.fundingTransactionId ||
+            output.outputIndex !== spend.fundingOutputIndex,
+        ),
+      );
+      setUnmatchedRefundSpend(null);
+      setUnmatchedRecoveryTxId(spend.transactionId);
+    } else if (spend.mode === "claim") {
       setClaimBroadcast(broadcast);
       setClaimSpend(null);
       setLabLink((current) => (current ? { ...current, status: "claimed" } : current));
@@ -1326,12 +1537,16 @@ export function ToccataLabClient({
     setError("");
     setBroadcastFeedback(spend.mode, {
       error: "",
-      notice: `${spend.mode === "claim" ? "Claim" : "Refund"} was already accepted by Kaspa: ${compactHex(
-        spend.transactionId,
-      )}.`,
+      notice: mismatchRecovery
+        ? `Recovery was already accepted by Kaspa: ${compactHex(spend.transactionId)}.`
+        : `${spend.mode === "claim" ? "Claim" : "Refund"} was already accepted by Kaspa: ${compactHex(
+            spend.transactionId,
+          )}.`,
     });
     setNotice(
-      `${spend.mode === "claim" ? "Claim" : "Refund"} was already accepted by Kaspa. The status has been updated.`,
+      mismatchRecovery
+        ? "The unexpected payment recovery was already accepted by Kaspa."
+        : `${spend.mode === "claim" ? "Claim" : "Refund"} was already accepted by Kaspa. The status has been updated.`,
     );
     return true;
   }
@@ -1649,6 +1864,140 @@ export function ToccataLabClient({
                         The funding output has already been spent on-chain. This claim link is
                         closed and cannot be claimed again.
                       </p>
+                    </div>
+                  ) : null}
+
+                  {unmatchedFundingOutputs.length > 0 ? (
+                    <div className="claimable-unmatched-funding notice notice-critical">
+                      <span className="label">Payment amount does not match</span>
+                      <strong>
+                        {unmatchedFundingOutputs.length} separate unexpected payment
+                        {unmatchedFundingOutputs.length === 1 ? "" : "s"} detected
+                      </strong>
+                      <p>
+                        This link still expects exactly {labLink.amountKas} KAS. Do not send the
+                        difference: every payment creates a separate on-chain output and amounts are
+                        never combined automatically. Before sharing, a single link can instead
+                        adopt one valid received amount.
+                      </p>
+                      <div className="claimable-unmatched-list">
+                        {unmatchedFundingOutputs.map((output) => {
+                          const recoverable = isFundingOutputRecoverable(
+                            output.amountSompi,
+                            labLink.feeSompi,
+                          );
+                          const outputId = `${output.transactionId}:${output.outputIndex}`;
+                          const canAdopt =
+                            labLink.status === "awaiting_funding" &&
+                            !labLink.fundingMatch &&
+                            !refundTiming.unlocked &&
+                            BigInt(output.amountSompi) >= TOCCATA_LAB_MIN_SOMPI;
+                          return (
+                            <div className="claimable-unmatched-row" key={outputId}>
+                              <div>
+                                <strong>
+                                  {formatSompiForToccataLab(BigInt(output.amountSompi))} KAS
+                                </strong>
+                                <p className="value-mono">
+                                  {compactHex(output.transactionId)}:{output.outputIndex}
+                                </p>
+                              </div>
+                              <a
+                                href={kaspaStreamTransactionUrl(output.transactionId)}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                View transaction
+                              </a>
+                              {canAdopt ? (
+                                <button
+                                  className="btn btn-primary"
+                                  disabled={adoptingOutputId !== ""}
+                                  onClick={() => void adoptUnmatchedFundingAmount(output)}
+                                  type="button"
+                                >
+                                  {adoptingOutputId === outputId
+                                    ? "Updating link..."
+                                    : "Use this amount"}
+                                </button>
+                              ) : (
+                                <button
+                                  className="btn"
+                                  disabled={
+                                    !refundTiming.unlocked ||
+                                    !recoverable ||
+                                    spendBuilding === "refund"
+                                  }
+                                  onClick={() => void prepareUnmatchedFundingRecovery(output)}
+                                  type="button"
+                                >
+                                  {refundTiming.unlocked
+                                    ? "Prepare recovery"
+                                    : "Recover after expiry"}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p>
+                        {refundTiming.unlocked
+                          ? "Enter your own Kaspa address below, then prepare and broadcast the browser-signed recovery refund."
+                          : `The refund path unlocks after the claim window${
+                              refundTiming.remainingLabel
+                                ? ` in about ${refundTiming.remainingLabel}`
+                                : ""
+                            }. Keep the private refund link safe.`}
+                      </p>
+                      {refundTiming.unlocked ? (
+                        <>
+                          <label className="label" htmlFor="unexpected-refund-address">
+                            Your Kaspa refund address
+                          </label>
+                          <input
+                            id="unexpected-refund-address"
+                            onChange={(event) => setRefundDestination(event.target.value.trim())}
+                            placeholder="kaspa:your-own-wallet-address"
+                            value={refundDestination}
+                          />
+                        </>
+                      ) : null}
+                      {unmatchedRefundSpend ? (
+                        <div className="claimable-spend-result">
+                          <span className="label">Recovery ready</span>
+                          <p>
+                            Return amount:{" "}
+                            {formatSompiForToccataLab(
+                              BigInt(unmatchedRefundSpend.outputAmountSompi),
+                            )}{" "}
+                            KAS
+                          </p>
+                          <button
+                            className="btn btn-primary"
+                            disabled={broadcasting === "refund"}
+                            onClick={() => void broadcastLabSpend(unmatchedRefundSpend)}
+                            type="button"
+                          >
+                            {broadcasting === "refund"
+                              ? "Recovering..."
+                              : "Recover unexpected payment"}
+                          </button>
+                        </div>
+                      ) : null}
+                      {refundSendError ? <p className="error-text">{refundSendError}</p> : null}
+                      {refundSendNotice ? <p className="success-text">{refundSendNotice}</p> : null}
+                      {unmatchedRecoveryTxId ? (
+                        <p>
+                          Recovery sent:{" "}
+                          <a
+                            href={kaspaStreamTransactionUrl(unmatchedRecoveryTxId)}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {compactHex(unmatchedRecoveryTxId)}
+                          </a>
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -2288,6 +2637,20 @@ function paintNextFrame(): Promise<void> {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
+}
+
+function isUnmatchedRefundSpend(spend: ClaimableSpend, link: ClaimableLabLink | null): boolean {
+  if (spend.mode !== "refund" || !link) return false;
+  if (spend.fundingAmountSompi !== link.amountSompi) return true;
+  if (!link.fundingMatch) return false;
+  return (
+    spend.fundingTransactionId !== link.fundingMatch.transactionId ||
+    spend.fundingOutputIndex !== link.fundingMatch.outputIndex
+  );
+}
+
+function isFundingOutputRecoverable(amountSompi: string, feeSompi: string): boolean {
+  return BigInt(amountSompi) - BigInt(feeSompi) >= TOCCATA_CANARY_MIN_OUTPUT_SOMPI;
 }
 
 function statusTitle(status: ClaimableLabStatus): string {

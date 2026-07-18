@@ -4,6 +4,7 @@ import { createRestKaspaIndexer } from "@kaspa-actions/kaspa-indexer";
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
+import { TOCCATA_CANARY_MIN_OUTPUT_SOMPI } from "@/lib/toccata-lab-fee";
 import {
   broadcastToccataClaimableTransaction,
   isToccataLabEnabled,
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
   let verified:
     | {
         linkId: string;
+        mismatchRecovery: boolean;
         mode: "claim" | "refund";
         summary: ReturnType<typeof readClaimableBroadcastSafeJsonSummary>;
       }
@@ -90,10 +92,6 @@ export async function POST(request: Request) {
     if (!link) {
       return apiError(ErrorCodes.NOT_FOUND, "Registered claimable link was not found.", 404);
     }
-    if (["claimed", "refunded", "spent_unknown"].includes(link.status)) {
-      return apiError(ErrorCodes.INVALID_STATE, "This claimable link is already closed.", 409);
-    }
-
     let canonicalLink;
     try {
       canonicalLink = validateRegisteredClaimableMetadata(
@@ -127,30 +125,43 @@ export async function POST(request: Request) {
       safeJsonSummary.signatureScriptHex,
       canonicalLink.redeemScriptHex,
     );
-    const expectedOutputSompi = canonicalLink.amountSompi - canonicalLink.feeSompi;
-    if (expectedOutputSompi <= 0n) {
-      return apiError(
-        ErrorCodes.INVALID_STATE,
-        "Registered claimable link has an invalid amount or fee.",
-        409,
-      );
-    }
-    if (
-      safeJsonSummary.fundingAmountSompi !== link.amountSompi.toString() ||
-      safeJsonSummary.outputAmountSompi !== expectedOutputSompi.toString()
-    ) {
+    const actualFundingSompi = BigInt(safeJsonSummary.fundingAmountSompi);
+    const matchesRegisteredOutpoint =
+      (link.fundingTxId === null ||
+        link.fundingTxId.toLowerCase() === safeJsonSummary.fundingTransactionId) &&
+      (link.fundingOutputIndex === null ||
+        link.fundingOutputIndex === safeJsonSummary.fundingOutputIndex);
+    const mismatchRecovery =
+      mode === "refund" &&
+      (actualFundingSompi !== canonicalLink.amountSompi || !matchesRegisteredOutpoint);
+
+    if (mode === "claim" && actualFundingSompi !== canonicalLink.amountSompi) {
       return apiError(
         ErrorCodes.INVALID_BODY,
-        "Signed transaction amount does not match the registered claimable link.",
+        "A claim must spend the exact amount registered for this claimable link.",
         400,
       );
     }
-    if (
-      (link.fundingTxId !== null &&
-        link.fundingTxId.toLowerCase() !== safeJsonSummary.fundingTransactionId) ||
-      (link.fundingOutputIndex !== null &&
-        link.fundingOutputIndex !== safeJsonSummary.fundingOutputIndex)
-    ) {
+    if (["claimed", "refunded", "spent_unknown"].includes(link.status) && !mismatchRecovery) {
+      return apiError(ErrorCodes.INVALID_STATE, "This claimable link is already closed.", 409);
+    }
+
+    const expectedOutputSompi = actualFundingSompi - canonicalLink.feeSompi;
+    if (expectedOutputSompi < TOCCATA_CANARY_MIN_OUTPUT_SOMPI) {
+      return apiError(
+        ErrorCodes.INVALID_STATE,
+        "Funding output is too small to recover after the network fee.",
+        409,
+      );
+    }
+    if (safeJsonSummary.outputAmountSompi !== expectedOutputSompi.toString()) {
+      return apiError(
+        ErrorCodes.INVALID_BODY,
+        "Signed transaction output does not match its funding amount and registered fee.",
+        400,
+      );
+    }
+    if (!matchesRegisteredOutpoint && !mismatchRecovery) {
       return apiError(
         ErrorCodes.INVALID_STATE,
         "Signed transaction does not spend the registered funding output.",
@@ -162,7 +173,7 @@ export async function POST(request: Request) {
       cacheRevalidateSeconds: 3,
       limit: 20,
     }).findTransactionPayment({
-      amountSompi: link.amountSompi,
+      amountSompi: actualFundingSompi,
       notBefore: link.createdAt.getTime(),
       recipientAddress: link.fundingAddress,
       transactionId: safeJsonSummary.fundingTransactionId,
@@ -204,7 +215,7 @@ export async function POST(request: Request) {
       );
     }
 
-    verified = { linkId: link.id, mode, summary: safeJsonSummary };
+    verified = { linkId: link.id, mismatchRecovery, mode, summary: safeJsonSummary };
 
     const broadcast = await broadcastToccataClaimableTransaction(parsed.data);
 
@@ -214,36 +225,43 @@ export async function POST(request: Request) {
       transactionId: broadcast.transactionId,
     });
 
-    await markClaimableLinkBroadcasted({
-      linkId: link.id,
-      fundingOutputIndex: safeJsonSummary.fundingOutputIndex,
-      fundingTransactionId: safeJsonSummary.fundingTransactionId,
-      mode,
-      transactionId: broadcast.submittedTransactionId,
-    });
+    if (!mismatchRecovery) {
+      await markClaimableLinkBroadcasted({
+        linkId: link.id,
+        fundingOutputIndex: safeJsonSummary.fundingOutputIndex,
+        fundingTransactionId: safeJsonSummary.fundingTransactionId,
+        mode,
+        transactionId: broadcast.submittedTransactionId,
+      });
+    }
 
     return apiJson({
       broadcast,
+      mismatchRecovery,
       warning:
         "The server received signed transaction JSON only; claim/refund codes stay browser-side.",
     });
   } catch (error) {
     const message = getErrorMessage(error);
     if (verified && isAlreadyAcceptedMessage(message)) {
-      await markClaimableLinkBroadcasted({
-        linkId: verified.linkId,
-        fundingOutputIndex: verified.summary.fundingOutputIndex,
-        fundingTransactionId: verified.summary.fundingTransactionId,
-        mode: verified.mode,
-        transactionId,
-      });
+      if (!verified.mismatchRecovery) {
+        await markClaimableLinkBroadcasted({
+          linkId: verified.linkId,
+          fundingOutputIndex: verified.summary.fundingOutputIndex,
+          fundingTransactionId: verified.summary.fundingTransactionId,
+          mode: verified.mode,
+          transactionId,
+        });
+      }
       return apiJson({
         broadcast: {
           submittedTransactionId: transactionId,
           transactionId,
         },
-        warning:
-          "Kaspa had already accepted this signed transaction; the registered link status was reconciled.",
+        mismatchRecovery: verified.mismatchRecovery,
+        warning: verified.mismatchRecovery
+          ? "Kaspa had already accepted this browser-signed recovery transaction."
+          : "Kaspa had already accepted this signed transaction; the registered link status was reconciled.",
       });
     }
     const timedOut = message.toLowerCase().includes("timed out");

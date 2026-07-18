@@ -80,6 +80,39 @@ const REFUND_TRANSACTION_SAFE_JSON = JSON.stringify({
   ],
   lockTime: REFUND_LOCK_TIME,
 });
+const MISMATCH_CLAIM_TRANSACTION_SAFE_JSON = JSON.stringify({
+  ...JSON.parse(SIGNED_TRANSACTION_SAFE_JSON),
+  inputs: [
+    {
+      ...JSON.parse(SIGNED_TRANSACTION_SAFE_JSON).inputs[0],
+      utxo: {
+        ...JSON.parse(SIGNED_TRANSACTION_SAFE_JSON).inputs[0].utxo,
+        amount: "24000000",
+      },
+    },
+  ],
+  outputs: [
+    {
+      ...JSON.parse(SIGNED_TRANSACTION_SAFE_JSON).outputs[0],
+      value: "23800000",
+    },
+  ],
+});
+const MISMATCH_REFUND_TRANSACTION_SAFE_JSON = JSON.stringify({
+  ...JSON.parse(MISMATCH_CLAIM_TRANSACTION_SAFE_JSON),
+  inputs: [
+    {
+      ...JSON.parse(MISMATCH_CLAIM_TRANSACTION_SAFE_JSON).inputs[0],
+      signatureScript: JSON.parse(
+        MISMATCH_CLAIM_TRANSACTION_SAFE_JSON,
+      ).inputs[0].signatureScript.replace(
+        `51${"4c4f"}${REDEEM_SCRIPT_HEX}`,
+        `00${"4c4f"}${REDEEM_SCRIPT_HEX}`,
+      ),
+    },
+  ],
+  lockTime: REFUND_LOCK_TIME,
+});
 
 function broadcastRequest(body: unknown) {
   return new Request("https://kaspalinks.com/api/toccata-lab/claimable-broadcast", {
@@ -112,6 +145,9 @@ function registeredLink(overrides: Record<string, unknown> = {}) {
 
 describe("POST /api/toccata-lab/claimable-broadcast", () => {
   beforeEach(() => {
+    mockPrisma.claimableLink.findUnique.mockReset();
+    mockPrisma.claimableLink.updateMany.mockReset();
+    mockIndexer.findTransactionPayment.mockReset();
     mockPrisma.claimableLink.findUnique.mockResolvedValue(registeredLink());
     mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 1 });
     mockIndexer.findTransactionPayment.mockResolvedValue({
@@ -231,6 +267,61 @@ describe("POST /api/toccata-lab/claimable-broadcast", () => {
         message: "Refund is not available until the claim window has expired.",
       },
     });
+  });
+
+  it("never lets a mismatched funding amount use the claim branch", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      broadcastRequest({
+        expectedTransactionId: SIGNED_TRANSACTION_ID,
+        linkKey: LINK_KEY,
+        transactionSafeJson: MISMATCH_CLAIM_TRANSACTION_SAFE_JSON,
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mockIndexer.findTransactionPayment).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INVALID_BODY",
+        message: "A claim must spend the exact amount registered for this claimable link.",
+      },
+    });
+  });
+
+  it("recovers a mismatched funding output after expiry without closing the link", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_WRPC_RELAY_URL", "http://toccata-relay:3010");
+    vi.stubGlobal("fetch", fetchMock);
+    mockPrisma.claimableLink.findUnique.mockResolvedValue(registeredLink({ status: "claimed" }));
+    mockIndexer.findTransactionPayment.mockResolvedValue({
+      matchedSompi: 24_000_000n,
+      outputIndex: 0,
+      transactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+    });
+    mockBlockDag(REFUND_LOCK_TIME);
+    mockRelaySubmit();
+
+    const response = await POST(
+      broadcastRequest({
+        expectedTransactionId: SIGNED_TRANSACTION_ID,
+        linkKey: LINK_KEY,
+        transactionSafeJson: MISMATCH_REFUND_TRANSACTION_SAFE_JSON,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      broadcast: { submittedTransactionId: SIGNED_TRANSACTION_ID },
+      mismatchRecovery: true,
+    });
+    expect(mockIndexer.findTransactionPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ amountSompi: 24_000_000n }),
+    );
+    expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
   });
 
   it("rejects unsigned transaction JSON", async () => {

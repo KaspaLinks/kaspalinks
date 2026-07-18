@@ -28,10 +28,9 @@ confirmed on-chain.
 
 - Kaspa Links never stores claim or refund private keys.
 - The claim code and refund code live in the browser URL fragment after `#`.
-- X and some link shorteners can remove URL fragments. The X-safe share action therefore publishes
-  the public link and a compact claim code separately. The recipient enters that code locally; it is
-  never submitted to the Kaspa Links server. The code is visible in the X post because an X giveaway
-  is public and hiding it in the request URL would expose it to the web server and access logs.
+- The X-safe share action uses the compact public claim URL. The private claim material remains in
+  the browser-side URL fragment and is never submitted to the Kaspa Links server or placed in the
+  visible post text.
 - Creator recovery records are AES-GCM encrypted in local browser storage with key material derived
   from the session-only creator token.
 - Browsers do not send URL fragments to the server.
@@ -56,6 +55,24 @@ confirmed on-chain.
   link first, or remove an unfunded draft after the app verifies that its address received nothing.
 - Removing a closed claimable link hides it from My Links but retains its non-secret historical
   amount and status so public all-time payment totals do not decrease.
+
+## Incorrect Funding Amounts
+
+Every wallet payment creates a separate on-chain UTXO. Kaspa Links never combines two payments and
+never treats a later payment as the missing difference. If the one-time funding address receives an
+amount other than the exact amount shown, the UI identifies that unspent output and keeps the claim
+link locked.
+
+For a single link that has not been shared or funded correctly, the creator may explicitly adopt one
+verified unspent payment as the new link amount. The server updates public metadata only; claim and
+refund codes remain in the browser. Batch amounts cannot be changed because the allocator contract
+already commits to the exact child outputs.
+
+After the claim window expires, each additional unspent output can be recovered separately with the
+private refund link or batch recovery bundle. The browser signs the recovery refund, the server sees
+only signed transaction JSON, and the original link or batch status is not changed. Outputs that are
+too small to leave the reliable minimum after the configured fee cannot be recovered through this
+flow.
 
 ## Technical Notes
 
