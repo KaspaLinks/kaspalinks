@@ -494,7 +494,7 @@ export async function DELETE(request: Request) {
   if (!verifiedUnfunded && !DELETABLE_STATUSES.has(resolvedStatus)) {
     return apiError(
       ErrorCodes.INVALID_STATE,
-      "This link still holds claimable KAS. Claim or refund it before deleting it.",
+      "This link still holds KAS on-chain. Complete the refund first, wait for confirmation, then try deleting it again.",
       409,
     );
   }

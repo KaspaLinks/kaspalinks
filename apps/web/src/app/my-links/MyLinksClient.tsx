@@ -654,6 +654,9 @@ export function MyLinksClient() {
   const [selectedClaimableKeys, setSelectedClaimableKeys] = useState<Set<string>>(new Set());
   const [bulkDeletingClaimables, setBulkDeletingClaimables] = useState(false);
   const [showClaimableDeleteDialog, setShowClaimableDeleteDialog] = useState(false);
+  const [claimableDeleteTarget, setClaimableDeleteTarget] = useState<MergedClaimable | null>(null);
+  const [claimableDeleteError, setClaimableDeleteError] = useState<null | string>(null);
+  const [deletingClaimable, setDeletingClaimable] = useState(false);
 
   useEffect(() => {
     const refresh = () => {
@@ -863,7 +866,7 @@ export function MyLinksClient() {
   );
 
   const deleteClaimableLink = useCallback(
-    async (record: MergedClaimable) => {
+    (record: MergedClaimable) => {
       const deletionAllowed = canRequestClaimableDeletion(record, {
         currentDaaScore: claimableDaaScore,
         daaLoadedAtMs: claimableDaaLoadedAtMs,
@@ -876,26 +879,29 @@ export function MyLinksClient() {
         return;
       }
 
-      const confirmed = window.confirm(
-        record.status === "awaiting_funding"
-          ? "Delete this unfunded claimable link? Kaspa Links will first verify that no funding reached its address."
-          : isClaimableTerminal(record.status)
-            ? "Delete this claimable link from your account? This removes it from My Links. It does not move funds on-chain."
-            : "Check the link on-chain and delete it if its KAS were already refunded? This does not initiate a refund.",
-      );
-      if (!confirmed) return;
-
-      setListError(null);
-      setStatus(null);
-      const deletionError = await removeClaimableLink(record);
-      if (deletionError) {
-        setListError(deletionError);
-        return;
-      }
-      setStatus("Claimable link deleted.");
+      setClaimableDeleteError(null);
+      setClaimableDeleteTarget(record);
     },
-    [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs, removeClaimableLink],
+    [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs],
   );
+
+  const confirmClaimableDeletion = useCallback(async () => {
+    if (!claimableDeleteTarget || deletingClaimable) return;
+
+    setDeletingClaimable(true);
+    setClaimableDeleteError(null);
+    setListError(null);
+    setStatus(null);
+    const deletionError = await removeClaimableLink(claimableDeleteTarget);
+    setDeletingClaimable(false);
+    if (deletionError) {
+      setClaimableDeleteError(deletionError);
+      return;
+    }
+
+    setClaimableDeleteTarget(null);
+    setStatus("Claimable link deleted.");
+  }, [claimableDeleteTarget, deletingClaimable, removeClaimableLink]);
 
   const deleteSelectedClaimableLinks = useCallback(async () => {
     if (selectedDeletableClaimables.length === 0) return;
@@ -2284,6 +2290,89 @@ export function MyLinksClient() {
         </div>
       ) : null}
 
+      {claimableDeleteTarget ? (
+        <div
+          className="batch-wallet-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target && !deletingClaimable) {
+              setClaimableDeleteTarget(null);
+            }
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="single-claimable-delete-dialog-title"
+            aria-modal="true"
+            className="batch-wallet-modal claimable-delete-dialog"
+            role="dialog"
+          >
+            <button
+              aria-label="Cancel deleting claimable link"
+              className="batch-wallet-modal-close"
+              disabled={deletingClaimable}
+              onClick={() => setClaimableDeleteTarget(null)}
+              type="button"
+            >
+              ×
+            </button>
+            <span className="label">Remove claimable link</span>
+            <h2 id="single-claimable-delete-dialog-title">Check before deleting</h2>
+            <p>
+              {claimableDeleteTarget.status === "awaiting_funding"
+                ? "Kaspa Links will verify that this address was never funded before removing the link."
+                : isClaimableTerminal(claimableDeleteTarget.status)
+                  ? "This removes the closed link from My Links. It does not move any KAS on-chain."
+                  : "Kaspa Links will check the funding output on-chain and delete the link only when it no longer holds KAS."}
+            </p>
+            {!isClaimableTerminal(claimableDeleteTarget.status) &&
+            claimableDeleteTarget.status !== "awaiting_funding" ? (
+              <p className="notice notice-critical">
+                This check does not refund KAS. Complete the refund first, wait for the transaction
+                to be accepted, then run this check again.
+              </p>
+            ) : null}
+            {claimableDeleteError ? (
+              <p className="notice notice-critical" role="alert">
+                {claimableDeleteError}
+              </p>
+            ) : null}
+            <div className="batch-wallet-modal-actions">
+              {claimableDeleteTarget.manageUrl &&
+              !isClaimableTerminal(claimableDeleteTarget.status) ? (
+                <a
+                  className="btn"
+                  href={claimableDeleteTarget.manageUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Open refund
+                </a>
+              ) : null}
+              <button
+                className="btn"
+                disabled={deletingClaimable}
+                onClick={() => setClaimableDeleteTarget(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                disabled={deletingClaimable}
+                onClick={() => void confirmClaimableDeletion()}
+                type="button"
+              >
+                {deletingClaimable
+                  ? "Checking…"
+                  : isClaimableTerminal(claimableDeleteTarget.status)
+                    ? "Delete link"
+                    : "Check & delete"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {mergedClaimable.length > 0 && (typeFilter === "all" || typeFilter === "kaspa.claimable") ? (
         <section className="card claimable-mylinks">
           <div className="claimable-mylinks-heading">
@@ -2518,7 +2607,9 @@ export function MyLinksClient() {
                             onClick={() => void deleteClaimableLink(record)}
                             type="button"
                           >
-                            Check &amp; delete
+                            {record.status === "refundable"
+                              ? "Check refund & delete"
+                              : "Check & delete"}
                           </button>
                         ) : null}
                       </div>
@@ -2612,7 +2703,9 @@ export function MyLinksClient() {
                               type="button"
                             >
                               {expired && !isClaimableTerminal(record.status)
-                                ? "Check & delete"
+                                ? record.status === "refundable"
+                                  ? "Check refund & delete"
+                                  : "Check & delete"
                                 : "Delete"}
                             </button>
                           ) : null}

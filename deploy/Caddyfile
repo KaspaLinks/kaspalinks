@@ -80,6 +80,8 @@ www.{$DOMAIN} {
 				request>headers>Authorization delete
 				request>headers>Proxy-Authorization delete
 				request>headers>Cookie delete
+				request>headers>X-Admin-Token delete
+				request>headers>X-Creator-Token delete
 			}
 		}
 	}
