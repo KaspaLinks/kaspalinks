@@ -5,6 +5,14 @@ export const CLAIMABLE_SOCIAL_PREVIEW_VERSION = "5";
 export const CLAIMABLE_COMPACT_HASH_PREFIX = "c=";
 export const CLAIMABLE_MANAGE_HASH_PREFIX = "lab-manage=";
 
+export type ClaimableFundingProof = {
+  amountSompi: string;
+  fundingAddress: string;
+  fundingOutputIndex: number;
+  fundingTransactionId: string;
+  notBefore: number;
+};
+
 export function encodeClaimableFragmentPayload(value: unknown): string {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   let binary = "";
@@ -24,6 +32,52 @@ export function buildClaimableManageUrl(origin: string, payload: unknown): strin
   const url = new URL("/claim/refund", origin);
   url.hash = `${CLAIMABLE_MANAGE_HASH_PREFIX}${encodeClaimableFragmentPayload(payload)}`;
   return url.toString();
+}
+
+export function extractClaimableFundingProofFromManageUrl(
+  value: string,
+  expectedLinkKey: string,
+): ClaimableFundingProof {
+  try {
+    const url = new URL(value);
+    const prefix = `#${CLAIMABLE_MANAGE_HASH_PREFIX}`;
+    if (!url.hash.startsWith(prefix)) throw new Error("missing fragment");
+    const payload = decodeClaimableFragmentPayload(url.hash.slice(prefix.length));
+    if (!isRecord(payload) || payload.id !== expectedLinkKey) throw new Error("wrong link");
+    if (
+      typeof payload.amountSompi !== "string" ||
+      !/^[1-9][0-9]*$/.test(payload.amountSompi) ||
+      typeof payload.fundingAddress !== "string" ||
+      !payload.fundingAddress.startsWith("kaspa:") ||
+      !Number.isSafeInteger(payload.createdAtMs) ||
+      (payload.createdAtMs as number) < 0 ||
+      !isRecord(payload.fundingMatch)
+    ) {
+      throw new Error("invalid payload");
+    }
+
+    const fundingMatch = payload.fundingMatch;
+    if (
+      fundingMatch.amountSompi !== payload.amountSompi ||
+      typeof fundingMatch.transactionId !== "string" ||
+      !/^[0-9a-f]{64}$/i.test(fundingMatch.transactionId) ||
+      typeof fundingMatch.outputIndex !== "number" ||
+      !Number.isSafeInteger(fundingMatch.outputIndex) ||
+      fundingMatch.outputIndex < 0
+    ) {
+      throw new Error("invalid outpoint");
+    }
+
+    return {
+      amountSompi: payload.amountSompi,
+      fundingAddress: payload.fundingAddress,
+      fundingOutputIndex: fundingMatch.outputIndex,
+      fundingTransactionId: fundingMatch.transactionId.toLowerCase(),
+      notBefore: payload.createdAtMs as number,
+    };
+  } catch {
+    throw new Error("This browser cannot verify the private refund link for deletion.");
+  }
 }
 
 export function withClaimablePreviewVersion(value: string): string {
@@ -104,4 +158,8 @@ export function extractClaimCodeFromClaimUrl(value: string): string {
   } catch {
     throw new Error("The private claim code is not available in this browser.");
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

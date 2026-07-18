@@ -8,6 +8,7 @@ import {
   encodeClaimableFragmentPayload,
   encodeClaimCodeForSharing,
   extractClaimCodeFromClaimUrl,
+  extractClaimableFundingProofFromManageUrl,
   withClaimablePreviewVersion,
 } from "./claimable-share";
 import { buildXIntentUrl } from "./share-text";
@@ -91,5 +92,56 @@ describe("claimable social sharing", () => {
 
     expect(url.searchParams.get("preview")).toBe("5");
     expect(url.hash).toBe("#lab-claim=browser-only");
+  });
+
+  it("extracts only public funding proof from a private refund URL", () => {
+    const fundingTransactionId = "ab".repeat(32);
+    const encoded = encodeClaimableFragmentPayload({
+      amountSompi: "1200000000",
+      createdAtMs: 1_700_000_000_000,
+      fundingAddress: "kaspa:funding",
+      fundingMatch: {
+        amountSompi: "1200000000",
+        outputIndex: 2,
+        transactionId: fundingTransactionId,
+      },
+      id: "batch-safe-01",
+      refundCode: PRIVATE_KEY,
+    });
+
+    const proof = extractClaimableFundingProofFromManageUrl(
+      `https://kaspalinks.com/claim/refund#lab-manage=${encoded}`,
+      "batch-safe-01",
+    );
+
+    expect(proof).toEqual({
+      amountSompi: "1200000000",
+      fundingAddress: "kaspa:funding",
+      fundingOutputIndex: 2,
+      fundingTransactionId,
+      notBefore: 1_700_000_000_000,
+    });
+    expect(proof).not.toHaveProperty("refundCode");
+  });
+
+  it("rejects funding proof for a different local link", () => {
+    const encoded = encodeClaimableFragmentPayload({
+      amountSompi: "1200000000",
+      createdAtMs: 1_700_000_000_000,
+      fundingAddress: "kaspa:funding",
+      fundingMatch: {
+        amountSompi: "1200000000",
+        outputIndex: 0,
+        transactionId: "ab".repeat(32),
+      },
+      id: "batch-other-01",
+    });
+
+    expect(() =>
+      extractClaimableFundingProofFromManageUrl(
+        `https://kaspalinks.com/claim/refund#lab-manage=${encoded}`,
+        "batch-safe-01",
+      ),
+    ).toThrow("cannot verify");
   });
 });

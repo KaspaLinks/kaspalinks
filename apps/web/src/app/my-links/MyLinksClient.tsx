@@ -10,6 +10,7 @@ import {
   buildCompactClaimUrl,
   buildClaimableManageUrl,
   buildClaimableXPostText,
+  extractClaimableFundingProofFromManageUrl,
 } from "@/lib/claimable-share";
 import {
   loadClaimableRecords,
@@ -574,11 +575,11 @@ function canDeleteClaimable(status: string): boolean {
 }
 
 function canRequestClaimableDeletion(
-  record: Pick<MergedClaimable, "hasDb" | "refundLockTime" | "status">,
+  record: Pick<MergedClaimable, "hasDb" | "manageUrl" | "refundLockTime" | "status">,
   expiryContext: { currentDaaScore: string; daaLoadedAtMs: null | number; nowMs: number },
 ): boolean {
   if (isClaimableTerminal(record.status)) return true;
-  if (!record.hasDb) return false;
+  if (!record.hasDb && !record.manageUrl) return false;
   if (canDeleteClaimable(record.status) || record.status === "refundable") return true;
   const expiry = estimateClaimableExpiry({
     currentDaaScore: expiryContext.currentDaaScore,
@@ -852,6 +853,26 @@ export function MyLinksClient() {
           setDbClaimableLinks((current) =>
             current.filter((link) => link.linkKey !== record.linkKey),
           );
+        } else if (!isClaimableTerminal(record.status)) {
+          const proof = extractClaimableFundingProofFromManageUrl(
+            record.manageUrl,
+            record.linkKey,
+          );
+          const response = await fetch("/api/toccata-lab/funding-status", {
+            body: JSON.stringify(proof),
+            headers: { "content-type": "application/json" },
+            method: "POST",
+          });
+          const body = (await response.json().catch(() => null)) as null | {
+            error?: { message?: string };
+            outputStatus?: unknown;
+          };
+          if (!response.ok) {
+            return body?.error?.message ?? "Could not verify this local link on-chain.";
+          }
+          if (body?.outputStatus !== "spent") {
+            return "This link still holds KAS on-chain. Complete the refund first, wait for confirmation, then try deleting it again.";
+          }
         }
 
         if (record.hasLocal) {
