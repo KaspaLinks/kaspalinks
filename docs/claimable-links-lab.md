@@ -203,6 +203,26 @@ or refunded. A cryptographic upper-bound that prevents any custom off-site claim
 broadcast after expiry would require a revised reviewed script or a future
 primitive that exposes current consensus time/DAA to the script.
 
+### One-time batch allocator
+
+The protected `/toccata-lab/batch` flow accepts two to ten child links. One
+ordinary wallet payment funds a browser-derived allocator address. Its
+activation branch commits one input and the exact ordered amount and script
+public key of every child output. Its refund branch becomes available at the
+shared DAA deadline if activation never happened.
+
+The activation branch itself has no on-chain upper deadline. Kaspa Links
+therefore checks current mainnet DAA in the browser and again in the authenticated
+activation API immediately before relay. Once the deadline is reached, activation
+is refused and only the whole-batch refund is available. Activation and refund
+also reserve mutually exclusive pending transitions in PostgreSQL before relay,
+preventing concurrent UI requests from starting both outcomes.
+
+`labs/claimable-script/claimable_batch_allocator_tests.rs` pins the exact web
+script bytes and executes the activation/refund branches with the Toccata v2.0.1
+TxScriptEngine. It covers exact activation, changed amounts and destinations,
+wrong input/output counts, unrelated signatures, and refund timing/key checks.
+
 ### 7. Revised critical path
 
 1. ~~Decide claim primitive~~ — decided 2026-07: link-key signature (see

@@ -6,6 +6,7 @@ import { parseStoredClaimableBatchOutputs } from "@/lib/claimable-batch-manifest
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { requireCreator } from "@/lib/creator-guard";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
+import { readCurrentMainnetDaaScore } from "@/lib/kaspa-daa";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import {
   broadcastToccataBatchRefundTransaction,
@@ -56,6 +57,13 @@ export async function POST(request: Request) {
     return apiError(
       ErrorCodes.INVALID_STATE,
       "Activated child outputs must be refunded individually.",
+      409,
+    );
+  }
+  if (batch.pendingActivationTxId) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "Batch activation is already pending. Refresh its status before attempting a refund.",
       409,
     );
   }
@@ -117,7 +125,7 @@ export async function POST(request: Request) {
     return apiError(ErrorCodes.INVALID_STATE, "This batch was already refunded.", 409);
   }
 
-  const currentDaaScore = await readCurrentDaaScore().catch(() => null);
+  const currentDaaScore = await readCurrentMainnetDaaScore().catch(() => null);
   if (currentDaaScore === null) {
     return apiError(ErrorCodes.SERVER_ERROR, "Could not verify the current Kaspa DAA score.", 503);
   }
@@ -151,15 +159,39 @@ export async function POST(request: Request) {
     );
   }
 
-  await prisma.claimableBatch.update({
+  const reservation = await prisma.claimableBatch.updateMany({
     data: {
       fundingOutputIndex: summary.fundingOutputIndex,
       fundingTxId: summary.fundingTransactionId,
       pendingRefundTxId: summary.transactionId,
       status: "funded",
     },
-    where: { id: batch.id },
+    where: {
+      activationTxId: null,
+      id: batch.id,
+      pendingActivationTxId: null,
+      refundTxId: null,
+      status: { in: ["awaiting_funding", "funded"] },
+      OR: [{ pendingRefundTxId: null }, { pendingRefundTxId: summary.transactionId }],
+    },
   });
+  if (reservation.count !== 1) {
+    const current = await prisma.claimableBatch.findUnique({ where: { id: batch.id } });
+    if (current?.refundTxId === summary.transactionId) {
+      return apiJson({
+        broadcast: {
+          submittedTransactionId: summary.transactionId,
+          transactionId: summary.transactionId,
+        },
+        reconciled: true,
+      });
+    }
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "This batch is already being activated or refunded. Refresh its status before retrying.",
+      409,
+    );
+  }
 
   try {
     const broadcast = await broadcastToccataBatchRefundTransaction(parsed.data);
@@ -208,7 +240,12 @@ async function markRefunded(
   const outputs = parseStoredClaimableBatchOutputs(expectedOutputs);
   await prisma.$transaction([
     prisma.claimableBatch.update({
-      data: { pendingRefundTxId: null, refundTxId: transactionId, status: "refunded" },
+      data: {
+        pendingActivationTxId: null,
+        pendingRefundTxId: null,
+        refundTxId: transactionId,
+        status: "refunded",
+      },
       where: { id: batchId },
     }),
     ...outputs.map((output) =>
@@ -218,23 +255,6 @@ async function markRefunded(
       }),
     ),
   ]);
-}
-
-async function readCurrentDaaScore(): Promise<bigint> {
-  const response = await fetch("https://api.kaspa.org/info/blockdag", {
-    headers: { accept: "application/json" },
-    next: { revalidate: 5 },
-  });
-  if (!response.ok) throw new Error("Could not read current Kaspa DAA score.");
-  const body = (await response.json()) as { networkName?: unknown; virtualDaaScore?: unknown };
-  if (
-    body.networkName !== "kaspa-mainnet" ||
-    typeof body.virtualDaaScore !== "string" ||
-    !/^[0-9]+$/.test(body.virtualDaaScore)
-  ) {
-    throw new Error("Unexpected Kaspa BlockDAG response.");
-  }
-  return BigInt(body.virtualDaaScore);
 }
 
 function isAlreadyAcceptedMessage(message: string): boolean {

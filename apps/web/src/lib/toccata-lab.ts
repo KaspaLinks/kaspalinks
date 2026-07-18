@@ -147,7 +147,7 @@ export const toccataBatchClaimableScriptInputSchema = z.object({
   links: z
     .array(toccataClaimableScriptKeysSchema)
     .min(2, "A batch needs at least two links.")
-    .max(25, "The private batch lab is limited to 25 links."),
+    .max(10, "The batch claim flow is limited to ten links."),
   refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
 });
 

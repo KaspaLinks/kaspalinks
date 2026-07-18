@@ -6,6 +6,7 @@ import { parseStoredClaimableBatchOutputs } from "@/lib/claimable-batch-manifest
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { requireCreator } from "@/lib/creator-guard";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
+import { readCurrentMainnetDaaScore } from "@/lib/kaspa-daa";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import {
   broadcastToccataBatchActivationTransaction,
@@ -55,6 +56,13 @@ export async function POST(request: Request) {
   if (batch.status === "refunded") {
     return apiError(ErrorCodes.INVALID_STATE, "This batch was already refunded.", 409);
   }
+  if (batch.pendingRefundTxId) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "A refund is already pending for this batch. Refresh its status before retrying.",
+      409,
+    );
+  }
 
   const outputs = parseStoredClaimableBatchOutputs(batch.expectedOutputs);
   let summary: ReturnType<typeof readBatchActivationBroadcastSafeJsonSummary>;
@@ -87,6 +95,18 @@ export async function POST(request: Request) {
     return apiError(ErrorCodes.INVALID_STATE, "This batch was already activated.", 409);
   }
 
+  const currentDaaScore = await readCurrentMainnetDaaScore().catch(() => null);
+  if (currentDaaScore === null) {
+    return apiError(ErrorCodes.SERVER_ERROR, "Could not verify the current Kaspa DAA score.", 503);
+  }
+  if (currentDaaScore >= BigInt(batch.refundLockTime)) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "This batch expired before activation. Refund the unactivated batch instead.",
+      409,
+    );
+  }
+
   const fundingMatch = await createRestKaspaIndexer({ cacheRevalidateSeconds: 3, limit: 20 })
     .findTransactionPayment({
       amountSompi: batch.fundingAmountSompi,
@@ -113,15 +133,39 @@ export async function POST(request: Request) {
     );
   }
 
-  await prisma.claimableBatch.update({
+  const reservation = await prisma.claimableBatch.updateMany({
     data: {
       fundingOutputIndex: summary.fundingOutputIndex,
       fundingTxId: summary.fundingTransactionId,
       pendingActivationTxId: summary.transactionId,
       status: "funded",
     },
-    where: { id: batch.id },
+    where: {
+      activationTxId: null,
+      id: batch.id,
+      pendingRefundTxId: null,
+      refundTxId: null,
+      status: { in: ["awaiting_funding", "funded"] },
+      OR: [{ pendingActivationTxId: null }, { pendingActivationTxId: summary.transactionId }],
+    },
   });
+  if (reservation.count !== 1) {
+    const current = await prisma.claimableBatch.findUnique({ where: { id: batch.id } });
+    if (current?.activationTxId === summary.transactionId) {
+      return apiJson({
+        broadcast: {
+          submittedTransactionId: summary.transactionId,
+          transactionId: summary.transactionId,
+        },
+        reconciled: true,
+      });
+    }
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "This batch is already being activated or refunded. Refresh its status before retrying.",
+      409,
+    );
+  }
 
   try {
     const broadcast = await broadcastToccataBatchActivationTransaction(parsed.data);
@@ -232,6 +276,7 @@ async function markActivated(input: {
       data: {
         activationTxId: input.transactionId,
         pendingActivationTxId: null,
+        pendingRefundTxId: null,
         status: "activated",
       },
       where: { id: input.batchId },

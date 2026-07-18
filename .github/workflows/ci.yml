@@ -44,10 +44,14 @@ jobs:
           git clone --filter=blob:none https://github.com/kaspanet/silverscript.git silverscript
           git -C silverscript checkout d25bd3427a093c17327ca3d6b9e1aa5f7688c863
       - name: Install the Kaspa Links engine harness
-        run: cp labs/claimable-script/claimable_ui_scriptbuilder_tests.rs silverscript/silverscript-lang/tests/
+        run: |
+          cp labs/claimable-script/claimable_ui_scriptbuilder_tests.rs silverscript/silverscript-lang/tests/
+          cp labs/claimable-script/claimable_batch_allocator_tests.rs silverscript/silverscript-lang/tests/
       - name: Run claimable-link engine tests
         working-directory: silverscript
         env:
           CARGO_BUILD_JOBS: 1
           CARGO_PROFILE_DEV_DEBUG: 0
-        run: cargo test -p silverscript-lang --test claimable_ui_scriptbuilder_tests
+        run: |
+          cargo test -p silverscript-lang --test claimable_ui_scriptbuilder_tests
+          cargo test -p silverscript-lang --test claimable_batch_allocator_tests

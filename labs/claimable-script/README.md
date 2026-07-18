@@ -152,6 +152,22 @@ This closes the review gap for the current lab UI. Production claimable links
 still need a single reviewed artifact strategy before leaving the operator-only
 lab.
 
+## Batch Allocator Contract
+
+[`claimable_batch_allocator_tests.rs`](./claimable_batch_allocator_tests.rs)
+pins and executes the one-time batch funding contract used by
+`/toccata-lab/batch`. The harness verifies that activation requires its
+browser-held key and creates exactly the committed child amounts and script
+public keys from exactly one input. Changed amounts, destinations, output
+counts, input counts, and unrelated signatures are rejected. It also verifies
+that the unactivated whole-batch refund requires the refund key and the DAA
+lock time.
+
+The activation branch has no cryptographic upper time bound. The application
+therefore checks current mainnet DAA both in the browser and immediately before
+the server relays a signed activation. At expiry, only the whole-batch refund
+flow remains available.
+
 This is not the same safety profile as the engine tests above:
 
 - use only tiny amounts you are willing to lose

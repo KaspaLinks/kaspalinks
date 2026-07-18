@@ -58,7 +58,10 @@ export async function GET(request: Request) {
         where: { creatorId_batchKey: { batchKey, creatorId: guard.creator.id } },
       });
     }
-  } else if (batch.status === "funded" && batch.pendingRefundTxId) {
+  }
+  if (!batch) return apiError(ErrorCodes.NOT_FOUND, "Claimable batch not found.", 404);
+
+  if (batch.status === "funded" && batch.pendingRefundTxId) {
     const pendingRefundTxId = batch.pendingRefundTxId;
     if (await isAcceptedKaspaTransaction(pendingRefundTxId)) {
       const now = new Date();

@@ -830,6 +830,14 @@ export function BatchClaimableLabClient({
 
   async function activateBatch() {
     if (!batch?.activation.fundingMatch || batch.activation.status !== "funded") return;
+    if (batchExpiry?.expired !== false) {
+      setError(
+        batchExpiry?.expired
+          ? "This batch expired before activation. Refund the unactivated batch instead."
+          : "Wait until the current Kaspa DAA score is available before activating this batch.",
+      );
+      return;
+    }
     const creatorHeaders = readCreatorAuthHeaders();
     if (!creatorHeaders) {
       setError("Sign in again before activating this batch.");
@@ -1729,6 +1737,13 @@ export function BatchClaimableLabClient({
                   </div>
                 ) : null}
 
+                {batch.activation.status === "funded" && batchExpiry?.expired ? (
+                  <div className="notice notice-critical">
+                    <strong>Activation window closed.</strong> The committed child links are already
+                    expired, so this batch can now only be refunded as one unactivated output.
+                  </div>
+                ) : null}
+
                 {batch.activation.status === "funded" ? (
                   <label className="batch-lab-confirm">
                     <input
@@ -1759,7 +1774,10 @@ export function BatchClaimableLabClient({
                   <button
                     className="btn btn-primary"
                     disabled={
-                      checking || batch.activation.status !== "funded" || !activationConfirmed
+                      checking ||
+                      batch.activation.status !== "funded" ||
+                      !activationConfirmed ||
+                      batchExpiry?.expired !== false
                     }
                     onClick={() => void activateBatch()}
                     type="button"

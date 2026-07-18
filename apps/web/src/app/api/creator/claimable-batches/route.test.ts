@@ -9,8 +9,9 @@ import { resetRateLimits } from "@/lib/rate-limit";
 
 const { mockPrisma, mockRequireCreator } = vi.hoisted(() => ({
   mockPrisma: {
-    claimableBatch: { create: vi.fn(), findUnique: vi.fn() },
-    claimableLink: { findMany: vi.fn() },
+    $transaction: vi.fn(),
+    claimableBatch: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    claimableLink: { findMany: vi.fn(), updateMany: vi.fn() },
   },
   mockRequireCreator: vi.fn(),
 }));
@@ -24,7 +25,7 @@ vi.mock("@kaspa-actions/db", () => ({
 vi.mock("@/lib/creator-guard", () => ({ requireCreator: mockRequireCreator }));
 vi.mock("@/lib/audit", () => ({ writeAuditLog: vi.fn() }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const REFUND_LOCK_TIME = "500000000";
 const activation = deriveToccataLabKeyPair("1".padStart(64, "0"));
@@ -160,6 +161,71 @@ describe("POST /api/creator/claimable-batches", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       claimableBatch: { batchKey: "batch-test", status: "awaiting_funding" },
+    });
+  });
+});
+
+describe("GET /api/creator/claimable-batches", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireCreator.mockResolvedValue({
+      creator: { id: "creator-1" },
+      ipHash: "ip-hash",
+      ok: true,
+    });
+    mockPrisma.$transaction.mockResolvedValue([]);
+    mockPrisma.claimableBatch.update.mockResolvedValue({});
+    mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("reconciles an accepted refund even if a stale activation transition is also pending", async () => {
+    const pendingActivationTxId = "a".repeat(64);
+    const pendingRefundTxId = "b".repeat(64);
+    const baseBatch = {
+      activationTxId: null,
+      batchKey: "batch-test",
+      expectedOutputs: outputs,
+      fundingOutputIndex: 0,
+      fundingTxId: "c".repeat(64),
+      id: "batch-db-1",
+      pendingActivationTxId,
+      pendingRefundTxId,
+      refundTxId: null,
+      status: "funded",
+    };
+    mockPrisma.claimableBatch.findUnique.mockResolvedValueOnce(baseBatch).mockResolvedValueOnce({
+      ...baseBatch,
+      pendingActivationTxId: null,
+      pendingRefundTxId: null,
+      refundTxId: pendingRefundTxId,
+      status: "refunded",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response("Not found", { status: 404 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ is_accepted: true, transaction_id: pendingRefundTxId }), {
+            status: 200,
+          }),
+        ),
+    );
+
+    const response = await GET(
+      new Request("https://kaspalinks.com/api/creator/claimable-batches?batchKey=batch-test"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    await expect(response.json()).resolves.toMatchObject({
+      claimableBatch: { refundTxId: pendingRefundTxId, status: "refunded" },
     });
   });
 });

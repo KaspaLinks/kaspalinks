@@ -7,7 +7,7 @@ const { mockIndexer, mockPrisma, mockRequireCreator } = vi.hoisted(() => ({
   mockIndexer: { findTransactionPayment: vi.fn() },
   mockPrisma: {
     $transaction: vi.fn(),
-    claimableBatch: { findUnique: vi.fn(), update: vi.fn() },
+    claimableBatch: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     claimableLink: { updateMany: vi.fn() },
   },
   mockRequireCreator: vi.fn(),
@@ -75,6 +75,7 @@ function registeredBatch() {
   return {
     activationFeeSompi: 1_000_000n,
     activationPublicKey: ACTIVATION_PUBLIC_KEY,
+    activationTxId: null,
     createdAt: new Date(0),
     expectedOutputs: OUTPUTS,
     fundingAddress: ALLOCATOR.fundingAddress,
@@ -82,6 +83,7 @@ function registeredBatch() {
     fundingOutputIndex: 0,
     fundingTxId: FUNDING_TX_ID,
     id: "batch-db-1",
+    pendingActivationTxId: null,
     pendingRefundTxId: null,
     redeemScriptHex: ALLOCATOR.redeemScriptHex,
     refundLockTime: REFUND_LOCK_TIME,
@@ -101,6 +103,7 @@ describe("POST /api/toccata-lab/batch-refund", () => {
     });
     mockPrisma.claimableBatch.findUnique.mockResolvedValue(registeredBatch());
     mockPrisma.claimableBatch.update.mockResolvedValue(registeredBatch());
+    mockPrisma.claimableBatch.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.$transaction.mockResolvedValue([]);
     mockIndexer.findTransactionPayment.mockResolvedValue({
@@ -153,11 +156,29 @@ describe("POST /api/toccata-lab/batch-refund", () => {
     await expect(response.json()).resolves.toMatchObject({
       broadcast: { submittedTransactionId: TRANSACTION_ID },
     });
-    expect(mockPrisma.claimableBatch.update).toHaveBeenCalledWith(
+    expect(mockPrisma.claimableBatch.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ pendingRefundTxId: TRANSACTION_ID }),
+        where: expect.objectContaining({ activationTxId: null, pendingActivationTxId: null }),
       }),
     );
+  });
+
+  it("rejects a refund while batch activation is pending", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_BATCH_LAB_ENABLED", "true");
+    mockPrisma.claimableBatch.findUnique.mockResolvedValueOnce({
+      ...registeredBatch(),
+      pendingActivationTxId: "e".repeat(64),
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockPrisma.claimableBatch.updateMany).not.toHaveBeenCalled();
   });
 
   it("returns JSON for unsupported methods", () => {

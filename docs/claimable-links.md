@@ -71,3 +71,22 @@ the claim code, refund code, private keys, seed phrases, or wallet credentials.
 For normal payment links, the wallet sends directly to the creator's recipient address. For
 claimable links, the creator first funds a one-time script address, and the recipient later spends
 that output to their own address through the claim flow.
+
+## One-Time Batches
+
+The protected batch flow creates between two and ten independent claimable links from one funding
+payment. The browser generates one activation key, one unactivated-batch refund key, and separate
+claim/refund keys for every child link. Kaspa Links stores only the public manifest that commits the
+exact ordered child amounts and script public keys.
+
+Before funding, the creator must download the private recovery bundle. The wallet then sends the
+exact batch total to one allocator address. After funding is detected, the browser signs an
+activation transaction which can create only the committed child outputs. The server verifies the
+public manifest and signed transaction before relaying it.
+
+- Before activation, an expired batch can be refunded as one output.
+- Activation is refused when the shared claim window has expired.
+- After activation, every child is independent and unclaimed children must be refunded separately.
+- Refunds are explicit browser-signed transactions, never automatic server actions.
+- A recipient address may claim more than one child if it receives more than one bearer link.
+- The recovery bundle contains private bearer material. Keep it offline and never share it.
