@@ -284,7 +284,7 @@ describe("creator claimable link API", () => {
     expect(mockPrisma.claimableLink.update).not.toHaveBeenCalled();
   });
 
-  it("does not delete a funded claimable link", async () => {
+  it("does not delete a funded claimable link that remains unspent", async () => {
     mockPrisma.claimableLink.findUnique.mockResolvedValue(
       row({ fundingOutputIndex: 0, fundingTxId: "c".repeat(64), status: "funded" }),
     );
@@ -292,8 +292,34 @@ describe("creator claimable link API", () => {
     const response = await DELETE(deleteRequest());
 
     expect(response.status).toBe(409);
-    expect(mockResolveClaimableOnChain).not.toHaveBeenCalled();
+    expect(mockResolveClaimableOnChain).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "funded" }),
+    );
     expect(mockPrisma.claimableLink.update).not.toHaveBeenCalled();
+  });
+
+  it("reconciles an on-chain refund before deleting a stale expired link", async () => {
+    mockPrisma.claimableLink.findUnique.mockResolvedValue(
+      row({
+        fundingOutputIndex: 0,
+        fundingTxId: "c".repeat(64),
+        refundTxId: "d".repeat(64),
+        status: "refundable",
+      }),
+    );
+    mockResolveClaimableOnChain.mockResolvedValue({ status: "refunded" });
+
+    const response = await DELETE(deleteRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.claimableLink.update).toHaveBeenNthCalledWith(1, {
+      data: { status: "refunded" },
+      where: { id: "claimable-1" },
+    });
+    expect(mockPrisma.claimableLink.update).toHaveBeenNthCalledWith(2, {
+      data: { deletedAt: expect.any(Date) },
+      where: { id: "claimable-1" },
+    });
   });
 
   it("soft-deletes a closed claimable link so historical stats remain stable", async () => {

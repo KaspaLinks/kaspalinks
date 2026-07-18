@@ -573,6 +573,22 @@ function canDeleteClaimable(status: string): boolean {
   return status === "awaiting_funding" || isClaimableTerminal(status);
 }
 
+function canRequestClaimableDeletion(
+  record: Pick<MergedClaimable, "hasDb" | "refundLockTime" | "status">,
+  expiryContext: { currentDaaScore: string; daaLoadedAtMs: null | number; nowMs: number },
+): boolean {
+  if (isClaimableTerminal(record.status)) return true;
+  if (!record.hasDb) return false;
+  if (canDeleteClaimable(record.status) || record.status === "refundable") return true;
+  const expiry = estimateClaimableExpiry({
+    currentDaaScore: expiryContext.currentDaaScore,
+    daaLoadedAtMs: expiryContext.daaLoadedAtMs,
+    nowMs: expiryContext.nowMs,
+    refundLockTime: record.refundLockTime,
+  });
+  return expiry?.expired === true;
+}
+
 function formatClaimableEndTime(timestampMs: number): string {
   return new Intl.DateTimeFormat(undefined, {
     day: "2-digit",
@@ -747,8 +763,15 @@ export function MyLinksClient() {
     mergedClaimable,
   ]);
   const deletableClaimables = useMemo(
-    () => mergedClaimable.filter((record) => canDeleteClaimable(record.status)),
-    [mergedClaimable],
+    () =>
+      mergedClaimable.filter((record) =>
+        canRequestClaimableDeletion(record, {
+          currentDaaScore: claimableDaaScore,
+          daaLoadedAtMs: claimableDaaLoadedAtMs,
+          nowMs: claimableNowMs,
+        }),
+      ),
+    [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs, mergedClaimable],
   );
   const selectedDeletableClaimables = useMemo(
     () => deletableClaimables.filter((record) => selectedClaimableKeys.has(record.linkKey)),
@@ -762,13 +785,19 @@ export function MyLinksClient() {
     setSelectedClaimableKeys((current) => {
       const availableKeys = new Set(
         mergedClaimable
-          .filter((record) => canDeleteClaimable(record.status))
+          .filter((record) =>
+            canRequestClaimableDeletion(record, {
+              currentDaaScore: claimableDaaScore,
+              daaLoadedAtMs: claimableDaaLoadedAtMs,
+              nowMs: claimableNowMs,
+            }),
+          )
           .map((record) => record.linkKey),
       );
       const next = new Set(Array.from(current).filter((linkKey) => availableKeys.has(linkKey)));
       return next.size === current.size ? current : next;
     });
-  }, [mergedClaimable]);
+  }, [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs, mergedClaimable]);
 
   useEffect(() => {
     const hasLiveClaimable = mergedClaimable.some(
@@ -835,7 +864,12 @@ export function MyLinksClient() {
 
   const deleteClaimableLink = useCallback(
     async (record: MergedClaimable) => {
-      if (!canDeleteClaimable(record.status)) {
+      const deletionAllowed = canRequestClaimableDeletion(record, {
+        currentDaaScore: claimableDaaScore,
+        daaLoadedAtMs: claimableDaaLoadedAtMs,
+        nowMs: claimableNowMs,
+      });
+      if (!deletionAllowed) {
         setListError(
           "Funded claimable links can only be deleted after they were claimed or refunded.",
         );
@@ -845,7 +879,9 @@ export function MyLinksClient() {
       const confirmed = window.confirm(
         record.status === "awaiting_funding"
           ? "Delete this unfunded claimable link? Kaspa Links will first verify that no funding reached its address."
-          : "Delete this claimable link from your account? This removes it from My Links. It does not move funds on-chain.",
+          : isClaimableTerminal(record.status)
+            ? "Delete this claimable link from your account? This removes it from My Links. It does not move funds on-chain."
+            : "Check the link on-chain and delete it if its KAS were already refunded? This does not initiate a refund.",
       );
       if (!confirmed) return;
 
@@ -858,7 +894,7 @@ export function MyLinksClient() {
       }
       setStatus("Claimable link deleted.");
     },
-    [removeClaimableLink],
+    [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs, removeClaimableLink],
   );
 
   const deleteSelectedClaimableLinks = useCallback(async () => {
@@ -2223,8 +2259,8 @@ export function MyLinksClient() {
               {selectedDeletableClaimables.length === 1 ? "" : "s"} from My Links and this browser?
             </p>
             <p className="notice notice-critical">
-              Unfunded links are checked on-chain first. This action removes link records only and
-              does not move any KAS.
+              Every selected link is checked on-chain. Only verified-unfunded or closed links are
+              removed. This action does not move any KAS or initiate refunds.
             </p>
             <div className="batch-wallet-modal-actions">
               <button
@@ -2383,7 +2419,11 @@ export function MyLinksClient() {
                   !versionedClaimUrl &&
                   record.status !== "awaiting_funding" &&
                   !terminal;
-                const deletable = canDeleteClaimable(record.status);
+                const deletable = canRequestClaimableDeletion(record, {
+                  currentDaaScore: claimableDaaScore,
+                  daaLoadedAtMs: claimableDaaLoadedAtMs,
+                  nowMs: claimableNowMs,
+                });
                 const selected = selectedClaimableKeys.has(record.linkKey);
 
                 return (
@@ -2472,6 +2512,15 @@ export function MyLinksClient() {
                             {expired ? "Open refund" : "Refund"}
                           </a>
                         ) : null}
+                        {expired && deletable ? (
+                          <button
+                            className="btn btn-danger"
+                            onClick={() => void deleteClaimableLink(record)}
+                            type="button"
+                          >
+                            Check &amp; delete
+                          </button>
+                        ) : null}
                       </div>
                     </div>
 
@@ -2556,13 +2605,15 @@ export function MyLinksClient() {
                               Refund link
                             </a>
                           ) : null}
-                          {canDeleteClaimable(record.status) ? (
+                          {deletable ? (
                             <button
                               className="btn btn-danger"
                               onClick={() => void deleteClaimableLink(record)}
                               type="button"
                             >
-                              Delete
+                              {expired && !isClaimableTerminal(record.status)
+                                ? "Check & delete"
+                                : "Delete"}
                             </button>
                           ) : null}
                         </div>

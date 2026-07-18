@@ -313,7 +313,8 @@ export async function DELETE(request: Request) {
     return apiError(ErrorCodes.NOT_FOUND, "Claimable link not found.", 404);
   }
 
-  if (link.status === "awaiting_funding" && link.fundingTxId === null) {
+  let resolvedStatus = link.status;
+  if (!DELETABLE_STATUSES.has(resolvedStatus)) {
     try {
       const onChain = await resolveClaimableOnChain({
         amountSompi: link.amountSompi.toString(),
@@ -328,6 +329,7 @@ export async function DELETE(request: Request) {
       });
 
       if (onChain) {
+        resolvedStatus = onChain.status;
         await prisma.claimableLink.update({
           data: {
             ...(onChain.fundingOutputIndex !== undefined
@@ -338,23 +340,21 @@ export async function DELETE(request: Request) {
           },
           where: { id: link.id },
         });
-        return apiError(
-          ErrorCodes.INVALID_STATE,
-          "Funding was detected. Claim or refund this link before deleting it.",
-          409,
-        );
       }
     } catch {
       return apiError(
         ErrorCodes.SERVER_ERROR,
-        "Could not verify that this claimable link is unfunded. Try again later.",
+        "Could not verify this claimable link on-chain. Try again later.",
         503,
       );
     }
-  } else if (!DELETABLE_STATUSES.has(link.status)) {
+  }
+
+  const verifiedUnfunded = resolvedStatus === "awaiting_funding" && link.fundingTxId === null;
+  if (!verifiedUnfunded && !DELETABLE_STATUSES.has(resolvedStatus)) {
     return apiError(
       ErrorCodes.INVALID_STATE,
-      "Only closed or verified-unfunded claimable links can be deleted.",
+      "This link still holds claimable KAS. Claim or refund it before deleting it.",
       409,
     );
   }
