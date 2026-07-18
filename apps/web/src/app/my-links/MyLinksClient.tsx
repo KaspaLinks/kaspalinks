@@ -2337,8 +2337,14 @@ export function MyLinksClient() {
               </p>
             ) : null}
             <div className="batch-wallet-modal-actions">
-              {claimableDeleteTarget.manageUrl &&
+              {!claimableDeleteTarget.manageUrl &&
+              claimableDeleteTarget.linkKey.startsWith("batch-") &&
               !isClaimableTerminal(claimableDeleteTarget.status) ? (
+                <a className="btn btn-primary" href="/toccata-lab/batch">
+                  Open batch recovery
+                </a>
+              ) : claimableDeleteTarget.manageUrl &&
+                !isClaimableTerminal(claimableDeleteTarget.status) ? (
                 <a
                   className="btn"
                   href={claimableDeleteTarget.manageUrl}
@@ -2504,10 +2510,11 @@ export function MyLinksClient() {
                   ? buildCompactClaimUrl(record.claimUrl)
                   : "";
                 const privateRecoveryMissing =
-                  record.hasLocal &&
-                  !versionedClaimUrl &&
+                  !record.manageUrl &&
                   record.status !== "awaiting_funding" &&
                   !terminal;
+                const batchRecoveryMissing =
+                  privateRecoveryMissing && record.linkKey.startsWith("batch-");
                 const deletable = canRequestClaimableDeletion(record, {
                   currentDaaScore: claimableDaaScore,
                   daaLoadedAtMs: claimableDaaLoadedAtMs,
@@ -2575,8 +2582,9 @@ export function MyLinksClient() {
                         ) : null}
                         {privateRecoveryMissing ? (
                           <p className="claimable-mylinks-expiry-notice">
-                            This browser could not recover the private claim link. Server data alone
-                            cannot recreate it. Do not send more KAS to this funding address.
+                            {batchRecoveryMissing
+                              ? "This browser does not have the private refund key. Open Batch recovery and restore the private recovery bundle saved before funding."
+                              : "This browser does not have the private refund key. Server data alone cannot recreate it. Use the private refund link saved when this link was created."}
                           </p>
                         ) : null}
                       </div>
@@ -2599,6 +2607,10 @@ export function MyLinksClient() {
                             target="_blank"
                           >
                             {expired ? "Open refund" : "Refund"}
+                          </a>
+                        ) : batchRecoveryMissing ? (
+                          <a className="btn btn-primary" href="/toccata-lab/batch">
+                            Open batch recovery
                           </a>
                         ) : null}
                         {expired && deletable ? (
@@ -2694,6 +2706,10 @@ export function MyLinksClient() {
                               target="_blank"
                             >
                               Refund link
+                            </a>
+                          ) : batchRecoveryMissing ? (
+                            <a className="btn" href="/toccata-lab/batch">
+                              Batch recovery
                             </a>
                           ) : null}
                           {deletable ? (
