@@ -1003,17 +1003,18 @@ export function BatchClaimableLabClient({
   }
 
   async function importRecoveryFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
+    const input = event.currentTarget;
+    const file = input.files?.[0];
     if (!file) return;
     if (batch) {
+      input.value = "";
       setError("Clear the current local batch before importing another recovery bundle.");
       return;
     }
     setError("");
     try {
       if (file.size > 1_000_000) throw new Error("Recovery file is unexpectedly large.");
-      const bundle = parseBatchRecoveryBundle(await file.text());
+      const bundle = parseBatchRecoveryBundle(await readTextFile(file));
       await registerAllBatchLinks(bundle.batch);
       const registeredAt = new Date().toISOString();
       await persist({
@@ -1026,6 +1027,8 @@ export function BatchClaimableLabClient({
       );
     } catch (importError) {
       setError(friendlyBatchError(importError, "Could not import the recovery bundle."));
+    } finally {
+      input.value = "";
     }
   }
 
@@ -2164,23 +2167,48 @@ function encodePayload(payload: unknown): string {
 function downloadCsv(filename: string, headers: string[], rows: Array<Array<number | string>>) {
   const escape = (value: number | string) => `"${String(value).replaceAll('"', '""')}"`;
   const text = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\n");
-  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(filename, new Blob([text], { type: "text/csv;charset=utf-8" }));
 }
 
 function downloadJson(filename: string, value: unknown) {
-  const url = URL.createObjectURL(
+  downloadBlob(
+    filename,
     new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json;charset=utf-8" }),
   );
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
+  anchor.style.position = "fixed";
+  anchor.style.left = "-9999px";
+  anchor.style.top = "0";
+  document.body.append(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+
+  // Mobile Safari may not consume the object URL until after the click handler returns.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function readTextFile(file: File): Promise<string> {
+  try {
+    return await file.text();
+  } catch {
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("error", () => {
+        reject(new Error("Could not read the recovery file. Save it locally and try again."));
+      });
+      reader.addEventListener("load", () => {
+        if (typeof reader.result === "string") resolve(reader.result);
+        else reject(new Error("The recovery file did not contain readable text."));
+      });
+      reader.readAsText(file);
+    });
+  }
 }
 
 function safeFilename(value: string): string {
