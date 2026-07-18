@@ -8702,6 +8702,14 @@ body:has(main.deck-main) {
   overflow-wrap: anywhere;
 }
 
+.batch-status-toast-action {
+  justify-self: start;
+  min-height: 36px;
+  margin-top: 7px;
+  padding: 7px 12px;
+  font-size: 0.78rem;
+}
+
 .batch-status-toast > button {
   display: grid;
   place-items: center;

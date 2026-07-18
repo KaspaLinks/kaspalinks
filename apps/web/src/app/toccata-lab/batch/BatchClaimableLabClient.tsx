@@ -64,6 +64,8 @@ const MAX_BATCH_SIZE = 10;
 const BATCH_ACTIVATION_FEE_SOMPI = 1_000_000n;
 const FUNDING_SAFE_CHANGE_SOMPI = 20_000_000n;
 const FUNDING_AUTO_CHECK_MS = 5_000;
+const EXISTING_BATCH_ERROR =
+  "A local batch already exists. Export its recovery bundle and clear it before creating another.";
 
 export function BatchClaimableLabClient({
   capabilities,
@@ -384,9 +386,7 @@ export function BatchClaimableLabClient({
       return;
     }
     if (batch) {
-      setError(
-        "A local batch already exists. Export its recovery bundle and clear it before creating another.",
-      );
+      setError(EXISTING_BATCH_ERROR);
       return;
     }
     if (!readCreatorAuthHeaders()) {
@@ -1167,6 +1167,18 @@ export function BatchClaimableLabClient({
           <div>
             <strong>{error ? "Action could not be completed" : "Status updated"}</strong>
             <p>{error || notice}</p>
+            {error === EXISTING_BATCH_ERROR && batch ? (
+              <button
+                className="btn batch-status-toast-action"
+                onClick={() => {
+                  setError("");
+                  setShowClearDialog(true);
+                }}
+                type="button"
+              >
+                Clear batch
+              </button>
+            ) : null}
           </div>
           <button
             aria-label="Dismiss status message"
