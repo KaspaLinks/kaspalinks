@@ -1372,7 +1372,7 @@ export function BatchClaimableLabClient({
 
             <div className="batch-lab-form-section">
               <span className="batch-lab-section-title">Distribution</span>
-              <div className="grid-two">
+              <div className="grid-two batch-lab-distribution-grid">
                 <div>
                   <label className="label" htmlFor="batch-count">
                     Number of links

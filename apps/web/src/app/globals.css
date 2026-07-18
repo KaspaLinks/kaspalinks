@@ -7945,6 +7945,20 @@ body:has(main.deck-main) {
   letter-spacing: 0;
 }
 
+@media (min-width: 720px) {
+  .batch-lab-distribution-grid > div {
+    display: grid;
+    grid-template-rows: minmax(2.4em, auto) auto;
+    align-content: start;
+    gap: 6px;
+  }
+
+  .batch-lab-distribution-grid .label {
+    align-self: end;
+    margin-bottom: 0;
+  }
+}
+
 .batch-lab-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
