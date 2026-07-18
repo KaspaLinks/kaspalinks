@@ -90,22 +90,20 @@ function kaspaStreamUrl(txId: null | string): null | string {
   return `https://kaspa.stream/transactions/${encodeURIComponent(txId)}`;
 }
 
-// Filters for what counts toward public stats (applied via raw SQL JOIN
-// below, because Prisma's relation filter on aggregate doesn't reliably
-// enforce action.deletedAt):
+// Confirmed payments and created links are historical events. Soft-deleting
+// a public link must not make these all-time counters move backwards.
 //
 // - status: CONFIRMED — obviously
 // - detectionSource != 'mock' — exclude mock-confirmed test payments
-// - action.deletedAt: null — soft-deleted links don't show up in stats
 // - MAINNET-only — the public product is mainnet-only and testnet KAS is faucet play money
 
 async function loadStats() {
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - SEVEN_DAYS_MS);
 
-  // Single raw aggregation — Prisma's relation filter on aggregate misbehaves
-  // for our deletedAt check, so we drop down to SQL with an explicit JOIN.
-  // Returns public-product stats from mainnet data only.
+  // Single raw aggregation for historical mainnet confirmations. The Action
+  // JOIN supplies the link type but intentionally does not exclude soft-deleted
+  // links: a real on-chain payment remains part of the historical total.
   const aggregateRows = await prisma.$queryRaw<
     Array<{
       kind: string;
@@ -121,7 +119,6 @@ async function loadStats() {
       WHERE pr.status = 'CONFIRMED'
         AND pr.network = 'MAINNET'
         AND (pr."detectionSource" IS NULL OR pr."detectionSource" != 'mock')
-        AND a."deletedAt" IS NULL
       UNION ALL
       SELECT GREATEST(cl."amountSompi" - cl."feeSompi", 0)::bigint AS "amountSompi",
              COALESCE(cl."claimedAt", cl."updatedAt") AS "confirmedAt"
@@ -152,40 +149,43 @@ async function loadStats() {
     newCreators7d,
     typeBreakdown,
     recent,
-  ] =
-    await Promise.all([
-      prisma.action.count({ where: { deletedAt: null, network: "MAINNET" } }),
-      prisma.claimableLink.count({ where: { network: "MAINNET" } }),
-      prisma.action.count({
-        where: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
-      }),
-      prisma.claimableLink.count({ where: { createdAt: { gte: sevenDaysAgo }, network: "MAINNET" } }),
-      prisma.creator.count({
-        where: {
-          OR: [
-            { actions: { some: { deletedAt: null, network: "MAINNET" } } },
-            { claimableLinks: { some: { network: "MAINNET" } } },
-          ],
-        },
-      }),
-      // Creators who actually became / stayed active in the last 7 days —
-      // anyone with at least one undeleted link created in that window.
-      // Using raw signup count would mismatch "active creators" (an account
-      // can sign up without ever making a link, or have all their links
-      // soft-deleted, and then it shouldn't count toward an "active" delta).
-      prisma.creator.count({
-        where: {
-          OR: [
-            {
-              actions: {
-                some: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
-              },
+  ] = await Promise.all([
+    prisma.action.count({ where: { network: "MAINNET" } }),
+    prisma.claimableLink.count({ where: { network: "MAINNET" } }),
+    prisma.action.count({
+      where: { createdAt: { gte: sevenDaysAgo }, network: "MAINNET" },
+    }),
+    prisma.claimableLink.count({ where: { createdAt: { gte: sevenDaysAgo }, network: "MAINNET" } }),
+    prisma.creator.count({
+      where: {
+        OR: [
+          { actions: { some: { deletedAt: null, network: "MAINNET" } } },
+          { claimableLinks: { some: { deletedAt: null, network: "MAINNET" } } },
+        ],
+      },
+    }),
+    // Creators who actually became / stayed active in the last 7 days —
+    // anyone with at least one undeleted link created in that window.
+    // Using raw signup count would mismatch "active creators" (an account
+    // can sign up without ever making a link, or have all their links
+    // soft-deleted, and then it shouldn't count toward an "active" delta).
+    prisma.creator.count({
+      where: {
+        OR: [
+          {
+            actions: {
+              some: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
             },
-            { claimableLinks: { some: { createdAt: { gte: sevenDaysAgo }, network: "MAINNET" } } },
-          ],
-        },
-      }),
-      prisma.$queryRaw<Array<{ count: bigint; type: string }>>`
+          },
+          {
+            claimableLinks: {
+              some: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
+            },
+          },
+        ],
+      },
+    }),
+    prisma.$queryRaw<Array<{ count: bigint; type: string }>>`
         SELECT type, COUNT(*)::bigint AS count
         FROM (
           SELECT a.type::text AS type
@@ -194,7 +194,6 @@ async function loadStats() {
           WHERE pr.status = 'CONFIRMED'
             AND pr.network = 'MAINNET'
             AND (pr."detectionSource" IS NULL OR pr."detectionSource" != 'mock')
-            AND a."deletedAt" IS NULL
           UNION ALL
           SELECT 'kaspa.claimable'::text AS type
           FROM "ClaimableLink" cl
@@ -203,15 +202,15 @@ async function loadStats() {
         ) confirmed_by_type
         GROUP BY type
       `,
-      prisma.$queryRaw<
-        Array<{
-          amountSompi: bigint | null;
-          confirmedAt: Date | null;
-          network: string;
-          txId: null | string;
-          type: string;
-        }>
-      >`
+    prisma.$queryRaw<
+      Array<{
+        amountSompi: bigint | null;
+        confirmedAt: Date | null;
+        network: string;
+        txId: null | string;
+        type: string;
+      }>
+    >`
         SELECT "amountSompi", "confirmedAt", network, "txId", type
         FROM (
           SELECT pr."amountSompi"::bigint AS "amountSompi",
@@ -225,7 +224,6 @@ async function loadStats() {
           WHERE pr.status = 'CONFIRMED'
             AND pr.network = 'MAINNET'
             AND (pr."detectionSource" IS NULL OR pr."detectionSource" != 'mock')
-            AND a."deletedAt" IS NULL
           UNION ALL
           SELECT GREATEST(cl."amountSompi" - cl."feeSompi", 0)::bigint AS "amountSompi",
                  COALESCE(cl."claimedAt", cl."updatedAt") AS "confirmedAt",
@@ -240,7 +238,7 @@ async function loadStats() {
         ORDER BY "confirmedAt" DESC NULLS LAST, "sortCreatedAt" DESC
         LIMIT ${RECENT_LIMIT}
       `,
-    ]);
+  ]);
   const totalLinks = actionLinks + claimableLinks;
   const totalLinksDelta7d = actionLinksDelta7d + claimableLinksDelta7d;
 

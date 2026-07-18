@@ -98,44 +98,45 @@ async function loadStats(): Promise<StatsResponse> {
     newCreators7d,
     typeBreakdown,
     recent,
-  ] =
-    await Promise.all([
-      prisma.action.count({ where: { deletedAt: null, network: "MAINNET" } }),
-      prisma.claimableLink.count({ where: { deletedAt: null, network: "MAINNET" } }),
-      prisma.action.count({
-        where: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
-      }),
-      prisma.claimableLink.count({
-        where: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
-      }),
-      prisma.creator.count({
-        where: {
-          OR: [
-            { actions: { some: { deletedAt: null, network: "MAINNET" } } },
-            { claimableLinks: { some: { deletedAt: null, network: "MAINNET" } } },
-          ],
-        },
-      }),
-      // Creators with at least one undeleted action created in the last 7d —
-      // aligns with "active creators" so the delta never exceeds the total
-      // and never counts orphan signups.
-      prisma.creator.count({
-        where: {
-          OR: [
-            {
-              actions: {
-                some: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
-              },
+  ] = await Promise.all([
+    // "Links created" is historical. Soft-deleting a public URL removes it
+    // from creator tools and public lookup, but not from this aggregate.
+    prisma.action.count({ where: { network: "MAINNET" } }),
+    prisma.claimableLink.count({ where: { network: "MAINNET" } }),
+    prisma.action.count({
+      where: { createdAt: { gte: sevenDaysAgo }, network: "MAINNET" },
+    }),
+    prisma.claimableLink.count({
+      where: { createdAt: { gte: sevenDaysAgo }, network: "MAINNET" },
+    }),
+    prisma.creator.count({
+      where: {
+        OR: [
+          { actions: { some: { deletedAt: null, network: "MAINNET" } } },
+          { claimableLinks: { some: { deletedAt: null, network: "MAINNET" } } },
+        ],
+      },
+    }),
+    // Creators with at least one undeleted action created in the last 7d —
+    // aligns with "active creators" so the delta never exceeds the total
+    // and never counts orphan signups.
+    prisma.creator.count({
+      where: {
+        OR: [
+          {
+            actions: {
+              some: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
             },
-            {
-              claimableLinks: {
-                some: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
-              },
+          },
+          {
+            claimableLinks: {
+              some: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
             },
-          ],
-        },
-      }),
-      prisma.$queryRaw<Array<{ count: bigint; type: string }>>`
+          },
+        ],
+      },
+    }),
+    prisma.$queryRaw<Array<{ count: bigint; type: string }>>`
         SELECT type, COUNT(*)::bigint AS count
         FROM (
           SELECT a.type::text AS type
@@ -152,15 +153,15 @@ async function loadStats(): Promise<StatsResponse> {
         ) confirmed_by_type
         GROUP BY type
       `,
-      prisma.$queryRaw<
-        Array<{
-          amountSompi: bigint | null;
-          confirmedAt: Date | null;
-          network: string;
-          txId: null | string;
-          type: string;
-        }>
-      >`
+    prisma.$queryRaw<
+      Array<{
+        amountSompi: bigint | null;
+        confirmedAt: Date | null;
+        network: string;
+        txId: null | string;
+        type: string;
+      }>
+    >`
         SELECT "amountSompi", "confirmedAt", network, "txId", type
         FROM (
           SELECT pr."amountSompi"::bigint AS "amountSompi",
@@ -188,7 +189,7 @@ async function loadStats(): Promise<StatsResponse> {
         ORDER BY "confirmedAt" DESC NULLS LAST, "sortCreatedAt" DESC
         LIMIT ${RECENT_LIMIT}
       `,
-    ]);
+  ]);
   const totalLinks = actionLinks + claimableLinks;
   const totalLinksDelta7d = actionLinksDelta7d + claimableLinksDelta7d;
 
