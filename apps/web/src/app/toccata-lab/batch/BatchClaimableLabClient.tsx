@@ -18,6 +18,7 @@ import {
   type BatchRecoveryRecord,
 } from "@/lib/batch-claimable-recovery";
 import { encodeClaimableFragmentPayload } from "@/lib/claimable-share";
+import { saveClaimableRecord, type ClaimableStoreRecord } from "@/lib/claimable-store";
 import {
   readEncryptedLocalJson,
   removeEncryptedLocalJson,
@@ -125,6 +126,16 @@ export function BatchClaimableLabClient({
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (!batch || batch.activation.status !== "activated") return;
+
+    void saveBatchLinksToMyLinks(batch).catch(() => {
+      setError(
+        "The batch is active, but its private claim and refund links could not be added to My Links in this browser. Import the private recovery bundle and try again.",
+      );
+    });
+  }, [batch]);
 
   useEffect(() => {
     const synchronizeVault = (event: StorageEvent) => {
@@ -2066,6 +2077,40 @@ function buildClaimUrl(link: BatchLink, batch: BatchRecord): string {
       version: 1,
     },
   )}`;
+}
+
+function toClaimableStoreRecord(link: BatchLink, batch: BatchRecord): ClaimableStoreRecord | null {
+  if (!link.fundingMatch) return null;
+
+  return {
+    amountKas: link.amountKas,
+    claimCode: link.claimCode,
+    claimUrl: buildClaimUrl(link, batch),
+    createdAt: batch.createdAt,
+    createdAtMs: batch.createdAtMs,
+    description: link.description,
+    feeKas: link.feeKas,
+    fundingAddress: link.fundingAddress,
+    id: link.id,
+    manageUrl: buildRefundUrl(link, batch),
+    netClaimKas: link.netClaimKas,
+    refundCode: link.refundCode,
+    refundLockTime: link.refundLockTime,
+    status: link.status === "spent" ? "spent_unknown" : "funded",
+    title: link.title,
+    updatedAtMs: Date.now(),
+    validFor: batch.validFor,
+  };
+}
+
+async function saveBatchLinksToMyLinks(batch: BatchRecord): Promise<void> {
+  const records = batch.links
+    .map((link) => toClaimableStoreRecord(link, batch))
+    .filter((record): record is ClaimableStoreRecord => record !== null);
+
+  for (const record of records) {
+    await saveClaimableRecord(record);
+  }
 }
 
 function readCreatorAuthHeaders(): Record<string, string> | null {
