@@ -346,7 +346,17 @@ type DbClaimableLink = {
   refundLockTime: string;
 };
 
+type DbClaimableBatch = {
+  batchKey: string;
+  createdAt: string;
+  linkKeys: string[];
+  status: string;
+  title: string;
+};
+
 type MergedClaimable = {
+  batchKey: string | null;
+  batchTitle: string | null;
   dbId: string | null;
   linkKey: string;
   title: string;
@@ -361,6 +371,12 @@ type MergedClaimable = {
   manageUrl: string;
   hasDb: boolean;
   hasLocal: boolean;
+};
+
+type ClaimableListGroup = {
+  batch: DbClaimableBatch | null;
+  key: string;
+  records: MergedClaimable[];
 };
 
 function formatSompiKas(sompi: string): string {
@@ -433,15 +449,23 @@ function recoverManageUrl(db: DbClaimableLink, local: ClaimableStoreRecord): str
 }
 
 function mergeClaimable(
+  batches: DbClaimableBatch[],
   dbLinks: DbClaimableLink[],
   localRecords: ClaimableStoreRecord[],
   deletedLinkKeys: ReadonlySet<string>,
 ): MergedClaimable[] {
   const byKey = new Map<string, MergedClaimable>();
   const dbByKey = new Map(dbLinks.map((link) => [link.linkKey, link]));
+  const batchByLinkKey = new Map<string, DbClaimableBatch>();
+  for (const batch of batches) {
+    for (const linkKey of batch.linkKeys) batchByLinkKey.set(linkKey, batch);
+  }
   // DB is authoritative for the list + status (durable, cross-device).
   for (const db of dbLinks) {
+    const batch = batchByLinkKey.get(db.linkKey) ?? null;
     byKey.set(db.linkKey, {
+      batchKey: batch?.batchKey ?? null,
+      batchTitle: batch?.title ?? null,
       dbId: db.id,
       linkKey: db.linkKey,
       title: db.title,
@@ -473,6 +497,8 @@ function mergeClaimable(
       existing.hasLocal = true;
     } else {
       byKey.set(local.id, {
+        batchKey: null,
+        batchTitle: null,
         dbId: null,
         linkKey: local.id,
         title: local.title,
@@ -491,6 +517,48 @@ function mergeClaimable(
     }
   }
   return Array.from(byKey.values()).sort((a, b) => b.createdAtMs - a.createdAtMs);
+}
+
+function groupClaimableLinks(
+  records: MergedClaimable[],
+  batches: DbClaimableBatch[],
+): ClaimableListGroup[] {
+  const batchByKey = new Map(batches.map((batch) => [batch.batchKey, batch]));
+  const groups: ClaimableListGroup[] = [];
+  const groupByBatchKey = new Map<string, ClaimableListGroup>();
+
+  for (const record of records) {
+    if (!record.batchKey) {
+      groups.push({ batch: null, key: `link:${record.linkKey}`, records: [record] });
+      continue;
+    }
+
+    const existing = groupByBatchKey.get(record.batchKey);
+    if (existing) {
+      existing.records.push(record);
+      continue;
+    }
+
+    const group = {
+      batch: batchByKey.get(record.batchKey) ?? null,
+      key: `batch:${record.batchKey}`,
+      records: [record],
+    } satisfies ClaimableListGroup;
+    groups.push(group);
+    groupByBatchKey.set(record.batchKey, group);
+  }
+
+  return groups;
+}
+
+function sumClaimableKas(records: MergedClaimable[]): string {
+  const totalSompi = records.reduce((total, record) => {
+    const normalized = record.netClaimKas.trim();
+    if (!/^\d+(?:\.\d{1,8})?$/.test(normalized)) return total;
+    const [whole = "0", fraction = ""] = normalized.split(".");
+    return total + BigInt(whole) * 100000000n + BigInt(fraction.padEnd(8, "0"));
+  }, 0n);
+  return formatSompiKas(totalSompi.toString());
 }
 
 function computeClaimableStats(
@@ -638,6 +706,9 @@ export function MyLinksClient() {
   const [claimableRecords, setClaimableRecords] = useState<ClaimableStoreRecord[]>([]);
   const [loadingClaimables, setLoadingClaimables] = useState(false);
   const [claimableSelectionMode, setClaimableSelectionMode] = useState(false);
+  const [expandedClaimableBatches, setExpandedClaimableBatches] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [claimableQuery, setClaimableQuery] = useState("");
   const [claimableStatusFilter, setClaimableStatusFilter] = useState<
     "all" | "available" | "claimable_closed" | "claimed" | "refundable"
@@ -682,6 +753,7 @@ export function MyLinksClient() {
   );
 
   const [dbClaimableLinks, setDbClaimableLinks] = useState<DbClaimableLink[]>([]);
+  const [dbClaimableBatches, setDbClaimableBatches] = useState<DbClaimableBatch[]>([]);
   const [deletedClaimableLinkKeys, setDeletedClaimableLinkKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -698,6 +770,11 @@ export function MyLinksClient() {
         .then((body) => {
           if (!cancelled && body && Array.isArray(body.claimableLinks)) {
             setDbClaimableLinks(body.claimableLinks as DbClaimableLink[]);
+            setDbClaimableBatches(
+              Array.isArray(body.claimableBatches)
+                ? (body.claimableBatches as DbClaimableBatch[])
+                : [],
+            );
             setDeletedClaimableLinkKeys(
               new Set(
                 Array.isArray(body.deletedClaimableLinkKeys)
@@ -723,8 +800,14 @@ export function MyLinksClient() {
   }, [authHeaders, signedIn]);
 
   const mergedClaimable = useMemo(
-    () => mergeClaimable(dbClaimableLinks, claimableRecords, deletedClaimableLinkKeys),
-    [claimableRecords, dbClaimableLinks, deletedClaimableLinkKeys],
+    () =>
+      mergeClaimable(
+        dbClaimableBatches,
+        dbClaimableLinks,
+        claimableRecords,
+        deletedClaimableLinkKeys,
+      ),
+    [claimableRecords, dbClaimableBatches, dbClaimableLinks, deletedClaimableLinkKeys],
   );
   const claimableStats = useMemo(
     () =>
@@ -768,6 +851,12 @@ export function MyLinksClient() {
     claimableQuery,
     mergedClaimable,
   ]);
+  const groupedClaimables = useMemo(
+    () => groupClaimableLinks(filteredClaimables, dbClaimableBatches),
+    [dbClaimableBatches, filteredClaimables],
+  );
+  const claimableFiltersActive =
+    claimableQuery.trim().length > 0 || claimableStatusFilter !== "all";
   const deletableClaimables = useMemo(
     () => mergedClaimable.filter((record) => canRequestClaimableDeletion(record)),
     [mergedClaimable],
@@ -2490,8 +2579,9 @@ export function MyLinksClient() {
             <p className="muted">No claimable links match this filter.</p>
           ) : null}
           <ul className="claimable-mylinks-list">
-            {filteredClaimables.map((record) =>
-              (() => {
+            {(() => {
+              const renderClaimableRecord = (record: MergedClaimable) =>
+                (() => {
                 const expiry = estimateClaimableExpiry({
                   currentDaaScore: claimableDaaScore,
                   daaLoadedAtMs: claimableDaaLoadedAtMs,
@@ -2715,8 +2805,80 @@ export function MyLinksClient() {
                     </details>
                   </li>
                 );
-              })(),
-            )}
+                })();
+
+              return groupedClaimables.map((group) => {
+                if (!group.batch) return renderClaimableRecord(group.records[0]!);
+
+                const automaticallyExpanded = claimableSelectionMode || claimableFiltersActive;
+                const expanded =
+                  automaticallyExpanded || expandedClaimableBatches.has(group.batch.batchKey);
+                const claimedCount = group.records.filter(
+                  (record) => record.status === "claimed",
+                ).length;
+                const refundableCount = group.records.filter((record) => {
+                  if (isClaimableTerminal(record.status)) return false;
+                  const expiry = estimateClaimableExpiry({
+                    currentDaaScore: claimableDaaScore,
+                    daaLoadedAtMs: claimableDaaLoadedAtMs,
+                    nowMs: claimableNowMs,
+                    refundLockTime: record.refundLockTime,
+                  });
+                  return record.status === "refundable" || expiry?.expired === true;
+                }).length;
+                const closedCount = group.records.filter(
+                  (record) => record.status === "refunded" || record.status === "spent_unknown",
+                ).length;
+                const availableCount =
+                  group.records.length - claimedCount - refundableCount - closedCount;
+                const visibleLinkCount = group.records.length;
+                const totalLinkCount = group.batch.linkKeys.length;
+
+                return (
+                  <li className="claimable-batch-group" key={group.key}>
+                    <details
+                      className="claimable-batch-details"
+                      onToggle={(event) => {
+                        if (automaticallyExpanded) return;
+                        const isOpen = event.currentTarget.open;
+                        setExpandedClaimableBatches((current) => {
+                          const next = new Set(current);
+                          if (isOpen) next.add(group.batch!.batchKey);
+                          else next.delete(group.batch!.batchKey);
+                          return next;
+                        });
+                      }}
+                      open={expanded}
+                    >
+                      <summary className="claimable-batch-summary">
+                        <span className="claimable-batch-summary-copy">
+                          <span className="label">Claim batch</span>
+                          <strong>{group.batch.title}</strong>
+                          <span className="muted">
+                            {visibleLinkCount === totalLinkCount
+                              ? `${totalLinkCount} links`
+                              : `${visibleLinkCount} of ${totalLinkCount} matching links`}
+                            {` · ${sumClaimableKas(group.records)} KAS total`}
+                          </span>
+                        </span>
+                        <span className="claimable-batch-statuses" aria-label="Batch link status">
+                          {availableCount > 0 ? <span>{availableCount} available</span> : null}
+                          {claimedCount > 0 ? <span>{claimedCount} claimed</span> : null}
+                          {refundableCount > 0 ? (
+                            <span className="is-warning">{refundableCount} refundable</span>
+                          ) : null}
+                          {closedCount > 0 ? <span>{closedCount} closed</span> : null}
+                        </span>
+                        <span className="claimable-batch-chevron" aria-hidden="true" />
+                      </summary>
+                      <ul className="claimable-batch-links">
+                        {group.records.map(renderClaimableRecord)}
+                      </ul>
+                    </details>
+                  </li>
+                );
+              });
+            })()}
           </ul>
           <p className="muted claimable-mylinks-note">
             The list comes from your creator account (cross-device); the claim and refund links are

@@ -3,6 +3,7 @@ import { AuditActorType, Network } from "@kaspa-actions/db";
 import { createRestKaspaIndexer } from "@kaspa-actions/kaspa-indexer";
 
 import { writeAuditLog } from "@/lib/audit";
+import { parseStoredClaimableBatchOutputs } from "@/lib/claimable-batch-manifest";
 import { readCreatorActionDailyLimit, rollingDailyWindowStart } from "@/lib/creator-auth";
 import { requireCreator } from "@/lib/creator-guard";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
@@ -158,9 +159,40 @@ export async function GET(request: Request) {
     where: { creatorId: guard.creator.id, deletedAt: { not: null } },
   });
 
+  const batches = await prisma.claimableBatch.findMany({
+    orderBy: { createdAt: "desc" },
+    select: {
+      batchKey: true,
+      createdAt: true,
+      expectedOutputs: true,
+      status: true,
+      title: true,
+    },
+    take: 100,
+    where: { creatorId: guard.creator.id },
+  });
+
   await maybeRefreshOnChain(guard.creator.id, links);
 
   return apiJson({
+    claimableBatches: batches.flatMap((batch) => {
+      try {
+        return [
+          {
+            batchKey: batch.batchKey,
+            createdAt: batch.createdAt.toISOString(),
+            linkKeys: parseStoredClaimableBatchOutputs(batch.expectedOutputs).map(
+              (output) => output.linkKey,
+            ),
+            status: batch.status,
+            title: batch.title,
+          },
+        ];
+      } catch {
+        // A malformed historical manifest must not hide otherwise valid links.
+        return [];
+      }
+    }),
     claimableLinks: links.map(serialize),
     deletedClaimableLinkKeys: deletedLinks.map((link) => link.linkKey),
   });

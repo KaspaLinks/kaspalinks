@@ -14,6 +14,7 @@ const {
   mockIndexer: { findTransactionPayment: vi.fn() },
   mockPrisma: {
     action: { count: vi.fn() },
+    claimableBatch: { findMany: vi.fn() },
     claimableLink: {
       count: vi.fn(),
       create: vi.fn(),
@@ -143,6 +144,7 @@ describe("creator claimable link API", () => {
     mockReadCreatorActionDailyLimit.mockReturnValue(50);
     mockRollingDailyWindowStart.mockReturnValue(new Date("2026-07-09T12:00:00.000Z"));
     mockPrisma.claimableLink.findUnique.mockResolvedValue(null);
+    mockPrisma.claimableBatch.findMany.mockResolvedValue([]);
     mockPrisma.claimableLink.findMany.mockResolvedValue([]);
     mockPrisma.claimableLink.count.mockResolvedValue(0);
     mockPrisma.action.count.mockResolvedValue(0);
@@ -194,6 +196,43 @@ describe("creator claimable link API", () => {
       where: { creatorId: "creator-1", deletedAt: null },
     });
     expect(body.deletedClaimableLinkKeys).toEqual(["deleted-batch-child"]);
+  });
+
+  it("returns public batch membership for grouped My Links rendering", async () => {
+    mockPrisma.claimableBatch.findMany.mockResolvedValue([
+      {
+        batchKey: "batch-community-drop",
+        createdAt: CREATED_AT,
+        expectedOutputs: [
+          {
+            amountSompi: "100000000",
+            linkKey: "batch-child-1",
+            scriptPublicKeyHex: "aa",
+          },
+          {
+            amountSompi: "100000000",
+            linkKey: "batch-child-2",
+            scriptPublicKeyHex: "bb",
+          },
+        ],
+        status: "activated",
+        title: "Community drop",
+      },
+    ]);
+
+    const response = await GET(new Request("https://kaspalinks.com/api/creator/claimable-links"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.claimableBatches).toEqual([
+      {
+        batchKey: "batch-community-drop",
+        createdAt: CREATED_AT.toISOString(),
+        linkKeys: ["batch-child-1", "batch-child-2"],
+        status: "activated",
+        title: "Community drop",
+      },
+    ]);
   });
 
   it("returns terminal transaction details for creator activity", async () => {
