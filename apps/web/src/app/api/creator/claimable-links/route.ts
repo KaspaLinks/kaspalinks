@@ -155,7 +155,6 @@ export async function GET(request: Request) {
   const deletedLinks = await prisma.claimableLink.findMany({
     orderBy: { deletedAt: "desc" },
     select: { linkKey: true },
-    take: 500,
     where: { creatorId: guard.creator.id, deletedAt: { not: null } },
   });
 

@@ -1,6 +1,7 @@
 import { prisma, AuditActorType, Network, Prisma } from "@kaspa-actions/db";
 
 import { writeAuditLog } from "@/lib/audit";
+import { REGISTERED_TERMINAL_BATCH_CHILD_STATUSES } from "@/lib/batch-claimable-state";
 import {
   parseStoredClaimableBatchOutputs,
   type StoredClaimableBatchOutput,
@@ -53,7 +54,7 @@ export async function GET(request: Request) {
             where: {
               creatorId: guard.creator.id,
               linkKey: output.linkKey,
-              status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+              status: { notIn: [...REGISTERED_TERMINAL_BATCH_CHILD_STATUSES] },
             },
           }),
         ),
@@ -84,7 +85,7 @@ export async function GET(request: Request) {
             where: {
               creatorId: guard.creator.id,
               linkKey: output.linkKey,
-              status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+              status: { notIn: [...REGISTERED_TERMINAL_BATCH_CHILD_STATUSES] },
             },
           }),
         ),

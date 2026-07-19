@@ -2,6 +2,7 @@ import { prisma, AuditActorType } from "@kaspa-actions/db";
 import { createRestKaspaIndexer } from "@kaspa-actions/kaspa-indexer";
 
 import { writeAuditLog } from "@/lib/audit";
+import { REGISTERED_TERMINAL_BATCH_CHILD_STATUSES } from "@/lib/batch-claimable-state";
 import { parseStoredClaimableBatchOutputs } from "@/lib/claimable-batch-manifest";
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { requireCreator } from "@/lib/creator-guard";
@@ -302,7 +303,7 @@ async function markRefunded(
         where: {
           creatorId,
           linkKey: output.linkKey,
-          status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+          status: { notIn: [...REGISTERED_TERMINAL_BATCH_CHILD_STATUSES] },
         },
       }),
     ),

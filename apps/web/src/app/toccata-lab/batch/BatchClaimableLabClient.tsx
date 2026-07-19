@@ -18,7 +18,9 @@ import {
   type BatchRecoveryRecord,
 } from "@/lib/batch-claimable-recovery";
 import {
+  isTerminalBatchChildStatus,
   reconcileBatchWithServer,
+  sameBatchFundingMatch,
   type RegisteredBatchState,
 } from "@/lib/batch-claimable-state";
 import { encodeClaimableFragmentPayload } from "@/lib/claimable-share";
@@ -80,6 +82,7 @@ const MAX_BATCH_SIZE = 10;
 const BATCH_ACTIVATION_FEE_SOMPI = 1_000_000n;
 const FUNDING_SAFE_CHANGE_SOMPI = 20_000_000n;
 const FUNDING_AUTO_CHECK_MS = 5_000;
+const FUNDED_RECONCILE_MS = 15_000;
 const EXISTING_BATCH_ERROR =
   "A local batch already exists. Export its recovery bundle and clear it before creating another.";
 
@@ -119,6 +122,7 @@ export function BatchClaimableLabClient({
   const [recoveringOutputId, setRecoveringOutputId] = useState("");
   const [recoveryTxId, setRecoveryTxId] = useState("");
   const fundingCheckInFlight = useRef(false);
+  const batchActionInFlight = useRef<null | "activate" | "refund">(null);
   const batchRef = useRef<BatchRecord | null>(null);
   const batchReconcileInFlight = useRef<null | {
     batchId: string;
@@ -229,14 +233,10 @@ export function BatchClaimableLabClient({
     unmatchedFundingOutputs.length,
   ]);
 
-  // One monitor owns automatic funding checks. Recovery export remains a
-  // funding-action safety gate, but it must not prevent status recovery.
+  // Funding detection is only needed until the exact allocator output exists.
+  // Later state changes are read from the registered batch endpoint below.
   useEffect(() => {
-    if (
-      !batch ||
-      (batch.activation.status !== "awaiting_funding" && batch.activation.status !== "funded")
-    )
-      return;
+    if (!batch || batch.activation.status !== "awaiting_funding") return;
 
     const tick = (quiet = true) => void checkFunding({ auto: true, quiet });
     const initial = window.setTimeout(() => tick(), 1_500);
@@ -256,26 +256,26 @@ export function BatchClaimableLabClient({
     };
   }, [batch?.id, batch?.activation.status]);
 
-  // Reconcile public server state once after load/import/status changes. For
-  // terminal batches, focus refreshes replace the now-stopped funding poll.
+  // Reconcile public server state after load/import/status changes. A funded
+  // allocator is checked without rewriting unchanged browser-held recovery data.
   useEffect(() => {
     if (!batch?.batchManifestRegisteredAt) return;
-    const reconcile = () => void reconcileRegisteredBatch(undefined, true);
+    const reconcile = () => void reconcileRegisteredBatch();
     reconcile();
 
-    if (
-      batch.activation.status === "awaiting_funding" ||
-      batch.activation.status === "funded"
-    ) {
-      return;
-    }
+    if (batch.activation.status === "awaiting_funding") return;
 
     const reconcileWhenVisible = () => {
       if (document.visibilityState === "visible") reconcile();
     };
     window.addEventListener("focus", reconcileWhenVisible);
     document.addEventListener("visibilitychange", reconcileWhenVisible);
+    const timer =
+      batch.activation.status === "funded"
+        ? window.setInterval(reconcile, FUNDED_RECONCILE_MS)
+        : null;
     return () => {
+      if (timer !== null) window.clearInterval(timer);
       window.removeEventListener("focus", reconcileWhenVisible);
       document.removeEventListener("visibilitychange", reconcileWhenVisible);
     };
@@ -602,7 +602,7 @@ export function BatchClaimableLabClient({
 
   async function checkFunding(options: { auto?: boolean; quiet?: boolean } = {}) {
     const currentBatch = batchRef.current;
-    if (!currentBatch || fundingCheckInFlight.current) return;
+    if (!currentBatch || fundingCheckInFlight.current || batchActionInFlight.current) return;
     fundingCheckInFlight.current = true;
 
     if (!options.quiet) {
@@ -634,7 +634,9 @@ export function BatchClaimableLabClient({
       let resolvedMessage = "No exact batch funding output found yet.";
       if (body.funded && body.match) {
         if (body.outputStatus === "spent") {
-          const reconciled = await reconcileRegisteredBatch(currentBatch, true);
+          const reconciled = await reconcileRegisteredBatch(currentBatch, {
+            reportError: !options.quiet,
+          });
           if (reconciled?.activation.status === "activated") {
             resolvedMessage = "Batch activation confirmed. Individual claim links are ready.";
           } else if (reconciled?.activation.status === "refunded") {
@@ -648,14 +650,20 @@ export function BatchClaimableLabClient({
             ) {
               resolvedMessage = "The latest batch status was restored.";
             } else {
-              await persist({
+              const next = {
                 ...latest,
                 activation: {
                   ...latest.activation,
                   fundingMatch: body.match,
                   status: "funded",
                 },
-              });
+              } as BatchRecord;
+              if (
+                latest.activation.status !== "funded" ||
+                !sameBatchFundingMatch(latest.activation.fundingMatch, body.match)
+              ) {
+                await persist(next);
+              }
               resolvedMessage =
                 "The batch funding output was spent, but its outcome is still being reconciled. Retry the same activation or refresh shortly.";
             }
@@ -669,14 +677,20 @@ export function BatchClaimableLabClient({
           ) {
             resolvedMessage = "The latest batch status was restored.";
           } else {
-            await persist({
+            const next = {
               ...latest,
               activation: {
                 ...latest.activation,
                 fundingMatch: body.match,
                 status: "funded",
               },
-            });
+            } as BatchRecord;
+            if (
+              latest.activation.status !== "funded" ||
+              !sameBatchFundingMatch(latest.activation.fundingMatch, body.match)
+            ) {
+              await persist(next);
+            }
             resolvedMessage =
               "Funding detected. Activate the batch to create the individual claim outputs.";
           }
@@ -725,7 +739,7 @@ export function BatchClaimableLabClient({
 
   function reconcileRegisteredBatch(
     base: BatchRecord | undefined = batchRef.current ?? undefined,
-    quiet = false,
+    options: { reportError?: boolean; syncMyLinks?: boolean } = {},
   ): Promise<BatchRecord | null> {
     if (!base?.batchManifestRegisteredAt) return Promise.resolve(base ?? null);
     if (batchReconcileInFlight.current?.batchId === base.id) {
@@ -739,13 +753,13 @@ export function BatchClaimableLabClient({
         const latest = batchRef.current?.id === base.id ? batchRef.current : null;
         if (!latest) return null;
         const next = reconcileBatchWithServer(latest, serverState);
-        await persist(next);
-        if (next.activation.status === "activated") {
+        if (next !== latest) await persist(next);
+        if (next.activation.status === "activated" && (next !== latest || options.syncMyLinks)) {
           await saveBatchLinksToMyLinks(next);
         }
         return next;
       } catch (reconcileError) {
-        if (!quiet) {
+        if (options.reportError) {
           setError(
             reconcileError instanceof Error
               ? reconcileError.message
@@ -919,7 +933,13 @@ export function BatchClaimableLabClient({
   }
 
   async function activateBatch() {
-    if (!batch?.activation.fundingMatch || batch.activation.status !== "funded") return;
+    const currentBatch = batchRef.current;
+    if (
+      !currentBatch?.activation.fundingMatch ||
+      currentBatch.activation.status !== "funded" ||
+      batchActionInFlight.current
+    )
+      return;
     if (batchExpiry?.expired !== false) {
       setError(
         batchExpiry?.expired
@@ -934,25 +954,26 @@ export function BatchClaimableLabClient({
       return;
     }
     setChecking(true);
+    batchActionInFlight.current = "activate";
     setError("");
     setActivationConfirmed(false);
     try {
       const spend = await buildBatchActivationSpendInBrowser({
-        activationPrivateKey: batch.activation.activationCode,
-        expectedFundingAddress: batch.activation.fundingAddress,
-        feeSompi: batch.activation.activationFeeSompi,
-        fundingAmountSompi: batch.activation.fundingAmountSompi,
-        fundingOutputIndex: batch.activation.fundingMatch.outputIndex,
-        fundingTransactionId: batch.activation.fundingMatch.transactionId,
-        outputs: batch.links.map((link) => ({
+        activationPrivateKey: currentBatch.activation.activationCode,
+        expectedFundingAddress: currentBatch.activation.fundingAddress,
+        feeSompi: currentBatch.activation.activationFeeSompi,
+        fundingAmountSompi: currentBatch.activation.fundingAmountSompi,
+        fundingOutputIndex: currentBatch.activation.fundingMatch.outputIndex,
+        fundingTransactionId: currentBatch.activation.fundingMatch.transactionId,
+        outputs: currentBatch.links.map((link) => ({
           amountSompi: link.amountSompi,
           redeemScriptHex: link.redeemScriptHex,
         })),
-        redeemScriptHex: batch.activation.redeemScriptHex,
+        redeemScriptHex: currentBatch.activation.redeemScriptHex,
       });
       const response = await fetch("/api/toccata-lab/batch-activate", {
         body: JSON.stringify({
-          batchKey: batch.id,
+          batchKey: currentBatch.id,
           expectedTransactionId: spend.transactionId,
           transactionSafeJson: spend.transactionSafeJson,
         }),
@@ -965,10 +986,11 @@ export function BatchClaimableLabClient({
       };
       if (!response.ok || !body.broadcast)
         throw new Error(body.error?.message ?? "Could not activate the batch.");
+      const latest = batchRef.current?.id === currentBatch.id ? batchRef.current : currentBatch;
       const next = {
-        ...batch,
-        activation: { ...batch.activation, status: "activated" as const },
-        links: batch.links.map((link, index) => ({
+        ...latest,
+        activation: { ...latest.activation, status: "activated" as const },
+        links: latest.links.map((link, index) => ({
           ...link,
           fundingMatch: {
             amountSompi: link.amountSompi,
@@ -980,7 +1002,7 @@ export function BatchClaimableLabClient({
         })),
       };
       await persist(next);
-      await reconcileRegisteredBatch(next, true);
+      await reconcileRegisteredBatch(next);
       setShowKaswareHelp(false);
       setNotice(
         `Claim outputs created. ${next.links.length} individual claim links are now ready. All codes stayed in your browser.`,
@@ -988,6 +1010,7 @@ export function BatchClaimableLabClient({
     } catch (activationError) {
       setError(friendlyBatchError(activationError, "Could not activate the batch."));
     } finally {
+      batchActionInFlight.current = null;
       setChecking(false);
     }
   }
@@ -995,32 +1018,39 @@ export function BatchClaimableLabClient({
   // clear transient kasware help when activating (funding is already confirmed)
 
   async function refundUnactivatedBatch() {
-    if (!batch?.activation.fundingMatch || batch.activation.status !== "funded") return;
+    const currentBatch = batchRef.current;
+    if (
+      !currentBatch?.activation.fundingMatch ||
+      currentBatch.activation.status !== "funded" ||
+      batchActionInFlight.current
+    )
+      return;
     const creatorHeaders = readCreatorAuthHeaders();
     if (!creatorHeaders) {
       setError("Sign in again before refunding this batch.");
       return;
     }
     setChecking(true);
+    batchActionInFlight.current = "refund";
     setError("");
     try {
-      const refundLockTime = batch.links[0]?.refundLockTime;
+      const refundLockTime = currentBatch.links[0]?.refundLockTime;
       if (!refundLockTime) throw new Error("Batch refund lock time is unavailable.");
       const spend = await buildClaimableSpendInBrowser({
         destinationAddress: refundAddress,
-        expectedFundingAddress: batch.activation.fundingAddress,
-        feeSompi: batch.activation.activationFeeSompi,
-        fundingAmountSompi: batch.activation.fundingAmountSompi,
-        fundingOutputIndex: batch.activation.fundingMatch.outputIndex,
-        fundingTransactionId: batch.activation.fundingMatch.transactionId,
+        expectedFundingAddress: currentBatch.activation.fundingAddress,
+        feeSompi: currentBatch.activation.activationFeeSompi,
+        fundingAmountSompi: currentBatch.activation.fundingAmountSompi,
+        fundingOutputIndex: currentBatch.activation.fundingMatch.outputIndex,
+        fundingTransactionId: currentBatch.activation.fundingMatch.transactionId,
         lockTime: refundLockTime,
         mode: "refund",
-        privateKey: batch.activation.refundCode,
-        redeemScriptHex: batch.activation.redeemScriptHex,
+        privateKey: currentBatch.activation.refundCode,
+        redeemScriptHex: currentBatch.activation.redeemScriptHex,
       });
       const response = await fetch("/api/toccata-lab/batch-refund", {
         body: JSON.stringify({
-          batchKey: batch.id,
+          batchKey: currentBatch.id,
           expectedTransactionId: spend.transactionId,
           refundLockTime,
           transactionSafeJson: spend.transactionSafeJson,
@@ -1034,14 +1064,19 @@ export function BatchClaimableLabClient({
       };
       if (!response.ok || !body.broadcast)
         throw new Error(body.error?.message ?? "Could not refund the batch.");
-      const next = { ...batch, activation: { ...batch.activation, status: "refunded" as const } };
+      const latest = batchRef.current?.id === currentBatch.id ? batchRef.current : currentBatch;
+      const next = {
+        ...latest,
+        activation: { ...latest.activation, status: "refunded" as const },
+      };
       await persist(next);
-      await reconcileRegisteredBatch(next, true);
+      await reconcileRegisteredBatch(next);
       setShowKaswareHelp(false);
       setNotice("The unactivated batch refund was accepted. No claim URLs were distributed.");
     } catch (refundError) {
       setError(friendlyBatchError(refundError, "Could not refund the batch."));
     } finally {
+      batchActionInFlight.current = null;
       setChecking(false);
     }
   }
@@ -1183,7 +1218,7 @@ export function BatchClaimableLabClient({
         registrationCompleteAt: registeredAt,
       };
       await persist(imported);
-      await reconcileRegisteredBatch(imported, true);
+      await reconcileRegisteredBatch(imported, { reportError: true, syncMyLinks: true });
       setNotice(
         `Recovered “${bundle.batch.title}” locally. Its public contract was revalidated; private codes were not uploaded.`,
       );
@@ -2374,12 +2409,7 @@ async function saveBatchLinksToMyLinks(batch: BatchRecord): Promise<void> {
 }
 
 function isBatchLinkTerminal(status: BatchLink["status"]): boolean {
-  return (
-    status === "claimed" ||
-    status === "refunded" ||
-    status === "spent_unknown" ||
-    status === "spent"
-  );
+  return isTerminalBatchChildStatus(status);
 }
 
 function isBatchLinkClosed(status: BatchLink["status"]): boolean {

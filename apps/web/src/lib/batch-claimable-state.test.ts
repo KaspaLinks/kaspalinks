@@ -112,4 +112,60 @@ describe("batch claimable state reconciliation", () => {
 
     expect(reconcileBatchWithServer(batch, server).links[0]!.status).toBe("refunded");
   });
+
+  it("does not regress funded activation while the server is briefly stale", () => {
+    const batch = batchRecord();
+    const server = serverState();
+    server.status = "awaiting_funding";
+    server.fundingTxId = null;
+    server.fundingOutputIndex = null;
+
+    const next = reconcileBatchWithServer(batch, server);
+
+    expect(next.activation.status).toBe("funded");
+    expect(next.activation.fundingMatch).toEqual(batch.activation.fundingMatch);
+  });
+
+  it.each(["activated", "refunded"] as const)(
+    "does not replace local terminal activation status %s",
+    (status) => {
+      const batch = batchRecord();
+      batch.activation.status = status;
+      const server = serverState();
+      server.status = status === "activated" ? "refunded" : "activated";
+
+      expect(reconcileBatchWithServer(batch, server).activation.status).toBe(status);
+    },
+  );
+
+  it("advances funded activation to a terminal server status", () => {
+    const batch = batchRecord();
+    const server = serverState();
+    server.status = "refunded";
+
+    expect(reconcileBatchWithServer(batch, server).activation.status).toBe("refunded");
+  });
+
+  it("returns the original record when public state is unchanged", () => {
+    const batch = batchRecord();
+    const server = serverState();
+    batch.activation.status = "activated";
+    batch.links[0]!.status = "claimed";
+    batch.links[0]!.fundingMatch = {
+      amountSompi: batch.links[0]!.amountSompi,
+      blockTime: null,
+      outputIndex: 0,
+      transactionId: server.activationTxId!,
+    };
+    batch.links[1]!.status = "funded";
+    batch.links[1]!.deletedAt = server.outputs[1]!.deletedAt!;
+    batch.links[1]!.fundingMatch = {
+      amountSompi: batch.links[1]!.amountSompi,
+      blockTime: null,
+      outputIndex: 1,
+      transactionId: server.activationTxId!,
+    };
+
+    expect(reconcileBatchWithServer(batch, server)).toBe(batch);
+  });
 });

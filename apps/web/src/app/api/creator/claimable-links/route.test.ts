@@ -195,6 +195,11 @@ describe("creator claimable link API", () => {
       take: 200,
       where: { creatorId: "creator-1", deletedAt: null },
     });
+    expect(mockPrisma.claimableLink.findMany).toHaveBeenNthCalledWith(2, {
+      orderBy: { deletedAt: "desc" },
+      select: { linkKey: true },
+      where: { creatorId: "creator-1", deletedAt: { not: null } },
+    });
     expect(body.deletedClaimableLinkKeys).toEqual(["deleted-batch-child"]);
   });
 
