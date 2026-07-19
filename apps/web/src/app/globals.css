@@ -8541,6 +8541,246 @@ body:has(main.deck-main) {
   margin-top: 16px;
 }
 
+.batch-recovery-page {
+  padding-bottom: 56px;
+}
+
+.batch-recovery-hero .hero-sub {
+  max-width: 760px;
+}
+
+.batch-recovery-safety {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
+  align-items: center;
+  gap: 18px 32px;
+  margin-bottom: 22px;
+  padding: 18px 20px;
+  border-left: 3px solid var(--accent-bright);
+  background: rgba(73, 234, 203, 0.055);
+}
+
+.batch-recovery-safety h2,
+.batch-recovery-safety p {
+  margin: 0;
+}
+
+.batch-recovery-safety h2 {
+  margin-top: 4px;
+  font-size: 1.15rem;
+}
+
+.batch-recovery-safety p {
+  color: var(--fg-muted);
+  line-height: 1.55;
+}
+
+.batch-recovery-message {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 18px;
+}
+
+.batch-recovery-import-card,
+.batch-recovery-workspace {
+  display: grid;
+  gap: 22px;
+}
+
+.batch-recovery-import-card > header h2,
+.batch-recovery-import-card > header p,
+.batch-recovery-heading h2,
+.batch-recovery-heading p,
+.batch-recovery-link-section h3 {
+  margin: 0;
+}
+
+.batch-recovery-import-card > header h2,
+.batch-recovery-heading h2 {
+  margin-top: 5px;
+}
+
+.batch-recovery-import-card > header p,
+.batch-recovery-heading p {
+  max-width: 70ch;
+  margin-top: 8px;
+  color: var(--fg-muted);
+  line-height: 1.55;
+}
+
+.batch-recovery-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 18px 0;
+  border-block: 1px solid rgba(148, 163, 184, 0.14);
+  list-style: none;
+}
+
+.batch-recovery-steps li {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 18px;
+  border-right: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.batch-recovery-steps li:first-child {
+  padding-left: 0;
+}
+
+.batch-recovery-steps li:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.batch-recovery-steps li > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(73, 234, 203, 0.3);
+  border-radius: 50%;
+  background: rgba(73, 234, 203, 0.08);
+  color: var(--accent-bright);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.batch-recovery-steps strong,
+.batch-recovery-steps p {
+  margin: 0;
+}
+
+.batch-recovery-steps p {
+  margin-top: 4px;
+  color: var(--fg-muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.batch-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.batch-recovery-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.batch-recovery-heading .status-pill {
+  flex: 0 0 auto;
+  text-transform: capitalize;
+}
+
+.batch-recovery-summary-grid {
+  display: grid;
+  grid-template-columns: 0.7fr 0.7fr 1.6fr;
+  gap: 0;
+  padding-block: 16px;
+  border-block: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.batch-recovery-summary-grid > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding-inline: 18px;
+  border-right: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.batch-recovery-summary-grid > div:first-child {
+  padding-left: 0;
+}
+
+.batch-recovery-summary-grid > div:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.batch-recovery-summary-grid span {
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.batch-recovery-summary-grid strong {
+  min-width: 0;
+  color: var(--fg);
+  font-size: 1.08rem;
+  overflow-wrap: anywhere;
+}
+
+.batch-recovery-full-refund {
+  margin-top: 0;
+}
+
+.batch-recovery-link-section {
+  display: grid;
+  gap: 14px;
+}
+
+.batch-recovery-link-section h3 {
+  margin-top: 5px;
+  font-size: 1.15rem;
+}
+
+.batch-recovery-link-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  list-style: none;
+}
+
+.batch-recovery-link-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 16px;
+  min-width: 0;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.batch-recovery-link-copy {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 8px;
+}
+
+.batch-recovery-link-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-recovery-link-copy span {
+  flex: 0 0 auto;
+  color: var(--accent-bright);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.batch-recovery-link-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .batch-activation-review {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -8980,6 +9220,64 @@ body:has(main.deck-main) {
 }
 
 @media (max-width: 720px) {
+  .batch-recovery-safety,
+  .batch-recovery-steps,
+  .batch-recovery-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-recovery-steps {
+    gap: 14px;
+  }
+
+  .batch-recovery-steps li,
+  .batch-recovery-steps li:first-child,
+  .batch-recovery-steps li:last-child {
+    padding: 0;
+    border-right: 0;
+  }
+
+  .batch-recovery-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .batch-recovery-summary-grid {
+    gap: 12px;
+  }
+
+  .batch-recovery-summary-grid > div,
+  .batch-recovery-summary-grid > div:first-child,
+  .batch-recovery-summary-grid > div:last-child {
+    padding: 0 0 12px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  }
+
+  .batch-recovery-summary-grid > div:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .batch-recovery-actions,
+  .batch-recovery-link-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .batch-recovery-actions .btn,
+  .batch-recovery-link-actions .btn {
+    width: 100%;
+  }
+
+  .batch-recovery-link-list > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .batch-recovery-link-list .batch-lab-link-status {
+    justify-self: start;
+  }
+
   .claimable-mylinks-heading,
   .claimable-selection-toolbar {
     align-items: stretch;

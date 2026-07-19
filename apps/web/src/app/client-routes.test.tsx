@@ -44,4 +44,12 @@ describe("client route smoke rendering", () => {
     expect(renderToStaticMarkup(<MyProfilePage />)).toContain("Loading...");
     expect(renderToStaticMarkup(<DashboardPage />)).toContain("Loading...");
   });
+
+  it("renders the focused batch recovery route", async () => {
+    const { default: BatchRecoveryPage } = await import("./claim/batch-recovery/page");
+    const markup = renderToStaticMarkup(<BatchRecoveryPage />);
+    expect(markup).toContain("Recover a claim batch");
+    expect(markup).toContain("Choose your private recovery bundle");
+    expect(markup).not.toContain("Create a claim drop");
+  });
 });

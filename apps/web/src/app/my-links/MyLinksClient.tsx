@@ -2458,7 +2458,7 @@ export function MyLinksClient() {
               {!claimableDeleteTarget.manageUrl &&
               claimableDeleteTarget.linkKey.startsWith("batch-") &&
               !isClaimableTerminal(claimableDeleteTarget.status) ? (
-                <a className="btn btn-primary" href="/toccata-lab/batch">
+                <a className="btn btn-primary" href="/claim/batch-recovery">
                   Open batch recovery
                 </a>
               ) : claimableDeleteTarget.manageUrl &&
@@ -2754,7 +2754,7 @@ export function MyLinksClient() {
                             {expired ? "Open refund" : "Refund"}
                           </a>
                         ) : batchRecoveryMissing ? (
-                          <a className="btn btn-primary" href="/toccata-lab/batch">
+                          <a className="btn btn-primary" href="/claim/batch-recovery">
                             Open batch recovery
                           </a>
                         ) : null}
@@ -2858,7 +2858,7 @@ export function MyLinksClient() {
                               Refund link
                             </a>
                           ) : batchRecoveryMissing ? (
-                            <a className="btn" href="/toccata-lab/batch">
+                            <a className="btn" href="/claim/batch-recovery">
                               Batch recovery
                             </a>
                           ) : null}

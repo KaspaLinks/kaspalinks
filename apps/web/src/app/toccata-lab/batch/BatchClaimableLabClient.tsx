@@ -2,6 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- QR SVGs come from our validated internal endpoint. */
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   getKaswareProvider,
@@ -89,9 +90,11 @@ const EXISTING_BATCH_ERROR =
 export function BatchClaimableLabClient({
   capabilities,
   enabled,
+  mode = "create",
 }: {
   capabilities: Capabilities;
   enabled: boolean;
+  mode?: "create" | "recovery";
 }) {
   const [amountKas, setAmountKas] = useState("1");
   const [batch, setBatch] = useState<BatchRecord | null>(null);
@@ -1322,6 +1325,297 @@ export function BatchClaimableLabClient({
     window.open(refundUrl, "_blank", "noopener,noreferrer");
   }
 
+  function renderClearDialog() {
+    if (!showClearDialog || !batch) return null;
+    return (
+      <div
+        className="batch-wallet-modal-backdrop"
+        onMouseDown={(event) => {
+          if (event.currentTarget === event.target) setShowClearDialog(false);
+        }}
+        role="presentation"
+      >
+        <section
+          aria-labelledby="batch-clear-title"
+          aria-modal="true"
+          className="batch-wallet-modal"
+          role="dialog"
+        >
+          <button
+            aria-label="Cancel clearing the batch"
+            className="batch-wallet-modal-close"
+            onClick={() => setShowClearDialog(false)}
+            type="button"
+          >
+            ×
+          </button>
+          <span className="label">Clear local recovery</span>
+          <h2 id="batch-clear-title">Are you sure?</h2>
+          <p>
+            This removes this batch and its private recovery data from this browser. It does not
+            undo funding or change any on-chain transaction.
+          </p>
+          {!batch.recoveryExportedAt &&
+          (batch.activation.status === "funded" || batch.activation.status === "activated") ? (
+            <p className="notice notice-critical">
+              This batch is funded or active. Download the recovery bundle first; clearing is
+              blocked while browser-held recovery is not secured.
+            </p>
+          ) : null}
+          <div className="batch-wallet-modal-actions">
+            <button className="btn" onClick={() => setShowClearDialog(false)} type="button">
+              Keep recovery
+            </button>
+            <button className="btn btn-danger" onClick={() => void clearLocalBatch()} type="button">
+              Yes, clear recovery
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (mode === "recovery") {
+    return (
+      <main className="main-wide toccata-lab-page batch-recovery-page">
+        <section className="hero toccata-lab-hero batch-recovery-hero">
+          <span className="hero-eyebrow">Private recovery</span>
+          <h1 className="hero-title">Recover a claim batch.</h1>
+          <p className="hero-sub">
+            Restore the private recovery bundle saved before funding, then open the refund action
+            for the affected link.
+          </p>
+        </section>
+
+        <section className="batch-recovery-safety" role="note">
+          <div>
+            <span className="label">Browser-only recovery</span>
+            <h2>Your private codes stay on this device.</h2>
+          </div>
+          <p>
+            The file is validated and encrypted locally. Kaspa Links registers and checks only the
+            public contract data needed to show current on-chain status.
+          </p>
+        </section>
+
+        {error ? (
+          <div className="notice notice-critical batch-recovery-message" role="alert">
+            <strong>Recovery could not be completed.</strong>
+            <span>{error}</span>
+          </div>
+        ) : notice ? (
+          <div className="notice batch-recovery-message" role="status">
+            <strong>Recovery updated.</strong>
+            <span>{notice}</span>
+          </div>
+        ) : null}
+
+        <input
+          accept="application/json,.json"
+          hidden
+          onChange={(event) => void importRecoveryFile(event)}
+          ref={recoveryInputRef}
+          type="file"
+        />
+
+        {!batch ? (
+          <section className="card batch-recovery-import-card">
+            <header>
+              <span className="label">Step 1</span>
+              <h2>Choose your private recovery bundle</h2>
+              <p>
+                Select the JSON file downloaded when the batch was created. It is read only by this
+                browser and is never uploaded as a file.
+              </p>
+            </header>
+            <ol className="batch-recovery-steps">
+              <li>
+                <span>1</span>
+                <div>
+                  <strong>Import</strong>
+                  <p>Select the matching private recovery file.</p>
+                </div>
+              </li>
+              <li>
+                <span>2</span>
+                <div>
+                  <strong>Verify</strong>
+                  <p>The browser validates its keys and checks the public on-chain state.</p>
+                </div>
+              </li>
+              <li>
+                <span>3</span>
+                <div>
+                  <strong>Refund</strong>
+                  <p>Open the required refund action and sign it locally.</p>
+                </div>
+              </li>
+            </ol>
+            <div className="batch-recovery-actions">
+              <button
+                className="btn btn-primary"
+                disabled={!enabled || !capabilities.ready}
+                onClick={() => recoveryInputRef.current?.click()}
+                type="button"
+              >
+                Select recovery bundle
+              </button>
+              <Link className="btn" href="/my-links">
+                Back to My Links
+              </Link>
+            </div>
+            {!enabled || !capabilities.ready ? (
+              <p className="notice notice-critical">
+                Recovery is temporarily unavailable on this deployment. Your local file remains
+                unchanged.
+              </p>
+            ) : null}
+          </section>
+        ) : (
+          <section className="card batch-recovery-workspace">
+            <header className="batch-recovery-heading">
+              <div>
+                <span className="label">Recovered batch</span>
+                <h2>{batch.title}</h2>
+                <p>{batchActivationStatusText(batch.activation.status)}</p>
+              </div>
+              <span className={`status-pill status-${batch.activation.status}`}>
+                {batch.activation.status.replaceAll("_", " ")}
+              </span>
+            </header>
+
+            <div className="batch-recovery-summary-grid">
+              <div>
+                <span>Links</span>
+                <strong>{batch.links.filter((link) => !link.deletedAt).length}</strong>
+              </div>
+              <div>
+                <span>Claimed</span>
+                <strong>{summary?.claimed ?? 0}</strong>
+              </div>
+              <div>
+                <span>Refund availability</span>
+                <strong>
+                  {batchExpiry?.expired
+                    ? "Available now"
+                    : (batchExpiry?.remainingLabel ?? "Checking on-chain time")}
+                </strong>
+              </div>
+            </div>
+
+            {batch.activation.status === "funded" ? (
+              <div className="batch-lab-refund batch-recovery-full-refund">
+                <span className="label">Unactivated batch refund</span>
+                <p className="muted">
+                  The batch was funded but its individual outputs were not created. After expiry,
+                  refund the complete allocator output to an address you verify.
+                </p>
+                <label className="label" htmlFor="recovery-batch-refund-address">
+                  Refund address
+                </label>
+                <input
+                  id="recovery-batch-refund-address"
+                  onChange={(event) => setRefundAddress(event.target.value)}
+                  placeholder="kaspa:..."
+                  value={refundAddress}
+                />
+                <label className="batch-lab-confirm">
+                  <input
+                    checked={refundConfirmed}
+                    onChange={(event) => setRefundConfirmed(event.target.checked)}
+                    type="checkbox"
+                  />
+                  I verified the destination address. The browser signs locally and the server
+                  receives only the signed transaction.
+                </label>
+                <button
+                  className="btn btn-danger"
+                  disabled={
+                    checking ||
+                    refundAddress.trim().length === 0 ||
+                    !refundConfirmed ||
+                    batchExpiry?.expired !== true
+                  }
+                  onClick={() => void refundUnactivatedBatch()}
+                  type="button"
+                >
+                  {batchExpiry?.expired
+                    ? "Refund complete batch"
+                    : `Refund available ${batchExpiry?.remainingLabel ? `in about ${batchExpiry.remainingLabel}` : "after expiry"}`}
+                </button>
+              </div>
+            ) : null}
+
+            {batch.activation.status === "activated" ? (
+              <div className="batch-recovery-link-section">
+                <div>
+                  <span className="label">Individual links</span>
+                  <h3>Choose the link to refund</h3>
+                </div>
+                <ul className="batch-recovery-link-list">
+                  {batch.links
+                    .filter((link) => !link.deletedAt)
+                    .map((link) => {
+                      const closed = isBatchLinkTerminal(link.status);
+                      const refundReady =
+                        link.status === "refundable" || batchExpiry?.expired === true;
+                      return (
+                        <li key={link.id}>
+                          <div className="batch-recovery-link-copy">
+                            <strong>{link.title}</strong>
+                            <span>{link.netClaimKas} KAS</span>
+                          </div>
+                          <span className={`batch-lab-link-status is-${link.status}`}>
+                            {recoveryLinkStatus(link.status, refundReady)}
+                          </span>
+                          {!closed && link.fundingMatch ? (
+                            <div className="batch-recovery-link-actions">
+                              <button
+                                className="btn btn-primary"
+                                disabled={!refundReady}
+                                onClick={() => openIndividualRefund(link)}
+                                type="button"
+                              >
+                                {refundReady ? "Open refund" : "Refund after expiry"}
+                              </button>
+                              <button
+                                className="btn"
+                                disabled={!refundReady}
+                                onClick={() =>
+                                  void copyText(
+                                    buildRefundUrl(link, batch),
+                                    "Private refund link copied.",
+                                  )
+                                }
+                                type="button"
+                              >
+                                Copy refund link
+                              </button>
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                </ul>
+              </div>
+            ) : null}
+
+            <div className="batch-recovery-actions">
+              <Link className="btn btn-primary" href="/my-links">
+                Return to My Links
+              </Link>
+              <button className="btn" onClick={() => setShowClearDialog(true)} type="button">
+                Use another recovery bundle
+              </button>
+            </div>
+          </section>
+        )}
+
+        {renderClearDialog()}
+      </main>
+    );
+  }
+
   return (
     <main className="main-wide toccata-lab-page">
       <section className="hero toccata-lab-hero">
@@ -1494,56 +1788,7 @@ export function BatchClaimableLabClient({
         </div>
       ) : null}
 
-      {showClearDialog && batch ? (
-        <div
-          className="batch-wallet-modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setShowClearDialog(false);
-          }}
-          role="presentation"
-        >
-          <section
-            aria-labelledby="batch-clear-title"
-            aria-modal="true"
-            className="batch-wallet-modal"
-            role="dialog"
-          >
-            <button
-              aria-label="Cancel clearing the batch"
-              className="batch-wallet-modal-close"
-              onClick={() => setShowClearDialog(false)}
-              type="button"
-            >
-              ×
-            </button>
-            <span className="label">Clear local batch</span>
-            <h2 id="batch-clear-title">Are you sure?</h2>
-            <p>
-              This removes this batch from this browser. It does not undo funding or change any
-              on-chain transaction.
-            </p>
-            {!batch.recoveryExportedAt &&
-            (batch.activation.status === "funded" || batch.activation.status === "activated") ? (
-              <p className="notice notice-critical">
-                This batch is funded or active. Download the recovery bundle first; clearing is
-                blocked while browser-held recovery is not secured.
-              </p>
-            ) : null}
-            <div className="batch-wallet-modal-actions">
-              <button className="btn" onClick={() => setShowClearDialog(false)} type="button">
-                Keep batch
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={() => void clearLocalBatch()}
-                type="button"
-              >
-                Yes, clear batch
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      {renderClearDialog()}
 
       <div className="batch-lab-grid">
         <section className="card batch-lab-panel">
@@ -2613,6 +2858,24 @@ function humanStatus(status: BatchLink["status"]): string {
     : status === "funded"
       ? "Funded"
       : "Spent";
+}
+
+function recoveryLinkStatus(status: BatchLink["status"], refundReady: boolean): string {
+  switch (status) {
+    case "awaiting_activation":
+      return "Not activated";
+    case "funded":
+      return refundReady ? "Ready to refund" : "Claimable";
+    case "refundable":
+      return "Ready to refund";
+    case "claimed":
+      return "Claimed";
+    case "refunded":
+      return "Refunded";
+    case "spent_unknown":
+    case "spent":
+      return "Spent on-chain";
+  }
 }
 
 function batchActivationStatusText(status: BatchRecord["activation"]["status"]): string {
