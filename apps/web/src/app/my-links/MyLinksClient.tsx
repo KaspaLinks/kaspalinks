@@ -719,6 +719,12 @@ export function MyLinksClient() {
   const [claimableDeleteTarget, setClaimableDeleteTarget] = useState<MergedClaimable | null>(null);
   const [claimableDeleteError, setClaimableDeleteError] = useState<null | string>(null);
   const [deletingClaimable, setDeletingClaimable] = useState(false);
+  const [claimableQr, setClaimableQr] = useState<null | {
+    dataUrl: string;
+    linkKey: string;
+    title: string;
+  }>(null);
+  const [claimableQrLoadingId, setClaimableQrLoadingId] = useState("");
 
   useEffect(() => {
     const refresh = () => {
@@ -1279,6 +1285,31 @@ export function MyLinksClient() {
       setListError("Clipboard copy failed. Select and copy the value manually.");
     }
   }, []);
+
+  async function toggleClaimableQr(record: MergedClaimable, claimUrl: string) {
+    if (claimableQr?.linkKey === record.linkKey) {
+      setClaimableQr(null);
+      return;
+    }
+
+    setClaimableQrLoadingId(record.linkKey);
+    setListError(null);
+    try {
+      // Generate locally so the private claim code in the URL fragment never
+      // reaches an API, access log, or third-party QR service.
+      const QRCode = await import("qrcode");
+      const dataUrl = await QRCode.toDataURL(claimUrl, {
+        errorCorrectionLevel: "M",
+        margin: 2,
+        width: 720,
+      });
+      setClaimableQr({ dataUrl, linkKey: record.linkKey, title: record.title });
+    } catch (error) {
+      setListError(error instanceof Error ? error.message : "Could not create the claim QR code.");
+    } finally {
+      setClaimableQrLoadingId("");
+    }
+  }
 
   const toggleDisabled = useCallback(
     async (link: CreatorLink) => {
@@ -2689,6 +2720,30 @@ export function MyLinksClient() {
                             Open claim
                           </a>
                         ) : null}
+                        {versionedClaimUrl && !expired ? (
+                          <button
+                            className="btn"
+                            onClick={() => void copy(`${record.linkKey}-claim`, versionedClaimUrl)}
+                            type="button"
+                          >
+                            {copied === `${record.linkKey}-claim` ? "Copied!" : "Copy claim link"}
+                          </button>
+                        ) : null}
+                        {versionedClaimUrl && !expired ? (
+                          <button
+                            aria-expanded={claimableQr?.linkKey === record.linkKey}
+                            className="btn"
+                            disabled={claimableQrLoadingId === record.linkKey}
+                            onClick={() => void toggleClaimableQr(record, versionedClaimUrl)}
+                            type="button"
+                          >
+                            {claimableQrLoadingId === record.linkKey
+                              ? "Creating QR…"
+                              : claimableQr?.linkKey === record.linkKey
+                                ? "Hide QR"
+                                : "QR Code"}
+                          </button>
+                        ) : null}
                         {record.manageUrl ? (
                           <a
                             className={expired ? "btn btn-primary" : "btn"}
@@ -2705,6 +2760,47 @@ export function MyLinksClient() {
                         ) : null}
                       </div>
                     </div>
+
+                    {claimableQr?.linkKey === record.linkKey ? (
+                      <div className="qr-download-panel claimable-mylinks-qr-panel">
+                        <div className="qr-download-preview">
+                          <Image
+                            alt={`Claim QR code for ${claimableQr.title}`}
+                            height={196}
+                            src={claimableQr.dataUrl}
+                            unoptimized
+                            width={196}
+                          />
+                        </div>
+                        <div className="qr-download-copy">
+                          <span className="label">Claim QR code</span>
+                          <p>
+                            Share this QR to open <strong>{claimableQr.title}</strong> directly.
+                          </p>
+                          <p className="muted">
+                            The QR contains the private claim code. Anyone who scans it can claim
+                            the KAS while the link is available. It is generated only in this
+                            browser.
+                          </p>
+                          <div className="row">
+                            <a
+                              className="btn btn-primary"
+                              download={`kaspalinks-${record.linkKey}-claim.png`}
+                              href={claimableQr.dataUrl}
+                            >
+                              Download PNG
+                            </a>
+                            <button
+                              className="btn"
+                              onClick={() => setClaimableQr(null)}
+                              type="button"
+                            >
+                              Hide QR
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
 
                     <details className="claimable-mylinks-details">
                       <summary className="claimable-mylinks-summary">
@@ -2725,31 +2821,6 @@ export function MyLinksClient() {
                           </p>
                         ) : null}
                         <div className="claimable-mylinks-actions">
-                          {versionedClaimUrl && !expired ? (
-                            <a
-                              className="btn"
-                              href={versionedClaimUrl}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              Open claim link
-                            </a>
-                          ) : null}
-                          {versionedClaimUrl && !expired ? (
-                            <button
-                              className="btn"
-                              onClick={async () => {
-                                const ok = await writeClipboardText(versionedClaimUrl);
-                                if (ok) {
-                                  setCopied(`${record.linkKey}-claim`);
-                                  window.setTimeout(() => setCopied(null), 1600);
-                                }
-                              }}
-                              type="button"
-                            >
-                              {copied === `${record.linkKey}-claim` ? "Copied!" : "Copy claim link"}
-                            </button>
-                          ) : null}
                           {versionedClaimUrl && !expired ? (
                             <button
                               className="btn"

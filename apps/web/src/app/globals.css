@@ -7932,6 +7932,15 @@ body:has(main.deck-main) {
 .claimable-mylinks-primary-actions {
   justify-content: flex-end;
 }
+.claimable-mylinks-qr-panel {
+  margin-top: 2px;
+}
+.claimable-mylinks-qr-panel .qr-download-copy > p {
+  margin: 8px 0 0;
+}
+.claimable-mylinks-qr-panel .qr-download-copy .row {
+  margin-top: 14px;
+}
 .claimable-mylinks-details {
   border-top: 1px solid rgba(148, 163, 184, 0.16);
   padding-top: 10px;
