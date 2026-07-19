@@ -79,7 +79,7 @@ export type SendKaspaPaymentInput = {
 };
 
 export type SendKaspaPaymentResult = {
-  txId: string;
+  txId: null | string;
 };
 
 export type KaswareSignPsktInput = {
@@ -143,9 +143,10 @@ const KASWARE_CAPABILITY_METHODS = [
 /**
  * Forwards a payment intent to the connected KasWare wallet. The adapter never
  * touches private keys or seed phrases: KasWare displays its own confirmation
- * dialog, the user approves, and KasWare signs and broadcasts. We only get the
- * resulting transaction id back. Throws a typed `WalletAdapterError` on missing
- * support, unsafe amounts, user rejection, or unexpected provider responses.
+ * dialog, the user approves, and KasWare signs and broadcasts. Wallet versions
+ * do not always return the resulting transaction id, so callers must also rely
+ * on their on-chain detector. Throws a typed `WalletAdapterError` on missing
+ * support, unsafe amounts, or user rejection.
  */
 export async function sendKaspaPayment(
   provider: KaswareProvider,
@@ -186,12 +187,6 @@ export async function sendKaspaPayment(
   }
 
   const txId = extractTxId(raw);
-  if (!txId) {
-    throw new WalletAdapterError("KasWare did not return a transaction id.", {
-      code: "KASWARE_NO_TX_ID",
-    });
-  }
-
   return { txId };
 }
 

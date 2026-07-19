@@ -202,7 +202,7 @@ describe("KasWare wallet adapter", () => {
     });
   });
 
-  it("rejects unexpected wallet response shapes", async () => {
+  it("allows on-chain detection when KasWare resolves without a transaction id", async () => {
     const provider: KaswareProvider = {
       requestAccounts: vi.fn(),
       sendKaspa: vi.fn(async () => ({ foo: "bar" })),
@@ -213,7 +213,7 @@ describe("KasWare wallet adapter", () => {
         amountSompi: 1_000_000n,
         toAddress: "kaspa:abc",
       }),
-    ).rejects.toMatchObject({ code: "KASWARE_NO_TX_ID" });
+    ).resolves.toEqual({ txId: null });
   });
 
   it("refuses to even talk to a wallet that lacks sendKaspa", async () => {

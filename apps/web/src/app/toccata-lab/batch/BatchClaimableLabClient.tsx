@@ -894,8 +894,11 @@ export function BatchClaimableLabClient({
       }
 
       setShowKaswareHelp(false);
+      setFundingAutoChecking(true);
       setNotice(
-        `KasWare sent the batch funding transaction ${compactTransactionId(result.txId)}. Checking the one-time address now.`,
+        result.txId
+          ? `KasWare sent the batch funding transaction ${compactTransactionId(result.txId)}. Checking the one-time address now.`
+          : "KasWare completed the wallet request without returning a transaction id. Checking the one-time address for the exact funding output now.",
       );
       window.setTimeout(() => void checkFunding({ quiet: true }), 1_500);
       window.setTimeout(() => void checkFunding({ quiet: true }), 5_000);

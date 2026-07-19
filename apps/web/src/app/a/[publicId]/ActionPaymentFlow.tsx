@@ -677,21 +677,11 @@ export function ActionPaymentFlow({
       setSentTxId(result.txId);
       setAwaitingKaswareConfirmation(true);
       setPayStatus(
-        "Transaction broadcasted. The status will flip to CONFIRMED automatically once the indexer sees it.",
+        result.txId
+          ? "Transaction broadcasted. The status will flip to CONFIRMED automatically once the indexer sees it."
+          : "Wallet request completed. Waiting for on-chain confirmation from the Kaspa network.",
       );
     } catch (err) {
-      if (err instanceof WalletAdapterError && err.code === "KASWARE_NO_TX_ID") {
-        // KasWare documents a returned txId, but if a wallet build resolves
-        // without one after the user signs, chain detection can still confirm
-        // the payment from recipient + amount. Keep the supporter in the
-        // post-sign waiting state instead of dropping them back onto the CTA.
-        setAwaitingKaswareConfirmation(true);
-        setPayStatus(
-          "Transaction submitted. Waiting for on-chain confirmation from the Kaspa network.",
-        );
-        return;
-      }
-
       const message =
         err instanceof WalletAdapterError
           ? err.message

@@ -1040,9 +1040,9 @@ export function ToccataLabClient({
       }
 
       setNotice(
-        `Funding transaction sent with KasWare: ${compactHex(
-          result.txId,
-        )}. Waiting for the indexer to detect the exact funding output.`,
+        result.txId
+          ? `Funding transaction sent with KasWare: ${compactHex(result.txId)}. Waiting for the indexer to detect the exact funding output.`
+          : "KasWare completed the wallet request without returning a transaction id. Waiting for the indexer to detect the exact funding output.",
       );
       setFundingAutoChecking(true);
       window.setTimeout(() => void checkFundingStatus({ auto: true, quiet: false }), 1_500);
