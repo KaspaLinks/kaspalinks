@@ -84,7 +84,7 @@ export async function POST(request: Request) {
             recipientAddress: parsed.data.fundingAddress,
             scanLimit: 20,
           });
-    const verifiedMatch =
+    const historyMatch =
       match !== null &&
       (parsed.data.fundingOutputIndex === undefined ||
         match.outputIndex === parsed.data.fundingOutputIndex)
@@ -95,9 +95,33 @@ export async function POST(request: Request) {
       currentUtxos = await readFundingUtxos(parsed.data.fundingAddress);
     } catch (error) {
       const needsAuthoritativeSpentCheck =
-        verifiedMatch !== null && !isInsideRecentFundingGrace(verifiedMatch.blockTime);
+        historyMatch !== null && !isInsideRecentFundingGrace(historyMatch.blockTime);
       if (needsAuthoritativeSpentCheck) throw error;
     }
+    // The UTXO endpoint can expose a newly accepted output before the address
+    // transaction history catches up. Treat an exact unspent outpoint as an
+    // authoritative funding match so a correct payment is never presented as
+    // an amount mismatch during that indexer propagation window.
+    const utxoMatch =
+      historyMatch === null
+        ? currentUtxos?.find(
+            (output) =>
+              output.amountSompi === amountSompi &&
+              (parsed.data.fundingTransactionId === undefined ||
+                (output.transactionId === parsed.data.fundingTransactionId.toLowerCase() &&
+                  output.outputIndex === parsed.data.fundingOutputIndex)),
+          ) ?? null
+        : null;
+    const verifiedMatch =
+      historyMatch ??
+      (utxoMatch
+        ? {
+            blockTime: null,
+            matchedSompi: utxoMatch.amountSompi,
+            outputIndex: utxoMatch.outputIndex,
+            transactionId: utxoMatch.transactionId,
+          }
+        : null);
     const spent =
       verifiedMatch === null
         ? false

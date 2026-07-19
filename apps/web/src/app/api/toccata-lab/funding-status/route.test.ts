@@ -99,6 +99,49 @@ describe("POST /api/toccata-lab/funding-status", () => {
     });
   });
 
+  it("uses an exact unspent output while transaction history is still catching up", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              outpoint: {
+                index: 0,
+                transactionId: "39661f4bd284f5b2aaea1a38e895c9d8a54f99a6cb2a863ddc27ff6899076a8d",
+              },
+              utxoEntry: { amount: "502000000" },
+            },
+          ]),
+          { status: 200 },
+        ),
+      );
+
+    const response = await POST(
+      fundingStatusRequest({
+        amountSompi: "502000000",
+        fundingAddress: FUNDING_ADDRESS,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      funded: true,
+      match: {
+        amountSompi: "502000000",
+        blockTime: null,
+        outputIndex: 0,
+        transactionId: "39661f4bd284f5b2aaea1a38e895c9d8a54f99a6cb2a863ddc27ff6899076a8d",
+      },
+      outputStatus: "funded_unspent",
+      registeredStatus: null,
+      spent: false,
+      unmatchedOutputs: [],
+      utxoScanAvailable: true,
+    });
+  });
+
   it("marks detected funding as spent when the exact output is no longer unspent", async () => {
     vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
     vi.spyOn(globalThis, "fetch")
