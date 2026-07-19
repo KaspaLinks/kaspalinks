@@ -19,6 +19,7 @@ const batchLinkSchema = z.object({
   claimCode: hex32Schema,
   claimPublicKey: hex32Schema,
   description: z.string().max(180),
+  deletedAt: z.string().datetime().optional(),
   feeKas: z.string().min(1).max(40),
   feeSompi: positiveIntegerSchema,
   fundingAddress: z.string().startsWith("kaspa:").max(128),
@@ -31,7 +32,15 @@ const batchLinkSchema = z.object({
   refundLockTime: nonNegativeIntegerSchema,
   refundPublicKey: hex32Schema,
   scriptPublicKeyHex: z.string().regex(/^[0-9a-f]+$/i),
-  status: z.enum(["awaiting_activation", "funded", "spent"]),
+  status: z.enum([
+    "awaiting_activation",
+    "funded",
+    "refundable",
+    "claimed",
+    "refunded",
+    "spent_unknown",
+    "spent",
+  ]),
   title: z.string().min(1).max(80),
 });
 

@@ -299,7 +299,11 @@ async function markRefunded(
     ...outputs.map((output) =>
       prisma.claimableLink.updateMany({
         data: { refundTxId: transactionId, refundedAt: now, status: "refunded" },
-        where: { creatorId, linkKey: output.linkKey },
+        where: {
+          creatorId,
+          linkKey: output.linkKey,
+          status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+        },
       }),
     ),
   ]);

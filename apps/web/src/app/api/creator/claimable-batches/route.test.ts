@@ -175,6 +175,17 @@ describe("GET /api/creator/claimable-batches", () => {
     });
     mockPrisma.$transaction.mockResolvedValue([]);
     mockPrisma.claimableBatch.update.mockResolvedValue({});
+    mockPrisma.claimableLink.findMany.mockResolvedValue(
+      outputs.map((output, outputIndex) => ({
+        claimTxId: null,
+        deletedAt: null,
+        fundingOutputIndex: outputIndex,
+        fundingTxId: "d".repeat(64),
+        linkKey: output.linkKey,
+        refundTxId: null,
+        status: "funded",
+      })),
+    );
     mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 1 });
   });
 
@@ -224,8 +235,21 @@ describe("GET /api/creator/claimable-batches", () => {
     expect(response.status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+        }),
+      }),
+    );
     await expect(response.json()).resolves.toMatchObject({
-      claimableBatch: { refundTxId: pendingRefundTxId, status: "refunded" },
+      claimableBatch: {
+        outputs: expect.arrayContaining([
+          expect.objectContaining({ linkKey: outputs[0]!.linkKey, status: "funded" }),
+        ]),
+        refundTxId: pendingRefundTxId,
+        status: "refunded",
+      },
     });
   });
 });

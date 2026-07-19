@@ -435,6 +435,7 @@ function recoverManageUrl(db: DbClaimableLink, local: ClaimableStoreRecord): str
 function mergeClaimable(
   dbLinks: DbClaimableLink[],
   localRecords: ClaimableStoreRecord[],
+  deletedLinkKeys: ReadonlySet<string>,
 ): MergedClaimable[] {
   const byKey = new Map<string, MergedClaimable>();
   const dbByKey = new Map(dbLinks.map((link) => [link.linkKey, link]));
@@ -460,6 +461,7 @@ function mergeClaimable(
   // localStorage adds the bearer secrets (claim/refund URLs) held only on this
   // device, and any links not yet mirrored to the DB.
   for (const local of localRecords) {
+    if (deletedLinkKeys.has(local.id)) continue;
     const existing = byKey.get(local.id);
     if (existing) {
       const db = dbByKey.get(local.id);
@@ -680,6 +682,9 @@ export function MyLinksClient() {
   );
 
   const [dbClaimableLinks, setDbClaimableLinks] = useState<DbClaimableLink[]>([]);
+  const [deletedClaimableLinkKeys, setDeletedClaimableLinkKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [claimableDaaScore, setClaimableDaaScore] = useState("");
   const [claimableDaaLoadedAtMs, setClaimableDaaLoadedAtMs] = useState<null | number>(null);
   const [claimableNowMs, setClaimableNowMs] = useState(() => Date.now());
@@ -693,6 +698,15 @@ export function MyLinksClient() {
         .then((body) => {
           if (!cancelled && body && Array.isArray(body.claimableLinks)) {
             setDbClaimableLinks(body.claimableLinks as DbClaimableLink[]);
+            setDeletedClaimableLinkKeys(
+              new Set(
+                Array.isArray(body.deletedClaimableLinkKeys)
+                  ? body.deletedClaimableLinkKeys.filter(
+                      (value: unknown): value is string => typeof value === "string",
+                    )
+                  : [],
+              ),
+            );
           }
         })
         .catch(() => {})
@@ -709,8 +723,8 @@ export function MyLinksClient() {
   }, [authHeaders, signedIn]);
 
   const mergedClaimable = useMemo(
-    () => mergeClaimable(dbClaimableLinks, claimableRecords),
-    [claimableRecords, dbClaimableLinks],
+    () => mergeClaimable(dbClaimableLinks, claimableRecords, deletedClaimableLinkKeys),
+    [claimableRecords, dbClaimableLinks, deletedClaimableLinkKeys],
   );
   const claimableStats = useMemo(
     () =>

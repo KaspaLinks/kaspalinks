@@ -39,6 +39,7 @@ type ClaimableLinkRow = {
   status: string;
   claimTxId: string | null;
   claimedAt: Date | null;
+  deletedAt: Date | null;
   refundTxId: string | null;
   refundedAt: Date | null;
   network: Network;
@@ -150,9 +151,19 @@ export async function GET(request: Request) {
     take: 200,
   });
 
+  const deletedLinks = await prisma.claimableLink.findMany({
+    orderBy: { deletedAt: "desc" },
+    select: { linkKey: true },
+    take: 500,
+    where: { creatorId: guard.creator.id, deletedAt: { not: null } },
+  });
+
   await maybeRefreshOnChain(guard.creator.id, links);
 
-  return apiJson({ claimableLinks: links.map(serialize) });
+  return apiJson({
+    claimableLinks: links.map(serialize),
+    deletedClaimableLinkKeys: deletedLinks.map((link) => link.linkKey),
+  });
 }
 
 export async function POST(request: Request) {

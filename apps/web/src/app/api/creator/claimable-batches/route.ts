@@ -50,7 +50,11 @@ export async function GET(request: Request) {
               fundingTxId: pendingActivationTxId,
               status: "funded",
             },
-            where: { creatorId: guard.creator.id, linkKey: output.linkKey },
+            where: {
+              creatorId: guard.creator.id,
+              linkKey: output.linkKey,
+              status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+            },
           }),
         ),
       ]);
@@ -77,7 +81,11 @@ export async function GET(request: Request) {
         ...outputs.map((output) =>
           prisma.claimableLink.updateMany({
             data: { refundTxId: pendingRefundTxId, refundedAt: now, status: "refunded" },
-            where: { creatorId: guard.creator.id, linkKey: output.linkKey },
+            where: {
+              creatorId: guard.creator.id,
+              linkKey: output.linkKey,
+              status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+            },
           }),
         ),
       ]);
@@ -88,13 +96,42 @@ export async function GET(request: Request) {
   }
   if (!batch) return apiError(ErrorCodes.NOT_FOUND, "Claimable batch not found.", 404);
 
+  const childLinks = await prisma.claimableLink.findMany({
+    select: {
+      claimTxId: true,
+      deletedAt: true,
+      fundingOutputIndex: true,
+      fundingTxId: true,
+      linkKey: true,
+      refundTxId: true,
+      status: true,
+    },
+    where: {
+      creatorId: guard.creator.id,
+      linkKey: { in: outputs.map((output) => output.linkKey) },
+    },
+  });
+  const childByKey = new Map(childLinks.map((link) => [link.linkKey, link]));
+
   return apiJson({
     claimableBatch: {
       activationTxId: batch.activationTxId,
       batchKey: batch.batchKey,
       fundingOutputIndex: batch.fundingOutputIndex,
       fundingTxId: batch.fundingTxId,
-      outputs: outputs.map((output, outputIndex) => ({ ...output, outputIndex })),
+      outputs: outputs.map((output, outputIndex) => {
+        const child = childByKey.get(output.linkKey);
+        return {
+          ...output,
+          claimTxId: child?.claimTxId ?? null,
+          deletedAt: child?.deletedAt?.toISOString() ?? null,
+          fundingOutputIndex: child?.fundingOutputIndex ?? null,
+          fundingTxId: child?.fundingTxId ?? null,
+          outputIndex,
+          refundTxId: child?.refundTxId ?? null,
+          status: child?.status ?? "unknown",
+        };
+      }),
       refundTxId: batch.refundTxId,
       status: batch.status,
     },

@@ -17,8 +17,16 @@ import {
   parseBatchRecoveryBundle,
   type BatchRecoveryRecord,
 } from "@/lib/batch-claimable-recovery";
+import {
+  reconcileBatchWithServer,
+  type RegisteredBatchState,
+} from "@/lib/batch-claimable-state";
 import { encodeClaimableFragmentPayload } from "@/lib/claimable-share";
-import { saveClaimableRecord, type ClaimableStoreRecord } from "@/lib/claimable-store";
+import {
+  removeClaimableRecord,
+  saveClaimableRecord,
+  type ClaimableStoreRecord,
+} from "@/lib/claimable-store";
 import {
   readEncryptedLocalJson,
   removeEncryptedLocalJson,
@@ -111,6 +119,12 @@ export function BatchClaimableLabClient({
   const [recoveringOutputId, setRecoveringOutputId] = useState("");
   const [recoveryTxId, setRecoveryTxId] = useState("");
   const fundingCheckInFlight = useRef(false);
+  const batchRef = useRef<BatchRecord | null>(null);
+  const batchReconcileInFlight = useRef<null | {
+    batchId: string;
+    promise: Promise<BatchRecord | null>;
+    requestId: symbol;
+  }>(null);
 
   // DAA-based expiry tracking (reused from main claimable lab for consistent UX)
   const [currentDaaScore, setCurrentDaaScore] = useState("");
@@ -132,6 +146,7 @@ export function BatchClaimableLabClient({
   useEffect(() => {
     void readEncryptedLocalJson<BatchRecord>(STORAGE_KEY).then(({ value }) => {
       if (value?.version === 2 && Array.isArray(value.links)) {
+        batchRef.current = value;
         setBatch(value);
         setShowKaswareHelp(false);
         setShowFundingQr(false);
@@ -146,24 +161,20 @@ export function BatchClaimableLabClient({
   }, [batch?.id]);
 
   useEffect(() => {
-    if (!batch || batch.activation.status !== "activated") return;
-
-    void saveBatchLinksToMyLinks(batch).catch(() => {
-      setError(
-        "The batch is active, but its private claim and refund links could not be added to My Links in this browser. Import the private recovery bundle and try again.",
-      );
-    });
-  }, [batch]);
-
-  useEffect(() => {
     const synchronizeVault = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY) return;
       void readEncryptedLocalJson<BatchRecord>(STORAGE_KEY).then(({ value }) => {
         if (value?.version === 2 && Array.isArray(value.links)) {
-          setBatch((current) =>
-            !current || (value.updatedAtMs ?? 0) >= (current.updatedAtMs ?? 0) ? value : current,
-          );
-        } else if (!value) setBatch(null);
+          setBatch((current) => {
+            const next =
+              !current || (value.updatedAtMs ?? 0) >= (current.updatedAtMs ?? 0) ? value : current;
+            batchRef.current = next;
+            return next;
+          });
+        } else if (!value) {
+          batchRef.current = null;
+          setBatch(null);
+        }
       });
     };
     window.addEventListener("storage", synchronizeVault);
@@ -188,15 +199,11 @@ export function BatchClaimableLabClient({
     return () => window.clearInterval(timer);
   }, []);
 
-  // Fetch current DAA score periodically while batch is active and not terminal
+  // Re-anchor expiry against Kaspa DAA while setup is active. Activated batches
+  // use a slower cadence so long-lived tabs still show a trustworthy deadline.
   useEffect(() => {
-    if (
-      !batch ||
-      ((batch.activation.status === "activated" || batch.activation.status === "refunded") &&
-        unmatchedFundingOutputs.length === 0)
-    ) {
+    if (!batch || (batch.activation.status === "refunded" && unmatchedFundingOutputs.length === 0))
       return;
-    }
 
     const fetchDaa = async () => {
       try {
@@ -212,7 +219,8 @@ export function BatchClaimableLabClient({
     };
 
     void fetchDaa();
-    const timer = window.setInterval(() => void fetchDaa(), 30_000);
+    const intervalMs = batch.activation.status === "activated" ? 120_000 : 30_000;
+    const timer = window.setInterval(() => void fetchDaa(), intervalMs);
     return () => window.clearInterval(timer);
   }, [
     batch?.id,
@@ -221,50 +229,57 @@ export function BatchClaimableLabClient({
     unmatchedFundingOutputs.length,
   ]);
 
-  // Automatic funding polling (modeled after the main claimable lab flow)
+  // One monitor owns automatic funding checks. Recovery export remains a
+  // funding-action safety gate, but it must not prevent status recovery.
   useEffect(() => {
     if (
-      !batch?.batchManifestRegisteredAt ||
-      !batch.recoveryExportedAt ||
-      batch.activation.status !== "awaiting_funding"
-    ) {
+      !batch ||
+      (batch.activation.status !== "awaiting_funding" && batch.activation.status !== "funded")
+    )
       return;
-    }
 
-    const initial = window.setTimeout(() => {
-      void checkFunding({ auto: true, quiet: true });
-    }, 1500);
+    const tick = (quiet = true) => void checkFunding({ auto: true, quiet });
+    const initial = window.setTimeout(() => tick(), 1_500);
+    const timer = window.setInterval(() => tick(), FUNDING_AUTO_CHECK_MS);
+    const checkWhenVisible = () => {
+      if (document.visibilityState === "visible") tick(false);
+    };
 
-    const timer = window.setInterval(() => {
-      void checkFunding({ auto: true, quiet: true });
-    }, FUNDING_AUTO_CHECK_MS);
+    window.addEventListener("focus", checkWhenVisible);
+    document.addEventListener("visibilitychange", checkWhenVisible);
 
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(timer);
+      window.removeEventListener("focus", checkWhenVisible);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
     };
-  }, [
-    batch?.id,
-    batch?.activation.status,
-    batch?.batchManifestRegisteredAt,
-    batch?.recoveryExportedAt,
-  ]);
+  }, [batch?.id, batch?.activation.status]);
 
+  // Reconcile public server state once after load/import/status changes. For
+  // terminal batches, focus refreshes replace the now-stopped funding poll.
   useEffect(() => {
+    if (!batch?.batchManifestRegisteredAt) return;
+    const reconcile = () => void reconcileRegisteredBatch(undefined, true);
+    reconcile();
+
     if (
-      !batch?.batchManifestRegisteredAt ||
-      !batch.recoveryExportedAt ||
-      batch.activation.status === "awaiting_funding"
+      batch.activation.status === "awaiting_funding" ||
+      batch.activation.status === "funded"
     ) {
       return;
     }
-    void checkFunding({ auto: true, quiet: true });
-  }, [
-    batch?.id,
-    batch?.activation.status,
-    batch?.batchManifestRegisteredAt,
-    batch?.recoveryExportedAt,
-  ]);
+
+    const reconcileWhenVisible = () => {
+      if (document.visibilityState === "visible") reconcile();
+    };
+    window.addEventListener("focus", reconcileWhenVisible);
+    document.addEventListener("visibilitychange", reconcileWhenVisible);
+    return () => {
+      window.removeEventListener("focus", reconcileWhenVisible);
+      document.removeEventListener("visibilitychange", reconcileWhenVisible);
+    };
+  }, [batch?.id, batch?.activation.status, batch?.batchManifestRegisteredAt]);
 
   useEffect(() => {
     if (!showKaswareHelp) return;
@@ -275,43 +290,16 @@ export function BatchClaimableLabClient({
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [showKaswareHelp]);
 
-  // Re-check when the tab becomes visible again (same as live version)
-  useEffect(() => {
-    if (
-      !batch?.batchManifestRegisteredAt ||
-      !batch.recoveryExportedAt ||
-      batch.activation.status !== "awaiting_funding"
-    )
-      return;
-
-    const checkWhenVisible = () => {
-      if (document.visibilityState === "visible") {
-        void checkFunding({ auto: true, quiet: false });
-      }
-    };
-
-    window.addEventListener("focus", checkWhenVisible);
-    document.addEventListener("visibilitychange", checkWhenVisible);
-
-    return () => {
-      window.removeEventListener("focus", checkWhenVisible);
-      document.removeEventListener("visibilitychange", checkWhenVisible);
-    };
-  }, [
-    batch?.id,
-    batch?.activation.status,
-    batch?.batchManifestRegisteredAt,
-    batch?.recoveryExportedAt,
-  ]);
-
   const summary = useMemo(() => {
     if (!batch) return null;
     const funded = batch.links.filter((link) => link.status === "funded").length;
-    const spent = batch.links.filter((link) => link.status === "spent").length;
+    const closed = batch.links.filter((link) => isBatchLinkClosed(link.status)).length;
+    const claimed = batch.links.filter((link) => link.status === "claimed").length;
     return {
+      claimed,
+      closed,
       funded,
-      spent,
-      waiting: batch.links.length - funded - spent,
+      waiting: batch.links.length - funded - closed,
       activation: batch.activation.status,
     };
   }, [batch]);
@@ -402,11 +390,13 @@ export function BatchClaimableLabClient({
   async function persist(next: BatchRecord | null) {
     if (!next) {
       removeEncryptedLocalJson(STORAGE_KEY);
+      batchRef.current = null;
       setBatch(null);
       return;
     }
     const stamped = { ...next, updatedAtMs: Date.now() };
     await writeEncryptedLocalJson(STORAGE_KEY, stamped);
+    batchRef.current = stamped;
     setBatch(stamped);
   }
 
@@ -611,7 +601,8 @@ export function BatchClaimableLabClient({
   }
 
   async function checkFunding(options: { auto?: boolean; quiet?: boolean } = {}) {
-    if (!batch || fundingCheckInFlight.current) return;
+    const currentBatch = batchRef.current;
+    if (!currentBatch || fundingCheckInFlight.current) return;
     fundingCheckInFlight.current = true;
 
     if (!options.quiet) {
@@ -623,9 +614,9 @@ export function BatchClaimableLabClient({
     try {
       const response = await fetch("/api/toccata-lab/funding-status", {
         body: JSON.stringify({
-          amountSompi: batch.activation.fundingAmountSompi,
-          fundingAddress: batch.activation.fundingAddress,
-          notBefore: batch.createdAtMs,
+          amountSompi: currentBatch.activation.fundingAmountSompi,
+          fundingAddress: currentBatch.activation.fundingAddress,
+          notBefore: currentBatch.createdAtMs,
         }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -643,44 +634,52 @@ export function BatchClaimableLabClient({
       let resolvedMessage = "No exact batch funding output found yet.";
       if (body.funded && body.match) {
         if (body.outputStatus === "spent") {
-          const serverState = await readRegisteredBatchState(batch.id);
-          if (serverState.status === "activated" && serverState.activationTxId) {
-            await persist({
-              ...batch,
-              activation: { ...batch.activation, fundingMatch: body.match, status: "activated" },
-              links: batch.links.map((link, outputIndex) => ({
-                ...link,
-                fundingMatch: {
-                  amountSompi: link.amountSompi,
-                  blockTime: null,
-                  outputIndex,
-                  transactionId: serverState.activationTxId!,
-                },
-                status: "funded",
-              })),
-            });
+          const reconciled = await reconcileRegisteredBatch(currentBatch, true);
+          if (reconciled?.activation.status === "activated") {
             resolvedMessage = "Batch activation confirmed. Individual claim links are ready.";
-          } else if (serverState.status === "refunded") {
-            await persist({
-              ...batch,
-              activation: { ...batch.activation, fundingMatch: body.match, status: "refunded" },
-            });
+          } else if (reconciled?.activation.status === "refunded") {
             resolvedMessage = "The unactivated batch refund is confirmed.";
           } else {
-            await persist({
-              ...batch,
-              activation: { ...batch.activation, fundingMatch: body.match, status: "funded" },
-            });
-            resolvedMessage =
-              "The batch funding output was spent, but its outcome is still being reconciled. Retry the same activation or refresh shortly.";
+            const latest = batchRef.current?.id === currentBatch.id ? batchRef.current : null;
+            if (
+              !latest ||
+              (latest.activation.status !== "awaiting_funding" &&
+                latest.activation.status !== "funded")
+            ) {
+              resolvedMessage = "The latest batch status was restored.";
+            } else {
+              await persist({
+                ...latest,
+                activation: {
+                  ...latest.activation,
+                  fundingMatch: body.match,
+                  status: "funded",
+                },
+              });
+              resolvedMessage =
+                "The batch funding output was spent, but its outcome is still being reconciled. Retry the same activation or refresh shortly.";
+            }
           }
         } else {
-          await persist({
-            ...batch,
-            activation: { ...batch.activation, fundingMatch: body.match, status: "funded" },
-          });
-          resolvedMessage =
-            "Funding detected. Activate the batch to create the individual claim outputs.";
+          const latest = batchRef.current?.id === currentBatch.id ? batchRef.current : null;
+          if (
+            !latest ||
+            (latest.activation.status !== "awaiting_funding" &&
+              latest.activation.status !== "funded")
+          ) {
+            resolvedMessage = "The latest batch status was restored.";
+          } else {
+            await persist({
+              ...latest,
+              activation: {
+                ...latest.activation,
+                fundingMatch: body.match,
+                status: "funded",
+              },
+            });
+            resolvedMessage =
+              "Funding detected. Activate the batch to create the individual claim outputs.";
+          }
         }
         setShowKaswareHelp(false);
       } else if ((body.unmatchedOutputs?.length ?? 0) > 0) {
@@ -707,11 +706,7 @@ export function BatchClaimableLabClient({
     }
   }
 
-  async function readRegisteredBatchState(batchKey: string): Promise<{
-    activationTxId: null | string;
-    refundTxId: null | string;
-    status: string;
-  }> {
+  async function readRegisteredBatchState(batchKey: string): Promise<RegisteredBatchState> {
     const headers = readCreatorAuthHeaders();
     if (!headers) throw new Error("Sign in again to reconcile this batch.");
     const response = await fetch(
@@ -719,13 +714,53 @@ export function BatchClaimableLabClient({
       { headers },
     );
     const body = (await response.json()) as {
-      claimableBatch?: { activationTxId: null | string; refundTxId: null | string; status: string };
+      claimableBatch?: RegisteredBatchState;
       error?: { message?: string };
     };
     if (!response.ok || !body.claimableBatch) {
       throw new Error(body.error?.message ?? "Could not reconcile the registered batch.");
     }
     return body.claimableBatch;
+  }
+
+  function reconcileRegisteredBatch(
+    base: BatchRecord | undefined = batchRef.current ?? undefined,
+    quiet = false,
+  ): Promise<BatchRecord | null> {
+    if (!base?.batchManifestRegisteredAt) return Promise.resolve(base ?? null);
+    if (batchReconcileInFlight.current?.batchId === base.id) {
+      return batchReconcileInFlight.current.promise;
+    }
+
+    const requestId = Symbol(base.id);
+    const task = (async () => {
+      try {
+        const serverState = await readRegisteredBatchState(base.id);
+        const latest = batchRef.current?.id === base.id ? batchRef.current : null;
+        if (!latest) return null;
+        const next = reconcileBatchWithServer(latest, serverState);
+        await persist(next);
+        if (next.activation.status === "activated") {
+          await saveBatchLinksToMyLinks(next);
+        }
+        return next;
+      } catch (reconcileError) {
+        if (!quiet) {
+          setError(
+            reconcileError instanceof Error
+              ? reconcileError.message
+              : "Could not reconcile the registered batch.",
+          );
+        }
+        return null;
+      } finally {
+        if (batchReconcileInFlight.current?.requestId === requestId) {
+          batchReconcileInFlight.current = null;
+        }
+      }
+    })();
+    batchReconcileInFlight.current = { batchId: base.id, promise: task, requestId };
+    return task;
   }
 
   async function completeBatchRegistration() {
@@ -945,6 +980,7 @@ export function BatchClaimableLabClient({
         })),
       };
       await persist(next);
+      await reconcileRegisteredBatch(next, true);
       setShowKaswareHelp(false);
       setNotice(
         `Claim outputs created. ${next.links.length} individual claim links are now ready. All codes stayed in your browser.`,
@@ -998,7 +1034,9 @@ export function BatchClaimableLabClient({
       };
       if (!response.ok || !body.broadcast)
         throw new Error(body.error?.message ?? "Could not refund the batch.");
-      await persist({ ...batch, activation: { ...batch.activation, status: "refunded" } });
+      const next = { ...batch, activation: { ...batch.activation, status: "refunded" as const } };
+      await persist(next);
+      await reconcileRegisteredBatch(next, true);
       setShowKaswareHelp(false);
       setNotice("The unactivated batch refund was accepted. No claim URLs were distributed.");
     } catch (refundError) {
@@ -1139,11 +1177,13 @@ export function BatchClaimableLabClient({
       const bundle = parseBatchRecoveryBundle(await readTextFile(file));
       await registerAllBatchLinks(bundle.batch);
       const registeredAt = new Date().toISOString();
-      await persist({
+      const imported = {
         ...bundle.batch,
         batchManifestRegisteredAt: registeredAt,
         registrationCompleteAt: registeredAt,
-      });
+      };
+      await persist(imported);
+      await reconcileRegisteredBatch(imported, true);
       setNotice(
         `Recovered “${bundle.batch.title}” locally. Its public contract was revalidated; private codes were not uploaded.`,
       );
@@ -1660,8 +1700,8 @@ export function BatchClaimableLabClient({
                   <strong>{summary.funded}</strong>
                 </div>
                 <div>
-                  <span className="label">Spent</span>
-                  <strong>{summary.spent}</strong>
+                  <span className="label">Closed</span>
+                  <strong>{summary.closed}</strong>
                 </div>
               </div>
               <p className="batch-lab-summary">
@@ -2128,7 +2168,7 @@ export function BatchClaimableLabClient({
               <div className="batch-lab-link-section">
                 <span className="batch-lab-section-title">Individual claim outputs</span>
                 <p className="muted">
-                  {summary.spent} claimed · {batch.links.filter((link) => link.hidden).length}{" "}
+                  {summary.claimed} claimed · {batch.links.filter((link) => link.hidden).length}{" "}
                   marked do not distribute
                 </p>
                 <ul className="batch-lab-link-list">
@@ -2191,7 +2231,7 @@ export function BatchClaimableLabClient({
                         <div className="batch-link-recovery-actions">
                           <button
                             className="batch-lab-recovery-button"
-                            disabled={!link.fundingMatch || link.status === "spent"}
+                            disabled={!link.fundingMatch || isBatchLinkTerminal(link.status)}
                             onClick={() =>
                               copyText(buildRefundUrl(link, batch), "Private refund link copied.")
                             }
@@ -2201,7 +2241,7 @@ export function BatchClaimableLabClient({
                           </button>
                           <button
                             className="batch-lab-recovery-button"
-                            disabled={!link.fundingMatch || link.status === "spent"}
+                            disabled={!link.fundingMatch || isBatchLinkTerminal(link.status)}
                             onClick={() => openIndividualRefund(link)}
                             type="button"
                           >
@@ -2292,7 +2332,7 @@ function buildClaimUrl(link: BatchLink, batch: BatchRecord): string {
 }
 
 function toClaimableStoreRecord(link: BatchLink, batch: BatchRecord): ClaimableStoreRecord | null {
-  if (!link.fundingMatch) return null;
+  if (!link.fundingMatch || link.deletedAt) return null;
 
   return {
     amountKas: link.amountKas,
@@ -2308,7 +2348,12 @@ function toClaimableStoreRecord(link: BatchLink, batch: BatchRecord): ClaimableS
     netClaimKas: link.netClaimKas,
     refundCode: link.refundCode,
     refundLockTime: link.refundLockTime,
-    status: link.status === "spent" ? "spent_unknown" : "funded",
+    status:
+      link.status === "spent"
+        ? "spent_unknown"
+        : link.status === "awaiting_activation"
+          ? "funded"
+          : link.status,
     title: link.title,
     updatedAtMs: Date.now(),
     validFor: batch.validFor,
@@ -2316,6 +2361,9 @@ function toClaimableStoreRecord(link: BatchLink, batch: BatchRecord): ClaimableS
 }
 
 async function saveBatchLinksToMyLinks(batch: BatchRecord): Promise<void> {
+  for (const link of batch.links) {
+    if (link.deletedAt) await removeClaimableRecord(link.id);
+  }
   const records = batch.links
     .map((link) => toClaimableStoreRecord(link, batch))
     .filter((record): record is ClaimableStoreRecord => record !== null);
@@ -2323,6 +2371,19 @@ async function saveBatchLinksToMyLinks(batch: BatchRecord): Promise<void> {
   for (const record of records) {
     await saveClaimableRecord(record);
   }
+}
+
+function isBatchLinkTerminal(status: BatchLink["status"]): boolean {
+  return (
+    status === "claimed" ||
+    status === "refunded" ||
+    status === "spent_unknown" ||
+    status === "spent"
+  );
+}
+
+function isBatchLinkClosed(status: BatchLink["status"]): boolean {
+  return status === "refundable" || isBatchLinkTerminal(status);
 }
 
 function readCreatorAuthHeaders(): Record<string, string> | null {

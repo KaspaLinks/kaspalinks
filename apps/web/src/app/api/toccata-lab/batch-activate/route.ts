@@ -288,7 +288,11 @@ async function markActivated(input: {
           fundingTxId: input.transactionId,
           status: "funded",
         },
-        where: { creatorId: input.creatorId, linkKey: output.linkKey },
+        where: {
+          creatorId: input.creatorId,
+          linkKey: output.linkKey,
+          status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+        },
       }),
     ),
   ]);

@@ -211,6 +211,13 @@ describe("POST /api/toccata-lab/batch-activate", () => {
         where: expect.objectContaining({ pendingRefundTxId: null, refundTxId: null }),
       }),
     );
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+        }),
+      }),
+    );
   });
 });
 

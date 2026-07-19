@@ -181,7 +181,11 @@ describe("creator claimable link API", () => {
   });
 
   it("does not return claimable links removed from My Links", async () => {
+    mockPrisma.claimableLink.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ linkKey: "deleted-batch-child" }]);
     const response = await GET(new Request("https://kaspalinks.com/api/creator/claimable-links"));
+    const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(mockPrisma.claimableLink.findMany).toHaveBeenCalledWith({
@@ -189,6 +193,7 @@ describe("creator claimable link API", () => {
       take: 200,
       where: { creatorId: "creator-1", deletedAt: null },
     });
+    expect(body.deletedClaimableLinkKeys).toEqual(["deleted-batch-child"]);
   });
 
   it("returns terminal transaction details for creator activity", async () => {

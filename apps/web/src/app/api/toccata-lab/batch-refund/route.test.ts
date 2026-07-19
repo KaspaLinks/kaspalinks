@@ -178,6 +178,13 @@ describe("POST /api/toccata-lab/batch-refund", () => {
         where: expect.objectContaining({ activationTxId: null, pendingActivationTxId: null }),
       }),
     );
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: { notIn: ["claimed", "refunded", "spent_unknown"] },
+        }),
+      }),
+    );
   });
 
   it("rejects a refund while batch activation is pending", async () => {
