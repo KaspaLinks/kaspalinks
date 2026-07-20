@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import { buildBatchRecoveryPath } from "@/lib/batch-claimable-recovery";
+import { buildClaimableRecoveryPath } from "@/lib/claimable-recovery";
 import { writeClipboardText } from "@/lib/clipboard";
 import {
   buildCompactClaimUrl,
@@ -2890,7 +2891,7 @@ export function MyLinksClient() {
                           <p className="claimable-mylinks-expiry-notice">
                             {batchRecoveryMissing
                               ? "This browser does not have the private refund key. Open Batch recovery and restore the private recovery bundle saved before funding."
-                              : "This browser does not have the private refund key. Server data alone cannot recreate it. Use the private refund link saved when this link was created."}
+                              : "This browser does not have the private refund key. Import the private recovery bundle saved before funding, or use the private refund link saved after funding."}
                           </p>
                         ) : null}
                       </div>
@@ -2938,19 +2939,21 @@ export function MyLinksClient() {
                           >
                             {expired ? "Open refund" : "Refund"}
                           </a>
-                        ) : batchRecoveryMissing ? (
+                        ) : privateRecoveryMissing ? (
                           <a
                             className="btn btn-primary"
                             href={
-                              record.batchKey
+                              batchRecoveryMissing && record.batchKey
                                 ? buildBatchRecoveryPath(
                                     record.batchKey,
                                     record.batchTitle ?? record.title,
                                   )
-                                : "/claim/batch-recovery"
+                                : batchRecoveryMissing
+                                  ? "/claim/batch-recovery"
+                                  : buildClaimableRecoveryPath(record.linkKey, record.title)
                             }
                           >
-                            Open batch recovery
+                            {batchRecoveryMissing ? "Open batch recovery" : "Open recovery"}
                           </a>
                         ) : null}
                       </div>
@@ -3052,19 +3055,21 @@ export function MyLinksClient() {
                             >
                               Refund link
                             </a>
-                          ) : batchRecoveryMissing ? (
+                          ) : privateRecoveryMissing ? (
                             <a
                               className="btn"
                               href={
-                                record.batchKey
+                                batchRecoveryMissing && record.batchKey
                                   ? buildBatchRecoveryPath(
                                       record.batchKey,
                                       record.batchTitle ?? record.title,
                                     )
-                                  : "/claim/batch-recovery"
+                                  : batchRecoveryMissing
+                                    ? "/claim/batch-recovery"
+                                    : buildClaimableRecoveryPath(record.linkKey, record.title)
                               }
                             >
-                              Batch recovery
+                              {batchRecoveryMissing ? "Batch recovery" : "Recovery"}
                             </a>
                           ) : null}
                           {deletable ? (

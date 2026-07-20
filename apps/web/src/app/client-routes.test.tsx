@@ -67,6 +67,7 @@ describe("client route smoke rendering", () => {
     expect(markup).toContain('aria-label="Refund flow"');
     expect(markup).toContain("Open refund");
     expect(markup).toContain("Wait for expiry");
+    expect(markup).toContain("Select recovery bundle");
     expect(markup).not.toContain("Create, fund, then share.");
     expect(markup).not.toContain("Send Kaspa that anyone can claim with a link.");
   });

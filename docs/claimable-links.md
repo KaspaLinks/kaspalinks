@@ -9,11 +9,12 @@ claims before the timer ends, the creator can use a private refund link to recov
 1. The creator chooses a title, amount, network fee, and claim window.
 2. The browser creates separate claim and refund key pairs.
 3. Kaspa Links derives a one-time funding address from the public keys.
-4. The creator funds that exact address with the exact amount shown in the UI.
-5. The app waits until the funding transaction is detected on-chain.
-6. The creator shares the claim link only after funding is detected.
-7. The recipient opens the claim link, enters their own Kaspa address, reviews the transaction, and claims the KAS.
-8. If the timer expires before a claim, the creator can open the private refund link and refund the unclaimed KAS.
+4. The creator downloads the private recovery bundle before any funding action is unlocked.
+5. The creator funds that exact address with the exact amount shown in the UI.
+6. The app waits until the funding transaction is detected on-chain.
+7. The creator shares the claim link only after funding is detected.
+8. The recipient opens the claim link, enters their own Kaspa address, reviews the transaction, and claims the KAS.
+9. If the timer expires before a claim, the creator can import the recovery bundle or open the private refund link and refund the unclaimed KAS.
 
 ### Expiry semantics
 
@@ -33,6 +34,8 @@ confirmed on-chain.
   visible post text.
 - Creator recovery records are AES-GCM encrypted in local browser storage with key material derived
   from the session-only creator token.
+- A single-link recovery bundle contains the refund code and public contract metadata, but not the
+  claim code. It is created and validated locally and is never uploaded as a file.
 - Browsers do not send URL fragments to the server.
 - The server stores public metadata, funding status, and public keys only.
 - On registration and before broadcast, the server reconstructs the canonical funding address and
@@ -46,7 +49,8 @@ confirmed on-chain.
 
 - Fund exactly the amount shown.
 - Wait for the UI to say funding was detected before sharing the claim link.
-- Save the private refund link immediately.
+- Download the private recovery bundle before funding and keep it private and offline.
+- Save the private refund link after funding as a second recovery option.
 - New claimable links start at 1 KAS.
 - Use small amounts while testing a new wallet or browser.
 - Treat the claim link like cash: whoever has it first can claim it.

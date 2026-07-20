@@ -23,6 +23,7 @@ export type ClaimableStoreRecord = {
   // keys here allows recovery URLs to be rebuilt after a render interruption.
   claimCode?: string;
   refundCode?: string;
+  recoveryExportedAt?: string;
   updatedAtMs: number;
 };
 

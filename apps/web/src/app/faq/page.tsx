@@ -77,7 +77,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     answer:
-      "You choose an amount and a claim window, then fund a fresh one-time Kaspa address. Only after that funding is detected do you share the claim link. The recipient opens it, enters their own Kaspa address, reviews the transaction, and claims the KAS. When the timer ends, Kaspa Links stops preparing new claims and your private refund path becomes available. The output closes when either a claim or refund is confirmed on-chain.",
+      "You choose an amount and a claim window, then download the private recovery bundle before funding a fresh one-time Kaspa address. Only after funding is detected do you share the claim link. The recipient enters their own Kaspa address and claims the KAS. When the timer ends, import your recovery bundle or open the private refund link to recover an unclaimed output. The output closes when either a claim or refund is confirmed on-chain.",
     link: { href: "/claim/create", label: "Create a claimable link" },
     question: "How does a claimable link work?",
   },
@@ -89,7 +89,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     answer:
-      "The browser creates separate claim and refund codes. The claim code is kept after the # in the claim URL, which browsers do not send to our server. For a Claim Drop, every link gets its own private codes and the recovery bundle stays with you. The server stores public metadata and relays already signed transaction JSON, but it never stores claim/refund private keys and cannot claim or refund for you.",
+      "The browser creates separate claim and refund codes. The claim code is kept after the # in the claim URL, which browsers do not send to our server. A single-link recovery bundle contains only its refund code and public contract data; it does not contain the claim code. For a Claim Drop, every link gets its own private codes and the batch recovery bundle stays with you. The server stores public metadata and relays already signed transaction JSON, but it never stores claim/refund private keys and cannot claim or refund for you.",
     question: "How does the claimable link stay non-custodial?",
   },
   {
