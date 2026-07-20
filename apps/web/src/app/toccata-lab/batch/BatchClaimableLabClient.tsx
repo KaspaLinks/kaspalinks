@@ -148,6 +148,7 @@ export function BatchClaimableLabClient({
   const [activationConfirmed, setActivationConfirmed] = useState(false);
   const [refundConfirmed, setRefundConfirmed] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
+  const [showCreatedDialog, setShowCreatedDialog] = useState(false);
   const [claimQr, setClaimQr] = useState<null | {
     dataUrl: string;
     linkId: string;
@@ -304,6 +305,15 @@ export function BatchClaimableLabClient({
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [showKaswareHelp]);
+
+  useEffect(() => {
+    if (!showCreatedDialog) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowCreatedDialog(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showCreatedDialog]);
 
   const summary = useMemo(() => {
     if (!batch) return null;
@@ -1032,6 +1042,7 @@ export function BatchClaimableLabClient({
       await persist(next);
       await reconcileRegisteredBatch(next);
       setShowKaswareHelp(false);
+      setShowCreatedDialog(true);
       setNotice(
         `Claim outputs created. ${next.links.length} individual claim links are now ready. All codes stayed in your browser.`,
       );
@@ -1864,6 +1875,76 @@ export function BatchClaimableLabClient({
         </div>
       ) : null}
 
+      {showCreatedDialog && batch?.activation.status === "activated" ? (
+        <div
+          className="batch-wallet-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setShowCreatedDialog(false);
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="batch-created-dialog-title"
+            aria-modal="true"
+            className="batch-wallet-modal batch-created-dialog"
+            role="dialog"
+          >
+            <button
+              aria-label="Close completed Claim Drop"
+              className="batch-wallet-modal-close"
+              onClick={() => setShowCreatedDialog(false)}
+              type="button"
+            >
+              ×
+            </button>
+            <span aria-hidden="true" className="batch-created-dialog-mark">
+              ✓
+            </span>
+            <span className="label">Claim Drop created</span>
+            <h2 id="batch-created-dialog-title">
+              Your {batch.links.length} claim {batch.links.length === 1 ? "link is" : "links are"}{" "}
+              ready.
+            </h2>
+            <p>
+              Open the first link to see exactly what recipients will see, or review every link
+              before sharing.
+            </p>
+            <div className="batch-wallet-modal-actions batch-created-dialog-actions">
+              {firstDistributableClaimUrl ? (
+                <button
+                  autoFocus
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setShowCreatedDialog(false);
+                    window.open(firstDistributableClaimUrl, "_blank", "noopener,noreferrer");
+                  }}
+                  type="button"
+                >
+                  Preview first link
+                </button>
+              ) : null}
+              <button
+                className="btn"
+                onClick={() => {
+                  setShowCreatedDialog(false);
+                  window.requestAnimationFrame(() =>
+                    document
+                      .getElementById("batch-created-links")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                  );
+                }}
+                type="button"
+              >
+                View all links
+              </button>
+              <button className="btn" onClick={() => setShowCreatedDialog(false)} type="button">
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {claimQr ? (
         <div
           className="batch-wallet-modal-backdrop"
@@ -1898,45 +1979,6 @@ export function BatchClaimableLabClient({
       ) : null}
 
       {renderClearDialog()}
-
-      {batch?.activation.status === "activated" ? (
-        <section
-          aria-labelledby="batch-created-title"
-          className="batch-created-success"
-          role="status"
-        >
-          <span aria-hidden="true" className="batch-created-success-mark">
-            ✓
-          </span>
-          <div className="batch-created-success-copy">
-            <span className="label">Claim Drop created</span>
-            <h2 id="batch-created-title">
-              Your {batch.links.length} claim {batch.links.length === 1 ? "link is" : "links are"}{" "}
-              ready.
-            </h2>
-            <p>
-              Open the first link to see exactly what recipients will see, or review every link
-              below before sharing.
-            </p>
-          </div>
-          <div className="batch-created-success-actions">
-            {firstDistributableClaimUrl ? (
-              <button
-                className="btn btn-primary"
-                onClick={() =>
-                  window.open(firstDistributableClaimUrl, "_blank", "noopener,noreferrer")
-                }
-                type="button"
-              >
-                Preview first link
-              </button>
-            ) : null}
-            <a className="btn" href="#batch-created-links">
-              View all links
-            </a>
-          </div>
-        </section>
-      ) : null}
 
       <div className="batch-lab-grid">
         <section className="card batch-lab-panel">
