@@ -385,6 +385,20 @@ export function BatchClaimableLabClient({
         : "",
     [batch, batchFundingAmountKas],
   );
+  const firstDistributableLink =
+    batch?.activation.status === "activated"
+      ? batch.links.find(
+          (link) =>
+            link.status === "funded" &&
+            Boolean(link.fundingMatch) &&
+            !link.hidden &&
+            !link.deletedAt,
+        )
+      : undefined;
+  const firstDistributableClaimUrl =
+    batch && firstDistributableLink && typeof window !== "undefined"
+      ? buildClaimUrl(firstDistributableLink, batch)
+      : "";
   const batchCreationPreview = useMemo(() => {
     const linkCount = Number.parseInt(count, 10);
     if (!Number.isInteger(linkCount) || linkCount < 2 || linkCount > MAX_BATCH_SIZE) return null;
@@ -1885,6 +1899,45 @@ export function BatchClaimableLabClient({
 
       {renderClearDialog()}
 
+      {batch?.activation.status === "activated" ? (
+        <section
+          aria-labelledby="batch-created-title"
+          className="batch-created-success"
+          role="status"
+        >
+          <span aria-hidden="true" className="batch-created-success-mark">
+            ✓
+          </span>
+          <div className="batch-created-success-copy">
+            <span className="label">Claim Drop created</span>
+            <h2 id="batch-created-title">
+              Your {batch.links.length} claim {batch.links.length === 1 ? "link is" : "links are"}{" "}
+              ready.
+            </h2>
+            <p>
+              Open the first link to see exactly what recipients will see, or review every link
+              below before sharing.
+            </p>
+          </div>
+          <div className="batch-created-success-actions">
+            {firstDistributableClaimUrl ? (
+              <button
+                className="btn btn-primary"
+                onClick={() =>
+                  window.open(firstDistributableClaimUrl, "_blank", "noopener,noreferrer")
+                }
+                type="button"
+              >
+                Preview first link
+              </button>
+            ) : null}
+            <a className="btn" href="#batch-created-links">
+              View all links
+            </a>
+          </div>
+        </section>
+      ) : null}
+
       <div className="batch-lab-grid">
         <section className="card batch-lab-panel">
           <header className="batch-lab-panel-heading">
@@ -2545,7 +2598,7 @@ export function BatchClaimableLabClient({
                   </button>
                 </div>
               ) : null}
-              <div className="batch-lab-link-section">
+              <div className="batch-lab-link-section" id="batch-created-links">
                 <span className="batch-lab-section-title">Individual claim outputs</span>
                 <p className="muted">
                   {summary.claimed} claimed · {batch.links.filter((link) => link.hidden).length}{" "}
