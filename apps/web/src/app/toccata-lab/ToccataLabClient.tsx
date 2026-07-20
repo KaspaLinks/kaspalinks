@@ -15,6 +15,7 @@ import {
   updateClaimableStatus,
   type ClaimableStoreRecord,
 } from "@/lib/claimable-store";
+import { isSingleClaimableFundingUnlocked } from "@/lib/claimable-recovery-choice";
 import {
   assertClaimableMatchesRecoveryTarget,
   createClaimableRecoveryBundle,
@@ -393,9 +394,13 @@ export function ToccataLabClient({
   const [labLink, setLabLink] = useState<ClaimableLabLink | null>(null);
   const [claimOnlyView, setClaimOnlyView] = useState(initialMode === "claim");
   const [manageOnlyView, setManageOnlyView] = useState(initialMode === "manage");
+  const [recoveryBackupSkippedAt, setRecoveryBackupSkippedAt] = useState<null | string>(null);
+  const [recoverySkipConfirmed, setRecoverySkipConfirmed] = useState(false);
   const [recoveryExportedAt, setRecoveryExportedAt] = useState<null | string>(null);
   const [recoveryTarget, setRecoveryTarget] = useState<ClaimableRecoveryTarget | null>(null);
-  const [createdDialog, setCreatedDialog] = useState<"ready" | "setup" | null>(null);
+  const [createdDialog, setCreatedDialog] = useState<"ready" | "setup" | "skip-backup" | null>(
+    null,
+  );
   const [creatorSignedIn, setCreatorSignedIn] = useState(true);
   const [claimDestination, setClaimDestination] = useState("");
   const [manualClaimCode, setManualClaimCode] = useState("");
@@ -498,7 +503,11 @@ export function ToccataLabClient({
   }, []);
   const fundingWalletUri = useMemo(() => buildFundingWalletUri(labLink), [labLink]);
   const linkFunded = labLink?.status === "funded" || labLink?.status === "shared";
-  const shareReady = linkFunded && (claimOnlyView || manageOnlyView || Boolean(recoveryExportedAt));
+  const recoveryReadyForFunding = isSingleClaimableFundingUnlocked(
+    recoveryExportedAt,
+    recoveryBackupSkippedAt,
+  );
+  const shareReady = linkFunded && (claimOnlyView || manageOnlyView || recoveryReadyForFunding);
 
   useEffect(() => {
     const wasReady = previousShareReadyRef.current;
@@ -511,7 +520,9 @@ export function ToccataLabClient({
   useEffect(() => {
     if (!createdDialog) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setCreatedDialog(null);
+      if (event.key !== "Escape") return;
+      setRecoverySkipConfirmed(false);
+      setCreatedDialog((current) => (current === "skip-backup" ? "setup" : null));
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
@@ -617,6 +628,9 @@ export function ToccataLabClient({
     setClaimSendNotice("");
     setRefundSendError("");
     setRefundSendNotice("");
+    setRecoveryBackupSkippedAt(null);
+    setRecoverySkipConfirmed(false);
+    setRecoveryExportedAt(null);
     setNotice(
       isManage
         ? "Refund link loaded. Once the claim window expires you can send the unclaimed KAS back to your own address."
@@ -961,6 +975,8 @@ export function ToccataLabClient({
     setClaimSendNotice("");
     setRefundSendError("");
     setRefundSendNotice("");
+    setRecoveryBackupSkippedAt(null);
+    setRecoverySkipConfirmed(false);
     setRecoveryExportedAt(null);
     setCreatedDialog("setup");
     setNotice("Claimable link created. Fund the one-time address before sharing the claim link.");
@@ -1033,10 +1049,13 @@ export function ToccataLabClient({
         `kaspa-links-${safeFilename(labLink.title)}-${safeFilename(labLink.id)}-private-recovery.json`,
         bundle,
       );
+      setRecoveryBackupSkippedAt(null);
+      setRecoverySkipConfirmed(false);
       setRecoveryExportedAt(exportedAt);
       try {
         await saveClaimableRecord({
           ...toClaimableStoreRecord(labLink, claimUrl, manageUrl),
+          recoveryBackupSkippedAt: undefined,
           recoveryExportedAt: exportedAt,
         });
         setNotice("Private recovery bundle downloaded. Keep it private and offline.");
@@ -1052,6 +1071,56 @@ export function ToccataLabClient({
           : "Could not create the recovery bundle.",
       );
     }
+  }
+
+  function scrollToSingleClaimableFunding() {
+    window.requestAnimationFrame(() =>
+      document
+        .getElementById("single-claimable-funding")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  }
+
+  function openRecoverySkipWarning() {
+    setRecoverySkipConfirmed(false);
+    setCreatedDialog("skip-backup");
+  }
+
+  function returnToRecoverySetup() {
+    setRecoverySkipConfirmed(false);
+    setCreatedDialog("setup");
+  }
+
+  function closeCreatedDialog() {
+    setRecoverySkipConfirmed(false);
+    setCreatedDialog((current) => (current === "skip-backup" ? "setup" : null));
+  }
+
+  async function continueWithoutRecoveryBackup() {
+    if (!labLink || !recoverySkipConfirmed) return;
+
+    const skippedAt = new Date().toISOString();
+    setRecoveryBackupSkippedAt(skippedAt);
+    setRecoverySkipConfirmed(false);
+    setCreatedDialog(null);
+    setError("");
+
+    try {
+      await saveClaimableRecord({
+        ...toClaimableStoreRecord(labLink, claimUrl, manageUrl),
+        recoveryBackupSkippedAt: skippedAt,
+        recoveryExportedAt: undefined,
+      });
+      setNotice(
+        "Continuing without a recovery file. The refund key remains encrypted in this browser only; download a backup before funding if possible.",
+      );
+    } catch {
+      setNotice(
+        "Continuing without a recovery file. Do not clear this browser or lose your creator token; Kaspa Links cannot restore the refund key.",
+      );
+    }
+
+    scrollToSingleClaimableFunding();
   }
 
   async function importRecoveryFile(event: ChangeEvent<HTMLInputElement>) {
@@ -1102,6 +1171,8 @@ export function ToccataLabClient({
       setLinkDescription(recoveredLink.description);
       setManageOnlyView(true);
       setClaimOnlyView(false);
+      setRecoveryBackupSkippedAt(null);
+      setRecoverySkipConfirmed(false);
       setRecoveryExportedAt(bundle.exportedAt);
       setClaimSpend(null);
       setRefundSpend(null);
@@ -1172,8 +1243,8 @@ export function ToccataLabClient({
 
   function openFundingWallet() {
     if (!fundingWalletUri) return;
-    if (!recoveryExportedAt) {
-      setError("Download the private recovery bundle before funding this link.");
+    if (!recoveryReadyForFunding) {
+      setError("Download the recovery bundle or confirm that you want to continue without one.");
       return;
     }
     setError("");
@@ -1186,8 +1257,8 @@ export function ToccataLabClient({
 
   async function fundWithKasware() {
     if (!labLink?.fundingAddress) return;
-    if (!recoveryExportedAt) {
-      setError("Download the private recovery bundle before funding this link.");
+    if (!recoveryReadyForFunding) {
+      setError("Download the recovery bundle or confirm that you want to continue without one.");
       return;
     }
 
@@ -1393,8 +1464,8 @@ export function ToccataLabClient({
 
   async function copyFundingAddress() {
     if (!labLink?.fundingAddress) return;
-    if (!recoveryExportedAt) {
-      setError("Download the private recovery bundle before copying the funding address.");
+    if (!recoveryReadyForFunding) {
+      setError("Download the recovery bundle or confirm that you want to continue without one.");
       return;
     }
     await copyText(labLink.fundingAddress, "Funding address copied.");
@@ -1402,8 +1473,8 @@ export function ToccataLabClient({
 
   async function copyFundingUri() {
     if (!fundingWalletUri) return;
-    if (!recoveryExportedAt) {
-      setError("Download the private recovery bundle before copying the funding URI.");
+    if (!recoveryReadyForFunding) {
+      setError("Download the recovery bundle or confirm that you want to continue without one.");
       return;
     }
     await copyText(fundingWalletUri, "Funding wallet URI copied.");
@@ -1833,40 +1904,63 @@ export function ToccataLabClient({
         <div
           className="batch-wallet-modal-backdrop"
           onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setCreatedDialog(null);
+            if (event.currentTarget === event.target) closeCreatedDialog();
           }}
           role="presentation"
         >
           <section
             aria-labelledby="single-claimable-created-dialog-title"
             aria-modal="true"
-            className="batch-wallet-modal batch-created-dialog single-claimable-created-dialog"
+            className={`batch-wallet-modal batch-created-dialog single-claimable-created-dialog${
+              createdDialog === "skip-backup" ? " is-backup-warning" : ""
+            }`}
             role="dialog"
           >
             <button
               aria-label="Close claimable link dialog"
               className="batch-wallet-modal-close"
-              onClick={() => setCreatedDialog(null)}
+              onClick={closeCreatedDialog}
               type="button"
             >
               ×
             </button>
             <span aria-hidden="true" className="batch-created-dialog-mark">
-              {createdDialog === "ready" ? "✓" : "1"}
+              {createdDialog === "ready" ? "✓" : createdDialog === "skip-backup" ? "!" : "1"}
             </span>
             <span className="label">
-              {createdDialog === "ready" ? "Claimable link ready" : "Link setup created"}
+              {createdDialog === "ready"
+                ? "Claimable link ready"
+                : createdDialog === "skip-backup"
+                  ? "Recovery warning"
+                  : "Link setup created"}
             </span>
             <h2 id="single-claimable-created-dialog-title">
               {createdDialog === "ready"
                 ? "Your funded link is ready to share."
-                : "Save recovery before funding."}
+                : createdDialog === "skip-backup"
+                  ? "Continue without a backup?"
+                  : "Protect your refund before funding."}
             </h2>
             <p>
               {createdDialog === "ready"
                 ? "Funding was detected on-chain. You can now open the recipient view or copy the claim link."
-                : "Download the private recovery bundle now. It restores the refund path on another device and never contains the claim code."}
+                : createdDialog === "skip-backup"
+                  ? "Without the recovery file, unclaimed KAS can be refunded only while this browser still has the encrypted refund key and your creator token. If browser data, the token, or this device is lost, Kaspa Links cannot recover the funds."
+                  : "Download the private recovery bundle, or explicitly continue with recovery limited to this browser."}
             </p>
+            {createdDialog === "skip-backup" ? (
+              <label className="claimable-backup-risk-check">
+                <input
+                  checked={recoverySkipConfirmed}
+                  onChange={(event) => setRecoverySkipConfirmed(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  I understand that the refund may become permanently unavailable without this
+                  backup.
+                </span>
+              </label>
+            ) : null}
             <div className="batch-wallet-modal-actions batch-created-dialog-actions">
               {createdDialog === "setup" ? (
                 <>
@@ -1880,18 +1974,34 @@ export function ToccataLabClient({
                   </button>
                   <button
                     className="btn"
-                    disabled={!recoveryExportedAt}
                     onClick={() => {
+                      if (!recoveryExportedAt) {
+                        openRecoverySkipWarning();
+                        return;
+                      }
                       setCreatedDialog(null);
-                      window.requestAnimationFrame(() =>
-                        document
-                          .getElementById("single-claimable-funding")
-                          ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-                      );
+                      scrollToSingleClaimableFunding();
                     }}
                     type="button"
                   >
-                    Continue to funding
+                    {recoveryExportedAt ? "Continue to funding" : "Continue without backup"}
+                  </button>
+                  <button className="btn" onClick={closeCreatedDialog} type="button">
+                    Close
+                  </button>
+                </>
+              ) : createdDialog === "skip-backup" ? (
+                <>
+                  <button className="btn" onClick={returnToRecoverySetup} type="button">
+                    Back to download
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    disabled={!recoverySkipConfirmed}
+                    onClick={() => void continueWithoutRecoveryBackup()}
+                    type="button"
+                  >
+                    Continue without backup
                   </button>
                 </>
               ) : (
@@ -1917,11 +2027,11 @@ export function ToccataLabClient({
                   >
                     Copy claim link
                   </button>
+                  <button className="btn" onClick={closeCreatedDialog} type="button">
+                    Close
+                  </button>
                 </>
               )}
-              <button className="btn" onClick={() => setCreatedDialog(null)} type="button">
-                Close
-              </button>
             </div>
           </section>
         </div>
@@ -2094,22 +2204,62 @@ export function ToccataLabClient({
                     </div>
                   </div>
                   <div
-                    className={`batch-recovery-before-funding${recoveryExportedAt ? " is-complete" : ""}`}
+                    className={`batch-recovery-before-funding${
+                      recoveryExportedAt
+                        ? " is-complete"
+                        : recoveryBackupSkippedAt
+                          ? " is-skipped"
+                          : ""
+                    }`}
                   >
                     <div>
-                      <span className="label">Before funding</span>
-                      <strong>Save your private recovery bundle</strong>
-                      <p>Needed to refund on another device. Keep it private.</p>
+                      <span className="label">
+                        {recoveryExportedAt
+                          ? "Recovery protected"
+                          : recoveryBackupSkippedAt
+                            ? "Backup skipped"
+                            : "Before funding"}
+                      </span>
+                      <strong>
+                        {recoveryExportedAt
+                          ? "Private recovery bundle saved"
+                          : recoveryBackupSkippedAt
+                            ? "Recovery is limited to this browser"
+                            : "Protect your refund path"}
+                      </strong>
+                      <p>
+                        {recoveryExportedAt
+                          ? "Keep the file private. It restores the refund path on another device."
+                          : recoveryBackupSkippedAt
+                            ? "If browser data, your creator token, or this device is lost, Kaspa Links cannot recover unclaimed KAS."
+                            : "Download the private recovery file, or continue only after accepting the risk."}
+                      </p>
                     </div>
-                    <button
-                      className={recoveryExportedAt ? "btn" : "btn btn-primary"}
-                      onClick={() => void downloadRecoveryFile()}
-                      type="button"
-                    >
-                      {recoveryExportedAt ? "Download again" : "Download recovery bundle"}
-                    </button>
+                    <div className="claimable-recovery-choice-actions">
+                      <button
+                        className={recoveryExportedAt ? "btn" : "btn btn-primary"}
+                        onClick={() => void downloadRecoveryFile()}
+                        type="button"
+                      >
+                        {recoveryExportedAt
+                          ? "Download again"
+                          : recoveryBackupSkippedAt
+                            ? "Download backup now"
+                            : "Download recovery bundle"}
+                      </button>
+                      {!recoveryReadyForFunding ? (
+                        <button className="btn" onClick={openRecoverySkipWarning} type="button">
+                          Continue without backup
+                        </button>
+                      ) : null}
+                    </div>
                     {recoveryExportedAt ? (
                       <span className="batch-recovery-saved">Recovery bundle saved</span>
+                    ) : recoveryBackupSkippedAt ? (
+                      <span className="claimable-recovery-skipped">
+                        No recovery file saved. You can still download it before or after funding
+                        while this browser retains the key.
+                      </span>
                     ) : null}
                   </div>
                   {labLink.status === "awaiting_funding" ? (
@@ -2306,11 +2456,11 @@ export function ToccataLabClient({
                     <strong>{labLink.title}</strong>
                     <span className="label">Funding address</span>
                     <p className="value-mono">
-                      {recoveryExportedAt
+                      {recoveryReadyForFunding
                         ? (labLink.fundingAddress ?? FUNDING_ADDRESS_PENDING)
-                        : "Save the recovery bundle to reveal the funding address."}
+                        : "Choose a recovery option to reveal the funding address."}
                     </p>
-                    {labLink.fundingAddress && recoveryExportedAt ? (
+                    {labLink.fundingAddress && recoveryReadyForFunding ? (
                       <div className="claimable-funding-qr">
                         <FundingQrCode
                           ariaLabel={`Funding QR code for ${labLink.amountKas} KAS`}
@@ -2335,7 +2485,7 @@ export function ToccataLabClient({
                         {isTouchOnly === false ? (
                           <button
                             className="btn btn-primary"
-                            disabled={fundingWithKasware || !recoveryExportedAt}
+                            disabled={fundingWithKasware || !recoveryReadyForFunding}
                             onClick={() => void fundWithKasware()}
                             type="button"
                           >
@@ -2344,7 +2494,7 @@ export function ToccataLabClient({
                         ) : (
                           <button
                             className="btn btn-primary"
-                            disabled={!fundingWalletUri || !recoveryExportedAt}
+                            disabled={!fundingWalletUri || !recoveryReadyForFunding}
                             onClick={openFundingWallet}
                             type="button"
                           >
@@ -2353,7 +2503,7 @@ export function ToccataLabClient({
                         )}
                         <button
                           className="btn"
-                          disabled={!fundingWalletUri || !recoveryExportedAt}
+                          disabled={!fundingWalletUri || !recoveryReadyForFunding}
                           onClick={copyFundingUri}
                           type="button"
                         >
@@ -2406,7 +2556,7 @@ export function ToccataLabClient({
                   <div className="claimable-action-row">
                     <button
                       className="btn"
-                      disabled={!labLink.fundingAddress || !recoveryExportedAt}
+                      disabled={!labLink.fundingAddress || !recoveryReadyForFunding}
                       onClick={copyFundingAddress}
                       type="button"
                     >

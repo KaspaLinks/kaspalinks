@@ -8443,11 +8443,31 @@ body:has(main.deck-main) {
   background: rgba(73, 234, 203, 0.055);
 }
 
+.batch-recovery-before-funding.is-skipped {
+  border-left-color: #f06a78;
+  background: rgba(240, 106, 120, 0.07);
+}
+
+.batch-recovery-before-funding > .claimable-recovery-choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .batch-recovery-saved {
   grid-column: 1 / -1;
   color: var(--accent-bright);
   font-size: 0.76rem;
   font-weight: 750;
+}
+
+.claimable-recovery-skipped {
+  grid-column: 1 / -1;
+  color: #ff9aa6;
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 1.45;
 }
 
 .batch-lab-funding-callout {
@@ -9105,6 +9125,12 @@ body:has(main.deck-main) {
     width: 100%;
   }
 
+  .batch-recovery-before-funding > .claimable-recovery-choice-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
   .batch-amount-preview {
     grid-template-columns: 1fr;
   }
@@ -9423,6 +9449,42 @@ body:has(main.deck-main) {
 
 .batch-created-dialog-actions {
   margin-top: 8px;
+}
+
+.single-claimable-created-dialog.is-backup-warning {
+  border-color: rgba(240, 106, 120, 0.58);
+}
+
+.single-claimable-created-dialog.is-backup-warning .batch-created-dialog-mark {
+  border-color: rgba(240, 106, 120, 0.56);
+  background: rgba(240, 106, 120, 0.12);
+  color: #ff9aa6;
+}
+
+.single-claimable-created-dialog.is-backup-warning .batch-wallet-modal-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.claimable-backup-risk-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(240, 106, 120, 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(240, 106, 120, 0.07);
+  color: var(--fg);
+  text-align: left;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.claimable-backup-risk-check input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: #f06a78;
 }
 
 .batch-wallet-modal-close {
