@@ -1438,7 +1438,10 @@ textarea {
 
 .claimable-funding-qr {
   display: grid;
-  justify-items: start;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
 }
 
 .claimable-funding-qr img {
@@ -1447,6 +1450,22 @@ textarea {
   padding: 10px;
   border-radius: var(--radius-sm);
   background: #fff;
+}
+
+.claimable-funding-qr > .notice {
+  max-width: 320px;
+  margin: 0;
+}
+
+.claimable-funding-qr-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.claimable-funding-qr-copy strong,
+.claimable-funding-qr-copy p {
+  margin: 0;
 }
 
 .claimable-lab-mini-grid {
@@ -1703,6 +1722,21 @@ textarea {
 
   .claimable-link-field {
     min-height: 120px;
+  }
+
+  .claimable-funding-qr {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .claimable-funding-qr img {
+    width: min(240px, 100%);
+  }
+
+  .single-claimable-created-dialog {
+    max-height: calc(100dvh - 24px);
+    padding: 20px 18px;
   }
 }
 

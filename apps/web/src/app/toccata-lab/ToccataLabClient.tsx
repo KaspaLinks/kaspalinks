@@ -396,6 +396,8 @@ export function ToccataLabClient({
   const [manageOnlyView, setManageOnlyView] = useState(initialMode === "manage");
   const [recoveryExportedAt, setRecoveryExportedAt] = useState<null | string>(null);
   const [recoveryTarget, setRecoveryTarget] = useState<ClaimableRecoveryTarget | null>(null);
+  const [createdDialog, setCreatedDialog] = useState<"ready" | "setup" | null>(null);
+  const [fundingQrFailed, setFundingQrFailed] = useState(false);
   const [creatorSignedIn, setCreatorSignedIn] = useState(true);
   const [claimDestination, setClaimDestination] = useState("");
   const [manualClaimCode, setManualClaimCode] = useState("");
@@ -424,6 +426,7 @@ export function ToccataLabClient({
   const [isTouchOnly, setIsTouchOnly] = useState<null | boolean>(null);
   const [spendBuilding, setSpendBuilding] = useState<"claim" | "refund" | null>(null);
   const recoveryInputRef = useRef<HTMLInputElement>(null);
+  const previousShareReadyRef = useRef(false);
 
   const spendPlanResult = useMemo(() => {
     try {
@@ -498,6 +501,27 @@ export function ToccataLabClient({
   const fundingWalletUri = useMemo(() => buildFundingWalletUri(labLink), [labLink]);
   const linkFunded = labLink?.status === "funded" || labLink?.status === "shared";
   const shareReady = linkFunded && (claimOnlyView || manageOnlyView || Boolean(recoveryExportedAt));
+
+  useEffect(() => {
+    const wasReady = previousShareReadyRef.current;
+    previousShareReadyRef.current = shareReady;
+    if (!claimOnlyView && !manageOnlyView && shareReady && !wasReady) {
+      setCreatedDialog("ready");
+    }
+  }, [claimOnlyView, manageOnlyView, shareReady]);
+
+  useEffect(() => {
+    setFundingQrFailed(false);
+  }, [labLink?.id, recoveryExportedAt]);
+
+  useEffect(() => {
+    if (!createdDialog) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCreatedDialog(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [createdDialog]);
   const projectedDaaScore = useMemo(
     () => projectDaaScore(currentDaaScore, currentDaaLoadedAtMs, timerNowMs),
     [currentDaaLoadedAtMs, currentDaaScore, timerNowMs],
@@ -807,6 +831,7 @@ export function ToccataLabClient({
     event.preventDefault();
     setError("");
     setNotice("");
+    setCreatedDialog(null);
 
     if (!enabled) {
       setError("Claimable links are disabled on this deployment.");
@@ -943,15 +968,16 @@ export function ToccataLabClient({
     setRefundSendError("");
     setRefundSendNotice("");
     setRecoveryExportedAt(null);
+    setCreatedDialog("setup");
     setNotice("Claimable link created. Fund the one-time address before sharing the claim link.");
   }
 
   async function copyClaimLink() {
     if (!claimUrl || !shareReady) return;
     await copyText(claimUrl, "Claim link copied.");
-    if (labLink?.status === "funded") {
-      setLabLink({ ...labLink, status: "shared" });
-    }
+    setLabLink((current) =>
+      current?.status === "funded" ? { ...current, status: "shared" } : current,
+    );
   }
 
   function buildXSafeShare() {
@@ -1868,6 +1894,104 @@ export function ToccataLabClient({
         )}
       </div>
 
+      {createdDialog && labLink && !claimOnlyView && !manageOnlyView ? (
+        <div
+          className="batch-wallet-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setCreatedDialog(null);
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="single-claimable-created-dialog-title"
+            aria-modal="true"
+            className="batch-wallet-modal batch-created-dialog single-claimable-created-dialog"
+            role="dialog"
+          >
+            <button
+              aria-label="Close claimable link dialog"
+              className="batch-wallet-modal-close"
+              onClick={() => setCreatedDialog(null)}
+              type="button"
+            >
+              ×
+            </button>
+            <span aria-hidden="true" className="batch-created-dialog-mark">
+              {createdDialog === "ready" ? "✓" : "1"}
+            </span>
+            <span className="label">
+              {createdDialog === "ready" ? "Claimable link ready" : "Link setup created"}
+            </span>
+            <h2 id="single-claimable-created-dialog-title">
+              {createdDialog === "ready"
+                ? "Your funded link is ready to share."
+                : "Save recovery before funding."}
+            </h2>
+            <p>
+              {createdDialog === "ready"
+                ? "Funding was detected on-chain. You can now open the recipient view or copy the claim link."
+                : "Download the private recovery bundle now. It restores the refund path on another device and never contains the claim code."}
+            </p>
+            <div className="batch-wallet-modal-actions batch-created-dialog-actions">
+              {createdDialog === "setup" ? (
+                <>
+                  <button
+                    autoFocus
+                    className="btn btn-primary"
+                    onClick={() => void downloadRecoveryFile()}
+                    type="button"
+                  >
+                    {recoveryExportedAt ? "Download again" : "Download recovery bundle"}
+                  </button>
+                  <button
+                    className="btn"
+                    disabled={!recoveryExportedAt}
+                    onClick={() => {
+                      setCreatedDialog(null);
+                      window.requestAnimationFrame(() =>
+                        document
+                          .getElementById("single-claimable-funding")
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                      );
+                    }}
+                    type="button"
+                  >
+                    Continue to funding
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    autoFocus
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setCreatedDialog(null);
+                      window.open(claimUrl, "_blank", "noopener,noreferrer");
+                    }}
+                    type="button"
+                  >
+                    Open claim link
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setCreatedDialog(null);
+                      void copyClaimLink();
+                    }}
+                    type="button"
+                  >
+                    Copy claim link
+                  </button>
+                </>
+              )}
+              <button className="btn" onClick={() => setCreatedDialog(null)} type="button">
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       <input
         accept="application/json,.json"
         hidden
@@ -2034,7 +2158,7 @@ export function ToccataLabClient({
               </form>
             </section>
 
-            <section className="card claimable-lab-panel">
+            <section className="card claimable-lab-panel" id="single-claimable-funding">
               <span className="label">Funding</span>
               <h2>Await funding before sharing</h2>
               {labLink ? (
@@ -2285,14 +2409,31 @@ export function ToccataLabClient({
                     </p>
                     {labLink.fundingAddress && recoveryExportedAt ? (
                       <div className="claimable-funding-qr">
-                        <img
-                          alt="Funding QR code"
-                          src={`/api/toccata-lab/qr?${new URLSearchParams({
-                            amountKas: labLink.amountKas,
-                            label: "Kaspa Links claimable link",
-                            recipientAddress: labLink.fundingAddress,
-                          }).toString()}`}
-                        />
+                        {fundingQrFailed ? (
+                          <div className="notice notice-warn" role="status">
+                            QR code could not be loaded. Use Open in Kaspium or copy the funding URI
+                            below.
+                          </div>
+                        ) : (
+                          <img
+                            alt={`Funding QR code for ${labLink.amountKas} KAS`}
+                            onError={() => setFundingQrFailed(true)}
+                            src={`/api/toccata-lab/qr?${new URLSearchParams({
+                              amountKas: labLink.amountKas,
+                              format: "png",
+                              label: "Kaspa Links claimable link",
+                              recipientAddress: labLink.fundingAddress,
+                              size: "512",
+                            }).toString()}`}
+                          />
+                        )}
+                        <div className="claimable-funding-qr-copy">
+                          <strong>Scan with Kaspium</strong>
+                          <p>
+                            The one-time address and exact amount are included. Verify both before
+                            sending.
+                          </p>
+                        </div>
                       </div>
                     ) : null}
                   </div>
