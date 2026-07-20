@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertBatchMatchesRecoveryTarget,
+  buildBatchRecoveryPath,
   createBatchRecoveryBundle,
   parseBatchRecoveryBundle,
+  readBatchRecoveryTarget,
+  shortBatchReference,
   type BatchRecoveryRecord,
 } from "./batch-claimable-recovery";
 import { deriveToccataLabKeyPair } from "./toccata-lab-keys";
@@ -61,6 +65,33 @@ function record(): BatchRecoveryRecord {
 }
 
 describe("batch claimable recovery", () => {
+  it("round-trips a targeted recovery route without exposing recovery data", () => {
+    const path = buildBatchRecoveryPath("batch-mrrtsxio-230bdf69", "Community claim drop");
+
+    expect(path).toBe(
+      "/claim/batch-recovery?batch=batch-mrrtsxio-230bdf69&title=Community+claim+drop",
+    );
+    expect(readBatchRecoveryTarget(path.split("?")[1] ?? "")).toEqual({
+      batchKey: "batch-mrrtsxio-230bdf69",
+      title: "Community claim drop",
+    });
+    expect(shortBatchReference("batch-mrrtsxio-230bdf69")).toBe("mrrtsxio");
+  });
+
+  it("ignores malformed recovery targets", () => {
+    expect(buildBatchRecoveryPath("../../wrong", "Wrong")).toBe("/claim/batch-recovery");
+    expect(readBatchRecoveryTarget("batch=../../wrong")).toBeNull();
+  });
+
+  it("rejects a valid recovery bundle for a different requested batch", () => {
+    expect(() =>
+      assertBatchMatchesRecoveryTarget(record(), {
+        batchKey: "batch-community-drop",
+        title: "Community claim drop",
+      }),
+    ).toThrow(/not the requested batch/i);
+  });
+
   it("round-trips a complete private recovery bundle", () => {
     const bundle = createBatchRecoveryBundle(record(), "2026-07-12T11:00:00.000Z");
 

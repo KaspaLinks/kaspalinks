@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
+import { buildBatchRecoveryPath } from "@/lib/batch-claimable-recovery";
 import { writeClipboardText } from "@/lib/clipboard";
 import {
   buildCompactClaimUrl,
@@ -2490,7 +2491,17 @@ export function MyLinksClient() {
               {!claimableDeleteTarget.manageUrl &&
               claimableDeleteTarget.linkKey.startsWith("batch-") &&
               !isClaimableTerminal(claimableDeleteTarget.status) ? (
-                <a className="btn btn-primary" href="/claim/batch-recovery">
+                <a
+                  className="btn btn-primary"
+                  href={
+                    claimableDeleteTarget.batchKey
+                      ? buildBatchRecoveryPath(
+                          claimableDeleteTarget.batchKey,
+                          claimableDeleteTarget.batchTitle ?? claimableDeleteTarget.title,
+                        )
+                      : "/claim/batch-recovery"
+                  }
+                >
                   Open batch recovery
                 </a>
               ) : claimableDeleteTarget.manageUrl &&
@@ -2786,7 +2797,17 @@ export function MyLinksClient() {
                             {expired ? "Open refund" : "Refund"}
                           </a>
                         ) : batchRecoveryMissing ? (
-                          <a className="btn btn-primary" href="/claim/batch-recovery">
+                          <a
+                            className="btn btn-primary"
+                            href={
+                              record.batchKey
+                                ? buildBatchRecoveryPath(
+                                    record.batchKey,
+                                    record.batchTitle ?? record.title,
+                                  )
+                                : "/claim/batch-recovery"
+                            }
+                          >
                             Open batch recovery
                           </a>
                         ) : null}
@@ -2890,7 +2911,17 @@ export function MyLinksClient() {
                               Refund link
                             </a>
                           ) : batchRecoveryMissing ? (
-                            <a className="btn" href="/claim/batch-recovery">
+                            <a
+                              className="btn"
+                              href={
+                                record.batchKey
+                                  ? buildBatchRecoveryPath(
+                                      record.batchKey,
+                                      record.batchTitle ?? record.title,
+                                    )
+                                  : "/claim/batch-recovery"
+                              }
+                            >
                               Batch recovery
                             </a>
                           ) : null}

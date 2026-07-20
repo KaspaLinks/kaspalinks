@@ -80,6 +80,42 @@ const recoveryBundleSchema = z.object({
 
 export type BatchRecoveryRecord = z.infer<typeof batchRecordSchema>;
 export type BatchRecoveryBundle = z.infer<typeof recoveryBundleSchema>;
+export type BatchRecoveryTarget = { batchKey: string; title: string };
+
+export function buildBatchRecoveryPath(batchKey: string, title = ""): string {
+  const normalizedBatchKey = batchKey.trim();
+  if (!/^[a-zA-Z0-9_-]{1,120}$/.test(normalizedBatchKey)) {
+    return "/claim/batch-recovery";
+  }
+  const params = new URLSearchParams({ batch: normalizedBatchKey });
+  const normalizedTitle = title.trim().slice(0, 80);
+  if (normalizedTitle) params.set("title", normalizedTitle);
+  return `/claim/batch-recovery?${params.toString()}`;
+}
+
+export function readBatchRecoveryTarget(search: string): BatchRecoveryTarget | null {
+  const params = new URLSearchParams(search);
+  const batchKey = params.get("batch")?.trim() ?? "";
+  if (!/^[a-zA-Z0-9_-]{1,120}$/.test(batchKey)) return null;
+  return {
+    batchKey,
+    title: (params.get("title") ?? "").trim().slice(0, 80),
+  };
+}
+
+export function shortBatchReference(batchKey: string): string {
+  return batchKey.replace(/^batch-/, "").split("-")[0]?.slice(0, 12) || batchKey.slice(0, 12);
+}
+
+export function assertBatchMatchesRecoveryTarget(
+  batch: Pick<BatchRecoveryRecord, "id" | "title">,
+  target: BatchRecoveryTarget | null,
+): void {
+  if (!target || batch.id === target.batchKey) return;
+  throw new Error(
+    `This file belongs to “${batch.title}” (${shortBatchReference(batch.id)}), not the requested batch ${shortBatchReference(target.batchKey)}.`,
+  );
+}
 
 export function createBatchRecoveryBundle(
   batch: BatchRecoveryRecord,

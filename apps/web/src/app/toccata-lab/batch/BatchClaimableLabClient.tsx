@@ -14,8 +14,12 @@ import {
 
 import { createToccataLabKeyPair } from "@/lib/toccata-lab-keys";
 import {
+  assertBatchMatchesRecoveryTarget,
   createBatchRecoveryBundle,
   parseBatchRecoveryBundle,
+  readBatchRecoveryTarget,
+  shortBatchReference,
+  type BatchRecoveryTarget,
   type BatchRecoveryRecord,
 } from "@/lib/batch-claimable-recovery";
 import {
@@ -149,6 +153,12 @@ export function BatchClaimableLabClient({
   }>(null);
   const [claimQrLoadingId, setClaimQrLoadingId] = useState("");
   const recoveryInputRef = useRef<HTMLInputElement>(null);
+  const [recoveryTarget, setRecoveryTarget] = useState<BatchRecoveryTarget | null>(null);
+
+  useEffect(() => {
+    if (mode !== "recovery") return;
+    setRecoveryTarget(readBatchRecoveryTarget(window.location.search));
+  }, [mode]);
 
   useEffect(() => {
     void readEncryptedLocalJson<BatchRecord>(STORAGE_KEY).then(({ value }) => {
@@ -1192,7 +1202,7 @@ export function BatchClaimableLabClient({
     const exportedAt = new Date().toISOString();
     const exportedBatch = { ...batch, recoveryExportedAt: exportedAt };
     downloadJson(
-      `kaspa-links-${safeFilename(batch.title)}-private-recovery.json`,
+      `kaspa-links-${safeFilename(batch.title)}-${safeFilename(shortBatchReference(batch.id))}-private-recovery.json`,
       createBatchRecoveryBundle(exportedBatch, exportedAt),
     );
     try {
@@ -1216,6 +1226,7 @@ export function BatchClaimableLabClient({
     try {
       if (file.size > 1_000_000) throw new Error("Recovery file is unexpectedly large.");
       const bundle = parseBatchRecoveryBundle(await readTextFile(file));
+      assertBatchMatchesRecoveryTarget(bundle.batch, recoveryTarget);
       await registerAllBatchLinks(bundle.batch);
       const registeredAt = new Date().toISOString();
       const imported = {
@@ -1406,6 +1417,8 @@ export function BatchClaimableLabClient({
             : batch
               ? batchActivationStatusText(batch.activation.status)
               : "";
+    const recoveryTargetMismatch =
+      Boolean(batch && recoveryTarget) && batch!.id !== recoveryTarget!.batchKey;
 
     return (
       <main className="main-wide toccata-lab-page batch-recovery-page">
@@ -1449,15 +1462,54 @@ export function BatchClaimableLabClient({
           type="file"
         />
 
-        {!batch ? (
+        {recoveryTargetMismatch && batch && recoveryTarget ? (
+          <section className="card batch-recovery-import-card">
+            <header>
+              <span className="label">Different recovery bundle loaded</span>
+              <h2>
+                Use the bundle for {recoveryTarget.title || "the selected claim batch"}
+              </h2>
+              <p>
+                This browser currently holds recovery data for <strong>{batch.title}</strong> (
+                {shortBatchReference(batch.id)}). It cannot refund the requested batch (
+                {shortBatchReference(recoveryTarget.batchKey)}).
+              </p>
+            </header>
+            <p className="notice notice-critical">
+              No refund action for the loaded batch is shown here, preventing recovery of the
+              wrong claim links.
+            </p>
+            <div className="batch-recovery-actions">
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowClearDialog(true)}
+                type="button"
+              >
+                Use matching recovery bundle
+              </button>
+              <Link className="btn" href="/my-links">
+                Back to My Links
+              </Link>
+            </div>
+          </section>
+        ) : !batch ? (
           <section className="card batch-recovery-import-card">
             <header>
               <span className="label">Step 1</span>
-              <h2>Choose your private recovery bundle</h2>
+              <h2>
+                {recoveryTarget?.title
+                  ? `Choose the bundle for ${recoveryTarget.title}`
+                  : "Choose your private recovery bundle"}
+              </h2>
               <p>
                 Select the JSON file downloaded when the batch was created. It is read only by this
                 browser and is never uploaded as a file.
               </p>
+              {recoveryTarget ? (
+                <p className="value-mono">
+                  Requested batch: {shortBatchReference(recoveryTarget.batchKey)}
+                </p>
+              ) : null}
             </header>
             <ol className="batch-recovery-steps">
               <li>
@@ -1508,6 +1560,7 @@ export function BatchClaimableLabClient({
               <div>
                 <span className="label">Recovered batch</span>
                 <h2>{batch.title}</h2>
+                <p className="value-mono">Batch: {shortBatchReference(batch.id)}</p>
                 <p>{recoveryHeadingText}</p>
               </div>
               <span className={`status-pill status-${recoveryStatusClass}`}>
