@@ -299,7 +299,6 @@ function sameManifest(
     redeemScriptHex: string;
     refundLockTime: string;
     refundPublicKey: string;
-    title: string;
   },
   immutable: {
     activationFeeSompi: bigint;
@@ -309,7 +308,6 @@ function sameManifest(
     redeemScriptHex: string;
     refundLockTime: string;
     refundPublicKey: string;
-    title: string;
   },
   outputs: StoredClaimableBatchOutput[],
 ): boolean {
@@ -321,9 +319,29 @@ function sameManifest(
     existing.redeemScriptHex === immutable.redeemScriptHex &&
     existing.refundLockTime === immutable.refundLockTime &&
     existing.refundPublicKey === immutable.refundPublicKey &&
-    existing.title === immutable.title &&
-    JSON.stringify(parseStoredClaimableBatchOutputs(existing.expectedOutputs)) ===
-      JSON.stringify(outputs)
+    sameStoredOutputs(existing.expectedOutputs, outputs)
+  );
+}
+
+function sameStoredOutputs(value: unknown, expected: StoredClaimableBatchOutput[]): boolean {
+  let stored: StoredClaimableBatchOutput[];
+  try {
+    stored = parseStoredClaimableBatchOutputs(value);
+  } catch {
+    return false;
+  }
+
+  return (
+    stored.length === expected.length &&
+    stored.every((output, index) => {
+      const expectedOutput = expected[index];
+      return (
+        expectedOutput !== undefined &&
+        output.amountSompi === expectedOutput.amountSompi &&
+        output.linkKey === expectedOutput.linkKey &&
+        output.scriptPublicKeyHex === expectedOutput.scriptPublicKeyHex
+      );
+    })
   );
 }
 

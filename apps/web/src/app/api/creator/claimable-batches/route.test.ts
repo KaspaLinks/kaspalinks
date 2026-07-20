@@ -163,6 +163,84 @@ describe("POST /api/creator/claimable-batches", () => {
       claimableBatch: { batchKey: "batch-test", status: "awaiting_funding" },
     });
   });
+
+  it("treats JSONB-reordered outputs as the same registered contract", async () => {
+    mockPrisma.claimableBatch.findUnique.mockResolvedValueOnce({
+      activationFeeSompi: 1_000_000n,
+      activationPublicKey: activation.xOnlyPublicKey,
+      batchKey: "batch-test",
+      creatorId: "creator-1",
+      expectedOutputs: outputs.map((output) => ({
+        linkKey: output.linkKey,
+        scriptPublicKeyHex: output.scriptPublicKeyHex,
+        amountSompi: output.amountSompi,
+      })),
+      fundingAddress: allocator.fundingAddress,
+      fundingAmountSompi: 201_000_000n,
+      redeemScriptHex: allocator.redeemScriptHex,
+      refundLockTime: REFUND_LOCK_TIME,
+      refundPublicKey: batchRefund.xOnlyPublicKey,
+      status: "activated",
+      title: "Test batch",
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.claimableBatch.create).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({
+      claimableBatch: { batchKey: "batch-test", status: "activated" },
+    });
+  });
+
+  it("does not treat a display-title change as a contract mismatch", async () => {
+    mockPrisma.claimableBatch.findUnique.mockResolvedValueOnce({
+      activationFeeSompi: 1_000_000n,
+      activationPublicKey: activation.xOnlyPublicKey,
+      batchKey: "batch-test",
+      creatorId: "creator-1",
+      expectedOutputs: outputs,
+      fundingAddress: allocator.fundingAddress,
+      fundingAmountSompi: 201_000_000n,
+      redeemScriptHex: allocator.redeemScriptHex,
+      refundLockTime: REFUND_LOCK_TIME,
+      refundPublicKey: batchRefund.xOnlyPublicKey,
+      status: "activated",
+      title: "Historical batch title",
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.claimableBatch.create).not.toHaveBeenCalled();
+  });
+
+  it("still rejects a changed output amount", async () => {
+    mockPrisma.claimableBatch.findUnique.mockResolvedValueOnce({
+      activationFeeSompi: 1_000_000n,
+      activationPublicKey: activation.xOnlyPublicKey,
+      batchKey: "batch-test",
+      creatorId: "creator-1",
+      expectedOutputs: outputs.map((output, index) => ({
+        ...output,
+        amountSompi: index === 0 ? "100000001" : output.amountSompi,
+      })),
+      fundingAddress: allocator.fundingAddress,
+      fundingAmountSompi: 201_000_000n,
+      redeemScriptHex: allocator.redeemScriptHex,
+      refundLockTime: REFUND_LOCK_TIME,
+      refundPublicKey: batchRefund.xOnlyPublicKey,
+      status: "activated",
+      title: "Test batch",
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: "Batch key is already registered with different public contract terms." },
+    });
+  });
 });
 
 describe("GET /api/creator/claimable-batches", () => {
