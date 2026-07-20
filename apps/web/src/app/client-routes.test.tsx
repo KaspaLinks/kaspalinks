@@ -53,6 +53,24 @@ describe("client route smoke rendering", () => {
     expect(markup).not.toContain("Create a claim drop");
   });
 
+  it("renders the refund flow without the creator setup journey", async () => {
+    const { ToccataLabClient } = await import("./toccata-lab/ToccataLabClient");
+    const markup = renderToStaticMarkup(
+      <ToccataLabClient
+        capabilities={{ missing: [], ready: true, version: "test" }}
+        enabled
+        initialMode="manage"
+        requiredCapabilities={[]}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Refund flow"');
+    expect(markup).toContain("Open refund");
+    expect(markup).toContain("Wait for expiry");
+    expect(markup).not.toContain("Create, fund, then share.");
+    expect(markup).not.toContain("Send Kaspa that anyone can claim with a link.");
+  });
+
   it("renders the public claim drop route", async () => {
     const { default: ClaimBatchPage } = await import("./claim/batch/page");
     const page = await ClaimBatchPage({ searchParams: Promise.resolve({ count: "3" }) });

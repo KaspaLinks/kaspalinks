@@ -349,7 +349,7 @@ export function ToccataLabClient({
   const [linkDescription, setLinkDescription] = useState(DEFAULT_CLAIMABLE_DESCRIPTION);
   const [labLink, setLabLink] = useState<ClaimableLabLink | null>(null);
   const [claimOnlyView, setClaimOnlyView] = useState(initialMode === "claim");
-  const [manageOnlyView, setManageOnlyView] = useState(false);
+  const [manageOnlyView, setManageOnlyView] = useState(initialMode === "manage");
   const [creatorSignedIn, setCreatorSignedIn] = useState(true);
   const [claimDestination, setClaimDestination] = useState("");
   const [manualClaimCode, setManualClaimCode] = useState("");
@@ -458,7 +458,7 @@ export function ToccataLabClient({
     () => calculateRefundTiming(currentDaaScore, projectedDaaScore, labLink?.refundLockTime ?? ""),
     [currentDaaScore, projectedDaaScore, labLink?.refundLockTime],
   );
-  const flowSteps = [
+  const creatorFlowSteps = [
     {
       label: "Create",
       state: labLink ? "done" : "active",
@@ -482,12 +482,47 @@ export function ToccataLabClient({
     {
       label: "Claim / Refund",
       state:
-        labLink?.status === "claimed" || labLink?.status === "refundable"
-          ? "active"
-          : shareReady
-            ? "done"
-            : "locked",
+        labLink?.status === "claimed" ||
+        labLink?.status === "refunded" ||
+        labLink?.status === "spent_unknown"
+          ? "done"
+          : labLink?.status === "refundable"
+            ? "active"
+            : shareReady
+              ? "done"
+              : "locked",
       text: "The recipient claims it \u2014 or you refund it after expiry.",
+    },
+  ] as const;
+  const refundCompleted = labLink?.status === "refunded" || refundBroadcast !== null;
+  const claimPathClosed = labLink?.status === "claimed" || labLink?.status === "spent_unknown";
+  const refundAvailable = labLink?.status === "refundable";
+  const refundFlowSteps = [
+    {
+      label: "Open refund",
+      state: labLink ? "done" : "active",
+      text: "Load the private refund link in this browser.",
+    },
+    {
+      label: "Wait for expiry",
+      state:
+        refundCompleted || claimPathClosed || refundAvailable
+          ? "done"
+          : labLink
+            ? "active"
+            : "locked",
+      text: "Refund becomes available after the claim window closes.",
+    },
+    {
+      label: refundCompleted ? "Refunded" : claimPathClosed ? "Closed" : "Refund",
+      state: refundCompleted || claimPathClosed ? "done" : refundAvailable ? "active" : "locked",
+      text: refundCompleted
+        ? "The refund transaction was broadcast to Kaspa."
+        : claimPathClosed
+          ? labLink?.status === "claimed"
+            ? "The Kaspa was already claimed."
+            : "The funding output was already spent."
+          : "Send the unclaimed KAS back to a wallet you verify.",
     },
   ] as const;
 
@@ -1555,8 +1590,10 @@ export function ToccataLabClient({
   }
 
   return (
-    <div className={`claimable-lab-layout ${claimOnlyView ? "is-claim-view" : ""}`}>
-      {!claimOnlyView ? (
+    <div
+      className={`claimable-lab-layout ${claimOnlyView ? "is-claim-view" : ""} ${manageOnlyView ? "is-manage-view" : ""}`}
+    >
+      {!claimOnlyView && !manageOnlyView ? (
         <section className="card card-accent claimable-lab-hero-card">
           <div>
             <span className="label">Claimable link</span>
@@ -1577,7 +1614,7 @@ export function ToccataLabClient({
         </section>
       ) : null}
 
-      {!claimOnlyView ? (
+      {!claimOnlyView && !manageOnlyView ? (
         <section className="card claimable-lab-intro">
           <span className="label">How it works</span>
           <h2>Send Kaspa that anyone can claim with a link.</h2>
@@ -1617,8 +1654,11 @@ export function ToccataLabClient({
       ) : null}
 
       {!claimOnlyView ? (
-        <section className="claimable-flow-strip" aria-label="Claimable link flow">
-          {flowSteps.map((step, index) => (
+        <section
+          className={`claimable-flow-strip ${manageOnlyView ? "is-refund-flow" : ""}`}
+          aria-label={manageOnlyView ? "Refund flow" : "Claimable link flow"}
+        >
+          {(manageOnlyView ? refundFlowSteps : creatorFlowSteps).map((step, index) => (
             <article className={`claimable-flow-item is-${step.state}`} key={step.label}>
               <span>{index + 1}</span>
               <div>

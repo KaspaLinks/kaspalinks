@@ -1080,6 +1080,10 @@ textarea {
   gap: 12px;
 }
 
+.claimable-flow-strip.is-refund-flow {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .claimable-flow-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
