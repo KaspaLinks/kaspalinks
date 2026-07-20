@@ -52,7 +52,6 @@ export function ClaimableCreateChooser({ initialCount = 1 }: { initialCount?: nu
           </button>
           <output aria-live="polite" className="claimable-count-value">
             <strong>{count}</strong>
-            <span>{count === 1 ? "link" : "links"}</span>
           </output>
           <button
             aria-label="Increase number of claim links"

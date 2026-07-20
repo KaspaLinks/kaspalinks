@@ -3680,10 +3680,8 @@ button.nav-dropdown-item {
 }
 
 .claimable-count-value {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 8px;
+  display: grid;
+  place-items: center;
   min-height: 58px;
   padding: 9px 14px;
   border: 1px solid rgba(112, 199, 186, 0.4);
