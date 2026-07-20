@@ -8680,9 +8680,21 @@ body:has(main.deck-main) {
   text-transform: capitalize;
 }
 
+.batch-recovery-heading .status-refunded {
+  border-color: rgba(92, 228, 173, 0.32);
+  background: rgba(92, 228, 173, 0.12);
+  color: var(--ok);
+}
+
+.batch-recovery-heading .status-partially-refunded {
+  border-color: rgba(73, 234, 203, 0.28);
+  background: rgba(73, 234, 203, 0.08);
+  color: var(--accent-bright);
+}
+
 .batch-recovery-summary-grid {
   display: grid;
-  grid-template-columns: 0.7fr 0.7fr 1.6fr;
+  grid-template-columns: 0.6fr 0.6fr 0.7fr 1.5fr;
   gap: 0;
   padding-block: 16px;
   border-block: 1px solid rgba(148, 163, 184, 0.14);
@@ -8752,9 +8764,17 @@ body:has(main.deck-main) {
   border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
+.batch-recovery-link-list > li.is-refunded {
+  margin-inline: -10px;
+  padding-inline: 10px;
+  border-bottom-color: rgba(92, 228, 173, 0.2);
+  background: rgba(92, 228, 173, 0.045);
+}
+
 .batch-recovery-link-copy {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   min-width: 0;
   gap: 8px;
 }
@@ -8772,6 +8792,28 @@ body:has(main.deck-main) {
   color: var(--accent-bright);
   font-size: 0.8rem;
   font-weight: 700;
+}
+
+.batch-recovery-link-copy small {
+  flex-basis: 100%;
+  color: var(--ok);
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.batch-recovery-link-list .batch-lab-link-status.is-refunded {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-color: rgba(92, 228, 173, 0.32);
+  background: rgba(92, 228, 173, 0.12);
+  color: var(--ok);
+}
+
+.batch-recovery-link-list .batch-lab-link-status.is-refunded::before {
+  content: "✓";
+  font-size: 0.72rem;
 }
 
 .batch-recovery-link-actions {

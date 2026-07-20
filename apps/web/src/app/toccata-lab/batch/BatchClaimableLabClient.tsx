@@ -1376,6 +1376,37 @@ export function BatchClaimableLabClient({
   }
 
   if (mode === "recovery") {
+    const visibleLinks = batch?.links.filter((link) => !link.deletedAt) ?? [];
+    const visibleLinkCount = visibleLinks.length;
+    const refundedCount = visibleLinks.filter((link) => link.status === "refunded").length;
+    const remainingRefundCount = visibleLinks.filter(
+      (link) => !isBatchLinkTerminal(link.status),
+    ).length;
+    const fullyRefunded = visibleLinkCount > 0 && refundedCount === visibleLinkCount;
+    const partiallyRefunded = refundedCount > 0 && !fullyRefunded;
+    const recoveryStatus =
+      batch?.activation.status === "refunded" || fullyRefunded
+        ? "Refunded"
+        : partiallyRefunded
+          ? "Partially refunded"
+          : batch?.activation.status.replaceAll("_", " ");
+    const recoveryStatusClass =
+      batch?.activation.status === "refunded" || fullyRefunded
+        ? "refunded"
+        : partiallyRefunded
+          ? "partially-refunded"
+          : batch?.activation.status;
+    const recoveryHeadingText =
+      batch?.activation.status === "refunded"
+        ? "The complete unactivated batch funding was refunded to its destination wallet."
+        : fullyRefunded
+          ? "Every link in this batch has been refunded to a wallet."
+          : partiallyRefunded
+            ? `${refundedCount} of ${visibleLinkCount} links refunded. The remaining links keep their individual on-chain status.`
+            : batch
+              ? batchActivationStatusText(batch.activation.status)
+              : "";
+
     return (
       <main className="main-wide toccata-lab-page batch-recovery-page">
         <section className="hero toccata-lab-hero batch-recovery-hero">
@@ -1477,10 +1508,10 @@ export function BatchClaimableLabClient({
               <div>
                 <span className="label">Recovered batch</span>
                 <h2>{batch.title}</h2>
-                <p>{batchActivationStatusText(batch.activation.status)}</p>
+                <p>{recoveryHeadingText}</p>
               </div>
-              <span className={`status-pill status-${batch.activation.status}`}>
-                {batch.activation.status.replaceAll("_", " ")}
+              <span className={`status-pill status-${recoveryStatusClass}`}>
+                {recoveryStatus}
               </span>
             </header>
 
@@ -1494,11 +1525,19 @@ export function BatchClaimableLabClient({
                 <strong>{summary?.claimed ?? 0}</strong>
               </div>
               <div>
+                <span>Refunded</span>
+                <strong>{refundedCount}</strong>
+              </div>
+              <div>
                 <span>Refund availability</span>
                 <strong>
-                  {batchExpiry?.expired
-                    ? "Available now"
-                    : (batchExpiry?.remainingLabel ?? "Checking on-chain time")}
+                  {batch.activation.status === "refunded" || fullyRefunded
+                    ? "Complete"
+                    : remainingRefundCount === 0
+                      ? "Nothing to refund"
+                    : batchExpiry?.expired
+                      ? `${remainingRefundCount} ${remainingRefundCount === 1 ? "link" : "links"} ready`
+                      : (batchExpiry?.remainingLabel ?? "Checking on-chain time")}
                 </strong>
               </div>
             </div>
@@ -1560,10 +1599,16 @@ export function BatchClaimableLabClient({
                       const refundReady =
                         link.status === "refundable" || batchExpiry?.expired === true;
                       return (
-                        <li key={link.id}>
+                        <li
+                          className={link.status === "refunded" ? "is-refunded" : undefined}
+                          key={link.id}
+                        >
                           <div className="batch-recovery-link-copy">
                             <strong>{link.title}</strong>
                             <span>{link.netClaimKas} KAS</span>
+                            {link.status === "refunded" ? (
+                              <small>Refund completed. This link no longer holds claimable KAS.</small>
+                            ) : null}
                           </div>
                           <span className={`batch-lab-link-status is-${link.status}`}>
                             {recoveryLinkStatus(link.status, refundReady)}
@@ -2871,7 +2916,7 @@ function recoveryLinkStatus(status: BatchLink["status"], refundReady: boolean): 
     case "claimed":
       return "Claimed";
     case "refunded":
-      return "Refunded";
+      return "Refunded to wallet";
     case "spent_unknown":
     case "spent":
       return "Spent on-chain";
