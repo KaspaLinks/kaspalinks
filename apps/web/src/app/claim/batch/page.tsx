@@ -26,7 +26,18 @@ export const metadata: Metadata = {
   },
 };
 
-export default function ClaimBatchPage() {
+function parseInitialCount(value: string | string[] | undefined): number {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw || !/^\d+$/.test(raw)) return 2;
+  return Math.min(10, Math.max(2, Number(raw)));
+}
+
+export default async function ClaimBatchPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ count?: string | string[] }>;
+}) {
+  const query = (await searchParams) ?? {};
   let capabilities;
   try {
     capabilities = readToccataLabCapabilities();
@@ -35,6 +46,10 @@ export default function ClaimBatchPage() {
   }
 
   return (
-    <BatchClaimableLabClient capabilities={capabilities} enabled={isToccataBatchLabEnabled()} />
+    <BatchClaimableLabClient
+      capabilities={capabilities}
+      enabled={isToccataBatchLabEnabled()}
+      initialCount={parseInitialCount(query.count)}
+    />
   );
 }

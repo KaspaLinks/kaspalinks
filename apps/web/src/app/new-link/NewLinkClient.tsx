@@ -680,23 +680,12 @@ export function NewLinkClient() {
             <span className="quick-template-icon" aria-hidden="true">
               {CLAIMABLE_ICON}
             </span>
-            <span className="quick-template-title">Claimable link</span>
+            <span className="quick-template-title">Claimable reward</span>
             <span className="quick-template-description">
-              Lock KAS into a one-time link. The first person to open it can claim the funds to
-              their own wallet, and you keep a private refund link if it expires unclaimed.
+              Create one claimable reward or choose up to 10 separate links for a Claim Drop.
+              Unclaimed KAS remains privately refundable after expiry.
             </span>
-            <span className="quick-template-meta">One-time reward · refundable if unclaimed</span>
-          </Link>
-          <Link className="quick-template-button" href="/claim/batch">
-            <span className="quick-template-icon" aria-hidden="true">
-              {CLAIMABLE_ICON}
-            </span>
-            <span className="quick-template-title">Claim Drop</span>
-            <span className="quick-template-description">
-              Create 2 to 10 separate claimable rewards, fund the batch once, then share each link
-              individually.
-            </span>
-            <span className="quick-template-meta">Multi-link giveaway · private recovery</span>
+            <span className="quick-template-meta">1 to 10 links · non-custodial rewards</span>
           </Link>
           <button
             aria-pressed={blankTemplateActive}

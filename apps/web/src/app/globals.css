@@ -3610,6 +3610,140 @@ button.nav-dropdown-item {
   text-transform: uppercase;
 }
 
+/* Shared entry for one Claimable Link or a multi-link Claim Drop. */
+.claimable-create-entry {
+  width: min(100%, 880px);
+}
+
+.claimable-create-entry-hero {
+  padding-bottom: 18px;
+}
+
+.claimable-count-card {
+  display: grid;
+  gap: 24px;
+}
+
+.claimable-count-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.claimable-count-heading h2 {
+  margin: 6px 0 0;
+}
+
+.claimable-count-kind {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid rgba(112, 199, 186, 0.34);
+  border-radius: 999px;
+  background: rgba(73, 234, 203, 0.08);
+  color: var(--accent-bright);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.claimable-count-stepper {
+  display: grid;
+  grid-template-columns: 58px minmax(108px, 160px) 58px;
+  justify-content: center;
+  gap: 10px;
+}
+
+.claimable-count-stepper button {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--fg-strong);
+  font: inherit;
+  font-size: 1.7rem;
+  cursor: pointer;
+}
+
+.claimable-count-stepper button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-bright);
+}
+
+.claimable-count-stepper button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.claimable-count-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  min-height: 58px;
+  padding: 9px 14px;
+  border: 1px solid rgba(112, 199, 186, 0.4);
+  border-radius: var(--radius-sm);
+  background: rgba(73, 234, 203, 0.08);
+  color: var(--fg-muted);
+}
+
+.claimable-count-value strong {
+  color: var(--fg-strong);
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.claimable-count-summary {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.claimable-count-summary strong {
+  color: var(--fg-strong);
+}
+
+.claimable-count-summary p {
+  margin: 6px 0 0;
+  color: var(--fg-muted);
+}
+
+.claimable-count-continue {
+  justify-self: stretch;
+}
+
+.claimable-create-entry-note {
+  margin: 16px 0 0;
+  color: var(--fg-subtle);
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  .claimable-count-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .claimable-count-kind {
+    align-self: flex-start;
+  }
+
+  .claimable-count-stepper {
+    grid-template-columns: 52px minmax(92px, 1fr) 52px;
+  }
+
+  .claimable-count-stepper button {
+    width: 52px;
+    height: 56px;
+  }
+}
+
 @media (min-width: 720px) {
   .quick-template-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

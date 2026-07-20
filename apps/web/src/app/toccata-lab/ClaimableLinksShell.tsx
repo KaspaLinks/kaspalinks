@@ -69,7 +69,7 @@ export async function ClaimableLinksShell({
 
       {mode === "create" ? (
         <p className="hero-newcomer-link">
-          Need several rewards? <Link href="/claim/batch">Create a Claim Drop →</Link>
+          Need several rewards? <Link href="/claim/create?count=2">Create a Claim Drop →</Link>
         </p>
       ) : null}
 

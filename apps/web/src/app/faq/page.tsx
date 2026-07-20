@@ -84,7 +84,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     answer:
       "A Claim Drop creates 2 to 10 independent Claimable links with the same amount and expiry. You fund one batch address once, then your browser signs the activation transaction that creates a separate on-chain output for every link. Each link can be shared, claimed, tracked, and refunded individually. Save the private recovery bundle before funding — Kaspa Links cannot recreate it for you.",
-    link: { href: "/claim/batch", label: "Create a claim drop" },
+    link: { href: "/claim/create?count=2", label: "Create a claim drop" },
     question: "Can I create several claimable links at once?",
   },
   {

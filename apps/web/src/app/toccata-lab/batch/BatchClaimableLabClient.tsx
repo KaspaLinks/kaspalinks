@@ -94,15 +94,18 @@ const EXISTING_BATCH_ERROR =
 export function BatchClaimableLabClient({
   capabilities,
   enabled,
+  initialCount = 2,
   mode = "create",
 }: {
   capabilities: Capabilities;
   enabled: boolean;
+  initialCount?: number;
   mode?: "create" | "recovery";
 }) {
+  const safeInitialCount = Math.min(MAX_BATCH_SIZE, Math.max(2, Math.trunc(initialCount)));
   const [amountKas, setAmountKas] = useState("1");
   const [batch, setBatch] = useState<BatchRecord | null>(null);
-  const [count, setCount] = useState("2");
+  const [count, setCount] = useState(String(safeInitialCount));
   const [description, setDescription] = useState(
     "A Kaspa reward for the first person to claim it.",
   );
@@ -112,7 +115,7 @@ export function BatchClaimableLabClient({
   const [feeKas, setFeeKas] = useState(formatSompiForToccataLab(TOCCATA_CANARY_DEFAULT_FEE_SOMPI));
   const [generating, setGenerating] = useState(false);
   const [registering, setRegistering] = useState(false);
-  const [linkTitles, setLinkTitles] = useState(() => defaultLinkTitles(2));
+  const [linkTitles, setLinkTitles] = useState(() => defaultLinkTitles(safeInitialCount));
   const [notice, setNotice] = useState("");
   const [checking, setChecking] = useState(false);
   const [fundingWithKasware, setFundingWithKasware] = useState(false);
@@ -430,7 +433,7 @@ export function BatchClaimableLabClient({
     setError("");
     setNotice("");
     if (!enabled) {
-      setError("The private batch claim lab is disabled on this deployment.");
+      setError("Claim Drops are disabled on this deployment.");
       return;
     }
     if (!capabilities.ready) {
@@ -448,7 +451,7 @@ export function BatchClaimableLabClient({
 
     const linkCount = Number.parseInt(count, 10);
     if (!Number.isInteger(linkCount) || linkCount < 2 || linkCount > MAX_BATCH_SIZE) {
-      setError(`Choose between 2 and ${MAX_BATCH_SIZE} links for this private lab.`);
+      setError(`Choose between 2 and ${MAX_BATCH_SIZE} links for this Claim Drop.`);
       return;
     }
 
@@ -604,7 +607,7 @@ export function BatchClaimableLabClient({
       const message = friendlyBatchError(createError, "Could not create the batch.");
       setError(
         securedLocally
-          ? `${message} The complete private batch is encrypted locally; use “Finish link registration” instead of creating it again.`
+          ? `${message} The complete Claim Drop is encrypted locally; use “Finish link registration” instead of creating it again.`
           : message,
       );
     } finally {
@@ -1934,9 +1937,13 @@ export function BatchClaimableLabClient({
                     onChange={(event) => changeLinkCount(event.target.value)}
                     value={count}
                   >
-                    <option value="2">2 links</option>
-                    <option value="5">5 links</option>
-                    <option value="10">10 links</option>
+                    {Array.from({ length: MAX_BATCH_SIZE - 1 }, (_, index) => index + 2).map(
+                      (linkCount) => (
+                        <option key={linkCount} value={linkCount}>
+                          {linkCount} links
+                        </option>
+                      ),
+                    )}
                   </select>
                 </div>
                 <div>

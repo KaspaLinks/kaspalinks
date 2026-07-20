@@ -333,7 +333,7 @@ export default function TryItOutPage() {
             <Link className="btn btn-primary" href="/claim/create">
               Create a claimable link
             </Link>
-            <Link className="btn" href="/claim/batch">
+            <Link className="btn" href="/claim/create?count=2">
               Create a claim drop
             </Link>
           </div>

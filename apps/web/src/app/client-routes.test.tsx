@@ -55,9 +55,22 @@ describe("client route smoke rendering", () => {
 
   it("renders the public claim drop route", async () => {
     const { default: ClaimBatchPage } = await import("./claim/batch/page");
-    const markup = renderToStaticMarkup(<ClaimBatchPage />);
+    const page = await ClaimBatchPage({ searchParams: Promise.resolve({ count: "3" }) });
+    const markup = renderToStaticMarkup(page);
     expect(markup).toContain("Create multiple claim links at once");
     expect(markup).toContain("Create a claim drop");
+    expect(markup).toContain("Telegram community");
     expect(markup).not.toContain("Private lab");
+  });
+
+  it("renders the shared claimable reward chooser", async () => {
+    const { default: ClaimableCreatePage } = await import("./claim/create/page");
+    const page = await ClaimableCreatePage({
+      searchParams: Promise.resolve({ count: "3" }),
+    });
+    const markup = renderToStaticMarkup(page);
+    expect(markup).toContain("How many claim links do you need?");
+    expect(markup).toContain("Create a Claim Drop");
+    expect(markup).toContain("Continue with 3 links");
   });
 });
