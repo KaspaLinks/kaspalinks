@@ -1250,7 +1250,7 @@ export function ToccataLabClient({
         setRefundSpend(spend);
         setRefundBroadcast(null);
         setRefundSendError("");
-        setRefundSendNotice('Refund is prepared. Press "Send refund to Kaspa" to broadcast it.');
+        setRefundSendNotice('Refund is prepared. Press "Send refund to Wallet" to broadcast it.');
       }
       setNotice(
         `${mode === "claim" ? "Claim" : "Refund"} transaction signed in this browser. Review it before broadcasting.`,
@@ -2505,7 +2505,7 @@ export function ToccataLabClient({
                             onClick={() => void broadcastLabSpend(refundSpend)}
                             type="button"
                           >
-                            {broadcasting === "refund" ? "Sending..." : "Send refund to Kaspa"}
+                            {broadcasting === "refund" ? "Sending..." : "Send refund to Wallet"}
                           </button>
                         </div>
                         {refundSendError ? <p className="error-text">{refundSendError}</p> : null}
