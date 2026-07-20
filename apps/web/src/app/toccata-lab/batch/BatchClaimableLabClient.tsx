@@ -51,6 +51,9 @@ import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { estimateClaimableExpiry } from "@/lib/claimable-expiry";
 import { FundingQrCode } from "@/lib/funding-qr";
 
+import { SESSION_EVENT } from "../../BrandNav";
+import { CreatorSignInGate } from "../../CreatorSignInGate";
+
 import {
   buildBatchActivationSpendInBrowser,
   buildClaimableSpendInBrowser,
@@ -118,6 +121,7 @@ export function BatchClaimableLabClient({
   const [registering, setRegistering] = useState(false);
   const [linkTitles, setLinkTitles] = useState(() => defaultLinkTitles(safeInitialCount));
   const [notice, setNotice] = useState("");
+  const [creatorSignedIn, setCreatorSignedIn] = useState<null | boolean>(null);
   const [checking, setChecking] = useState(false);
   const [fundingWithKasware, setFundingWithKasware] = useState(false);
   const [isTouchOnly, setIsTouchOnly] = useState<null | boolean>(null);
@@ -205,6 +209,20 @@ export function BatchClaimableLabClient({
     if (typeof window.matchMedia !== "function") return;
     setIsTouchOnly(window.matchMedia("(pointer: coarse)").matches);
   }, []);
+
+  useEffect(() => {
+    if (mode === "recovery") return;
+    const check = () => setCreatorSignedIn(readCreatorAuthHeaders() !== null);
+    check();
+    window.addEventListener(SESSION_EVENT, check);
+    window.addEventListener("focus", check);
+    window.addEventListener("storage", check);
+    return () => {
+      window.removeEventListener(SESSION_EVENT, check);
+      window.removeEventListener("focus", check);
+      window.removeEventListener("storage", check);
+    };
+  }, [mode]);
 
   // Reset activation safety checkbox when batch status changes
   useEffect(() => {
@@ -1729,6 +1747,29 @@ export function BatchClaimableLabClient({
         )}
 
         {renderClearDialog()}
+      </main>
+    );
+  }
+
+  if (creatorSignedIn === null) {
+    return (
+      <main className="main-wide toccata-lab-page">
+        <section className="card creator-auth-check">
+          <p className="muted">Checking creator session...</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!creatorSignedIn) {
+    return (
+      <main className="main-wide toccata-lab-page">
+        <CreatorSignInGate
+          description="A creator profile is required before you configure a Claim Drop, so every child link can be registered and managed safely."
+          label="Claim Drop"
+          nextPath={`/claim/batch?count=${count}`}
+          title="Sign in to create a Claim Drop"
+        />
       </main>
     );
   }

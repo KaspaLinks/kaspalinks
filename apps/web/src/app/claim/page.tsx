@@ -40,7 +40,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
           width: 1200,
         },
       ],
-      title: "You have Kaspa to claim",
+      title: "Claim a Kaspa link",
       type: "website",
       url: path,
     },
@@ -50,7 +50,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
       card: "summary_large_image",
       description: FALLBACK_DESCRIPTION,
       images: ["/claim/opengraph-image"],
-      title: "You have Kaspa to claim",
+      title: "Claim a Kaspa link",
     },
   };
 

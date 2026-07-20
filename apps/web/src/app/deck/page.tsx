@@ -52,6 +52,7 @@ export default function DeckPage() {
             <span>Non-custodial. On-chain. Wallet-to-wallet.</span>
           </p>
           <p className="deck-hero-url">kaspalinks.com</p>
+          <p className="deck-navigation-hint">Scroll, swipe, or use the arrow keys to continue ↓</p>
         </article>
       </Slide>
 
@@ -298,15 +299,18 @@ export default function DeckPage() {
               <span className="deck-cta-label">Read the roadmap</span>
               <span className="deck-cta-url">kaspalinks.com/roadmap</span>
             </Link>
-            <div className="deck-cta deck-cta-pending" aria-disabled="true">
+            <a
+              className="deck-cta"
+              href="https://github.com/KaspaLinks/kaspalinks"
+              rel="noreferrer"
+              target="_blank"
+            >
               <span className="deck-cta-arrow">→</span>
               <span className="deck-cta-label">Public codebase</span>
-              <span className="deck-cta-url deck-cta-url-pending">Coming soon</span>
-            </div>
+              <span className="deck-cta-url">github.com/KaspaLinks/kaspalinks</span>
+            </a>
           </div>
-          <p className="deck-cta-footer">
-            Built on Kaspa · Non-custodial by design · Public codebase coming soon
-          </p>
+          <p className="deck-cta-footer">Built on Kaspa · Non-custodial by design · Open source</p>
         </article>
       </Slide>
     </main>

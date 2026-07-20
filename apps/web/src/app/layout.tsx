@@ -143,7 +143,7 @@ export default function RootLayout({
               GitHub
             </a>
             <span className="app-footer-status">Status: live</span>
-            {commit ? <span>Build {commit.slice(0, 7)}</span> : null}
+            {commit ? <span className="app-footer-build">Build {commit.slice(0, 7)}</span> : null}
           </div>
         </footer>
       </body>

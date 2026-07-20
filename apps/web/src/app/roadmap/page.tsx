@@ -73,30 +73,13 @@ export default function RoadmapPage() {
         </div>
       </section>
 
-      {/* Next — three covenant-backed primitives we expect to ship first
-          after the hardfork. 3-col grid on wide displays so the section
-          reads as one cohesive group. */}
+      {/* Next — covenant-backed primitives that are not live yet. */}
       <section className="roadmap-section">
         <header className="roadmap-section-header">
           <span className="roadmap-section-eyebrow roadmap-section-eyebrow-next">Next</span>
           <h2 className="roadmap-section-title">Building toward this</h2>
         </header>
-        <div className="roadmap-section-grid roadmap-section-grid-3">
-          <article className="card roadmap-feature">
-            <h3 className="roadmap-feature-title">
-              Claimable links &amp; drops <span className="soon-badge">Live</span>
-            </h3>
-            <p>
-              Share one claimable reward, or create up to 10 separate links in a Claim Drop. A drop
-              uses one funding step, then creates individual on-chain outputs that can be shared,
-              claimed, and privately refunded one by one.
-            </p>
-            <p className="muted roadmap-feature-usecase">
-              Use cases: community giveaways, event rewards, social campaigns, and
-              &ldquo;here&apos;s 10 KAS for whoever opens this first&rdquo;.
-            </p>
-          </article>
-
+        <div className="roadmap-section-grid roadmap-section-grid-2">
           <article className="card roadmap-feature">
             <h3 className="roadmap-feature-title">Splits &amp; multi-recipient</h3>
             <p>
@@ -113,9 +96,9 @@ export default function RoadmapPage() {
           <article className="card roadmap-feature">
             <h3 className="roadmap-feature-title">Advanced recovery rules</h3>
             <p>
-              Claimable links already unlock a private, browser-signed refund after expiry. The
-              next step is more flexible recovery windows and wallet-controlled recovery policies
-              without introducing custody.
+              Claimable links already unlock a private, browser-signed refund after expiry. The next
+              step is more flexible recovery windows and wallet-controlled recovery policies without
+              introducing custody.
             </p>
             <p className="muted roadmap-feature-usecase">
               Use cases: time-limited bounties, event prizes, and longer-running reward campaigns.

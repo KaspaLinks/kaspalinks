@@ -39,10 +39,10 @@ export async function ClaimableLinksShell({
         {mode === "claim" ? (
           <>
             <span className="hero-eyebrow">Kaspa Links</span>
-            <h1 className="hero-title">You&rsquo;ve got Kaspa to claim.</h1>
+            <h1 className="hero-title">Claim a Kaspa link.</h1>
             <p className="hero-sub">
-              Someone created a claimable Kaspa link for you. Enter your wallet address below and
-              the KAS is sent straight to you — non-custodial, no account needed.
+              Open the complete private link or enter its fallback claim code, then send the KAS
+              straight to your own wallet — non-custodial, no account needed.
             </p>
           </>
         ) : mode === "manage" ? (
@@ -59,9 +59,8 @@ export async function ClaimableLinksShell({
             <span className="hero-eyebrow">Kaspa Links</span>
             <h1 className="hero-title">Create a claimable Kaspa link.</h1>
             <p className="hero-sub">
-              Create a claimable link, fund its one-time address, then share it. The recipient
-              claims the KAS to their own wallet — or you refund it if it is never claimed. Claim
-              and refund codes stay in your browser, never on our servers.
+              Set the reward and expiry, fund its one-time address, then share. The recipient claims
+              it directly, or you refund it after expiry.
             </p>
           </>
         )}

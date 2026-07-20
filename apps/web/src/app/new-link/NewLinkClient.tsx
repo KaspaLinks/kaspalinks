@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { SESSION_EVENT } from "../BrandNav";
+import { CreatorSignInGate } from "../CreatorSignInGate";
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import { MIN_RELIABLE_MAINNET_OUTPUT_KAS } from "@/lib/mainnet-amount-policy";
 import { formatApproxUsdMeta, formatApproxUsdValue } from "@/lib/price-display";
@@ -613,22 +614,12 @@ export function NewLinkClient() {
   if (!signedIn) {
     return (
       <main className="main-wide new-link-layout">
-        <section className="card card-accent">
-          <span className="label">New link</span>
-          <h1>Sign in to create a link</h1>
-          <p className="muted" style={{ marginBottom: 14 }}>
-            You need a creator profile to create and share links. It takes seconds — no email
-            required.
-          </p>
-          <div className="row">
-            <Link className="btn btn-primary" href="/sign-in">
-              Sign in
-            </Link>
-            <Link className="btn" href="/create-profile">
-              Create profile
-            </Link>
-          </div>
-        </section>
+        <CreatorSignInGate
+          description="You need a creator profile to create and share links. It takes seconds — no email required."
+          label="New link"
+          nextPath="/new-link"
+          title="Sign in to create a link"
+        />
       </main>
     );
   }
@@ -673,10 +664,7 @@ export function NewLinkClient() {
               </span>
             </button>
           ))}
-          <Link
-            className="quick-template-button"
-            href="/claim/create"
-          >
+          <Link className="quick-template-button" href="/claim/create">
             <span className="quick-template-icon" aria-hidden="true">
               {CLAIMABLE_ICON}
             </span>

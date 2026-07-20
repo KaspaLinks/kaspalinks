@@ -378,6 +378,7 @@ export function ActionPaymentFlow({
   const [supporterMessageSaveState, setSupporterMessageSaveState] =
     useState<SupporterMessageSaveState>("idle");
   const [walletOpenAttempted, setWalletOpenAttempted] = useState(false);
+  const [showFullRecipientAddress, setShowFullRecipientAddress] = useState(false);
   const [kaswareConnection, setKaswareConnection] = useState<KaswareConnectionState>({
     account: null,
     checked: false,
@@ -1305,16 +1306,32 @@ export function ActionPaymentFlow({
           <div className="pay-recipient">
             <span className="label">To</span>
             <div className="pay-recipient-row">
-              <p className="value-mono" style={{ margin: 0 }}>
-                {compactAddress(action.recipientAddress)}
-              </p>
-              <button
-                className="link-card-inline-btn"
-                onClick={() => copy("address", action.recipientAddress)}
-                type="button"
+              <p
+                className={`value-mono pay-recipient-address${
+                  showFullRecipientAddress ? " is-expanded" : ""
+                }`}
               >
-                {copied?.key === "address" ? "Copied" : "Copy"}
-              </button>
+                {showFullRecipientAddress
+                  ? action.recipientAddress
+                  : compactAddress(action.recipientAddress)}
+              </p>
+              <div className="pay-recipient-actions">
+                <button
+                  aria-expanded={showFullRecipientAddress}
+                  className="link-card-inline-btn"
+                  onClick={() => setShowFullRecipientAddress((current) => !current)}
+                  type="button"
+                >
+                  {showFullRecipientAddress ? "Hide full" : "Show full"}
+                </button>
+                <button
+                  className="link-card-inline-btn"
+                  onClick={() => copy("address", action.recipientAddress)}
+                  type="button"
+                >
+                  {copied?.key === "address" ? "Copied" : "Copy"}
+                </button>
+              </div>
             </div>
             <p className="muted" style={{ margin: "6px 0 0", fontSize: "0.78rem" }}>
               Always verify this address in your wallet before signing.

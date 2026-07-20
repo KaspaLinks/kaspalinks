@@ -53,6 +53,9 @@ import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { buildXIntentUrl } from "@/lib/share-text";
 import { FundingQrCode } from "@/lib/funding-qr";
 
+import { SESSION_EVENT } from "../BrandNav";
+import { CreatorSignInGate } from "../CreatorSignInGate";
+
 import {
   buildClaimableSpendInBrowser,
   preloadClaimableBrowserSigner,
@@ -401,7 +404,7 @@ export function ToccataLabClient({
   const [createdDialog, setCreatedDialog] = useState<"ready" | "setup" | "skip-backup" | null>(
     null,
   );
-  const [creatorSignedIn, setCreatorSignedIn] = useState(true);
+  const [creatorSignedIn, setCreatorSignedIn] = useState<null | boolean>(null);
   const [claimDestination, setClaimDestination] = useState("");
   const [manualClaimCode, setManualClaimCode] = useState("");
   const [claimSpend, setClaimSpend] = useState<ClaimableSpend | null>(null);
@@ -494,9 +497,11 @@ export function ToccataLabClient({
   useEffect(() => {
     const check = () => setCreatorSignedIn(readCreatorAuthHeaders() !== null);
     check();
+    window.addEventListener(SESSION_EVENT, check);
     window.addEventListener("focus", check);
     window.addEventListener("storage", check);
     return () => {
+      window.removeEventListener(SESSION_EVENT, check);
       window.removeEventListener("focus", check);
       window.removeEventListener("storage", check);
     };
@@ -1863,20 +1868,29 @@ export function ToccataLabClient({
     return true;
   }
 
+  if (!claimOnlyView && !manageOnlyView && creatorSignedIn === null) {
+    return (
+      <section className="card creator-auth-check">
+        <p className="muted">Checking creator session...</p>
+      </section>
+    );
+  }
+
+  if (!claimOnlyView && !manageOnlyView && !creatorSignedIn) {
+    return (
+      <CreatorSignInGate
+        description="A creator profile is required so the link can be registered safely and managed later. No email is required."
+        label="Claimable link"
+        nextPath="/claim/create/single"
+        title="Sign in to create a Claimable Link"
+      />
+    );
+  }
+
   return (
     <div
       className={`claimable-lab-layout ${claimOnlyView ? "is-claim-view" : ""} ${manageOnlyView ? "is-manage-view" : ""}`}
     >
-      {!claimOnlyView && !manageOnlyView ? (
-        <section className="card card-accent claimable-lab-hero-card">
-          <div>
-            <span className="label">Claimable link</span>
-            <h2>Create, fund, then share.</h2>
-            <p className="muted">Create a one-time reward, fund it, then share the claim link.</p>
-          </div>
-        </section>
-      ) : null}
-
       {!claimOnlyView ? (
         <section
           className={`claimable-flow-strip ${manageOnlyView ? "is-refund-flow" : ""}`}
@@ -2175,15 +2189,9 @@ export function ToccataLabClient({
                   <p className="error-text">{expiryPlanResult.error}</p>
                 ) : null}
 
-                {!creatorSignedIn ? (
-                  <p className="notice notice-warn">
-                    Sign in as a creator first (top-right) — claimable links are saved to your
-                    account so they appear in My Links across your devices.
-                  </p>
-                ) : null}
                 <button
                   className="btn btn-primary"
-                  disabled={!enabled || !capabilities.ready || !spendPlan || !creatorSignedIn}
+                  disabled={!enabled || !capabilities.ready || !spendPlan}
                   type="submit"
                 >
                   Create claimable link
@@ -2191,7 +2199,11 @@ export function ToccataLabClient({
               </form>
             </section>
 
-            <section className="card claimable-lab-panel" id="single-claimable-funding">
+            <section
+              className="card claimable-lab-panel"
+              hidden={!labLink}
+              id="single-claimable-funding"
+            >
               <span className="label">Funding</span>
               <h2>Await funding before sharing</h2>
               {labLink ? (
@@ -2582,7 +2594,7 @@ export function ToccataLabClient({
               )}
             </section>
 
-            <section className="card claimable-lab-panel">
+            <section className="card claimable-lab-panel" hidden={!labLink}>
               <span className="label">Share</span>
               <h2>{shareReady ? "Claimable link created" : "Claim link stays locked"}</h2>
               {labLink ? (

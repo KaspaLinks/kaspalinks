@@ -98,6 +98,21 @@ main {
   gap: 18px;
 }
 
+.creator-sign-in-gate,
+.creator-auth-check {
+  width: min(100%, 760px);
+  margin: 0 auto;
+}
+
+.creator-sign-in-gate > p {
+  margin-bottom: 14px;
+}
+
+main:has(.creator-sign-in-gate, .creator-auth-check) > .toccata-lab-hero,
+main:has(.creator-sign-in-gate, .creator-auth-check) > .hero-newcomer-link {
+  display: none;
+}
+
 /* Wide layout for data-heavy surfaces (/dashboard, /my-links, /stats,
    /admin). Apply via <main className="main-wide">. Forms and the public
    pay surface keep the 640px column because long lines hurt readability
@@ -1011,6 +1026,10 @@ textarea {
 
 .toccata-lab-hero {
   padding-bottom: 16px;
+}
+
+.toccata-lab-hero .hero-title {
+  text-wrap: balance;
 }
 
 .toccata-lab-details {
@@ -2182,6 +2201,7 @@ button.nav-dropdown-item {
 }
 
 .walkthrough-index {
+  position: relative;
   display: grid;
   place-items: center;
   width: 36px;
@@ -2190,6 +2210,23 @@ button.nav-dropdown-item {
   background: linear-gradient(135deg, var(--kaspa-teal) 0%, var(--kaspa-teal-bright) 100%);
   color: var(--accent-fg);
   box-shadow: 0 6px 18px -10px rgba(73, 234, 203, 0.55);
+}
+
+.walkthrough-index::after {
+  content: attr(data-step);
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 2px solid var(--bg-card);
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--accent-bright);
+  font-size: 0.65rem;
+  font-weight: 800;
 }
 
 .walkthrough-index svg {
@@ -2396,6 +2433,10 @@ button.nav-dropdown-item {
   color: var(--ok);
 }
 
+.app-footer-build {
+  color: var(--fg-muted);
+}
+
 .not-found-page {
   min-height: min(70vh, 620px);
   display: grid;
@@ -2422,6 +2463,18 @@ button.nav-dropdown-item {
 }
 
 /* OBS Overlay — dedicated stage layout */
+
+html:has(body main.overlay-page),
+body:has(main.overlay-page) {
+  min-height: 100%;
+  background: transparent;
+  background-attachment: scroll;
+}
+
+body:has(main.overlay-page) > header.brand-bar,
+body:has(main.overlay-page) > footer.app-footer {
+  display: none;
+}
 
 .overlay-page {
   max-width: none;
@@ -3402,16 +3455,36 @@ button.nav-dropdown-item {
 
 .pay-recipient-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   margin-top: 4px;
 }
 
-.pay-recipient-row .value-mono {
+.pay-recipient-address {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   font-size: 0.88rem;
   word-break: break-all;
-  flex: 1;
+}
+
+.pay-recipient-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+@media (max-width: 520px) {
+  .pay-recipient-row {
+    flex-direction: column;
+  }
+
+  .pay-recipient-actions {
+    justify-content: flex-start;
+  }
 }
 
 .pay-divider {
@@ -5271,6 +5344,12 @@ body:has(main.deck-main) {
      area as the user scrolls. Falls back to vh on older browsers. */
   height: 100vh;
   height: 100dvh;
+}
+
+.deck-navigation-hint {
+  margin: 28px 0 0;
+  color: var(--fg-muted);
+  font-size: 0.82rem;
 }
 
 .deck-slide-wrap {

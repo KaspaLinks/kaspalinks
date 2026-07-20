@@ -4,7 +4,7 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 const TRY_IT_DESCRIPTION =
-  "Try Kaspa Links in 5 minutes — create a profile, make a payment link, share it, and receive KAS directly in your wallet.";
+  "Follow the complete Kaspa Links flow — create a profile, make a payment link, share it, and receive KAS directly in your wallet.";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/try-it-out" },
@@ -96,7 +96,7 @@ export default function TryItOutPage() {
       <section className="hero" style={{ paddingTop: 8, paddingBottom: 12 }}>
         <span className="hero-eyebrow">Walkthrough</span>
         <h1 className="hero-title" style={{ fontSize: "2rem" }}>
-          Try Kaspa Links in five minutes.
+          Your first Kaspa Link, step by step.
         </h1>
         <p className="hero-sub">
           Create a public profile, make your first payment link, share it, and test a real
@@ -107,7 +107,7 @@ export default function TryItOutPage() {
 
       <ol className="walkthrough">
         <li className="walkthrough-step">
-          <div className="walkthrough-index">
+          <div className="walkthrough-index" data-step="1">
             <WalkthroughIcon name="wallet" />
           </div>
           <div className="walkthrough-body">
@@ -146,7 +146,7 @@ export default function TryItOutPage() {
         </li>
 
         <li className="walkthrough-step">
-          <div className="walkthrough-index">
+          <div className="walkthrough-index" data-step="2">
             <WalkthroughIcon name="link" />
           </div>
           <div className="walkthrough-body">
@@ -169,7 +169,7 @@ export default function TryItOutPage() {
         </li>
 
         <li className="walkthrough-step">
-          <div className="walkthrough-index">
+          <div className="walkthrough-index" data-step="3">
             <WalkthroughIcon name="profile" />
           </div>
           <div className="walkthrough-body">
@@ -187,7 +187,7 @@ export default function TryItOutPage() {
         </li>
 
         <li className="walkthrough-step">
-          <div className="walkthrough-index">
+          <div className="walkthrough-index" data-step="4">
             <WalkthroughIcon name="share" />
           </div>
           <div className="walkthrough-body">
@@ -201,7 +201,7 @@ export default function TryItOutPage() {
         </li>
 
         <li className="walkthrough-step">
-          <div className="walkthrough-index">
+          <div className="walkthrough-index" data-step="5">
             <WalkthroughIcon name="pay" />
           </div>
           <div className="walkthrough-body">
@@ -227,7 +227,7 @@ export default function TryItOutPage() {
         </li>
 
         <li className="walkthrough-step">
-          <div className="walkthrough-index">
+          <div className="walkthrough-index" data-step="6">
             <WalkthroughIcon name="confirm" />
           </div>
           <div className="walkthrough-body">
@@ -268,7 +268,8 @@ export default function TryItOutPage() {
           <h2>A fixed invoice</h2>
           <p>
             Use an <strong>Invoice link</strong> when the amount should be exact. Your client opens
-            the link, sees what to pay, and the page confirms automatically when the payment arrives.
+            the link, sees what to pay, and the page confirms automatically when the payment
+            arrives.
           </p>
           <div className="row use-case-guide-actions">
             <Link className="btn btn-primary" href="/new-link?template=fixed-invoice">

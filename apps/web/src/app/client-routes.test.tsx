@@ -76,9 +76,8 @@ describe("client route smoke rendering", () => {
     const { default: ClaimBatchPage } = await import("./claim/batch/page");
     const page = await ClaimBatchPage({ searchParams: Promise.resolve({ count: "3" }) });
     const markup = renderToStaticMarkup(page);
-    expect(markup).toContain("Create multiple claim links at once");
-    expect(markup).toContain("Create a claim drop");
-    expect(markup).toContain("Telegram community");
+    expect(markup).toContain("Checking creator session...");
+    expect(markup).not.toContain("Generate batch");
     expect(markup).not.toContain("Private lab");
   });
 
@@ -88,8 +87,23 @@ describe("client route smoke rendering", () => {
       searchParams: Promise.resolve({ count: "3" }),
     });
     const markup = renderToStaticMarkup(page);
-    expect(markup).toContain("How many claim links do you need?");
-    expect(markup).toContain("Create a Claim Drop");
-    expect(markup).toContain("Continue with 3 links");
+    expect(markup).toContain("Checking creator session...");
+    expect(markup).not.toContain("Continue with 3 links");
+  });
+
+  it("renders a consistent creator sign-in gate with a safe return route", async () => {
+    const { CreatorSignInGate } = await import("./CreatorSignInGate");
+    const markup = renderToStaticMarkup(
+      <CreatorSignInGate
+        description="Sign in before configuring the reward."
+        label="Claim Drop"
+        nextPath="/claim/batch?count=3"
+        title="Sign in to create a Claim Drop"
+      />,
+    );
+
+    expect(markup).toContain("Sign in to create a Claim Drop");
+    expect(markup).toContain("/sign-in?next=%2Fclaim%2Fbatch%3Fcount%3D3");
+    expect(markup).toContain("/create-profile");
   });
 });

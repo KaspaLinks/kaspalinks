@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { SESSION_EVENT } from "../BrandNav";
+import { sanitizeInternalNextPath } from "@/lib/internal-next-path";
 
 const TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
 const USERNAME_STORAGE_KEY = "kaspa-actions:creator-username";
@@ -27,6 +28,11 @@ function broadcastSessionChange() {
   window.dispatchEvent(new CustomEvent(SESSION_EVENT));
 }
 
+function readRequestedDestination(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  return sanitizeInternalNextPath(new URLSearchParams(window.location.search).get("next"));
+}
+
 export function SignInClient() {
   const router = useRouter();
   const [username, setUsername] = useState("");
@@ -40,7 +46,7 @@ export function SignInClient() {
     const storedUsername = window.sessionStorage.getItem(USERNAME_STORAGE_KEY) ?? "";
     const storedToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
     if (storedUsername && storedToken) {
-      router.replace("/dashboard");
+      router.replace(readRequestedDestination());
     }
   }, [router]);
 
@@ -64,7 +70,7 @@ export function SignInClient() {
         writeSessionValue(USERNAME_STORAGE_KEY, body.creator.username);
         writeSessionValue(TOKEN_STORAGE_KEY, token);
         broadcastSessionChange();
-        router.push("/dashboard");
+        router.push(readRequestedDestination());
       } catch {
         setError("Network error during sign in.");
       } finally {
