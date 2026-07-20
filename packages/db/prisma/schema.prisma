@@ -39,6 +39,13 @@ enum AuditActorType {
   DEMO
 }
 
+enum GiveawayStatus {
+  OPEN
+  DRAWN
+  NO_ENTRIES
+  CANCELLED
+}
+
 model Creator {
   id          String     @id @default(cuid())
   username    String     @unique
@@ -66,6 +73,7 @@ model Creator {
   auditLogs      AuditLog[]
   claimableBatches ClaimableBatch[]
   claimableLinks ClaimableLink[]
+  giveaways Giveaway[]
 
   @@index([createdAt])
 }
@@ -289,4 +297,50 @@ model ClaimableBatch {
   @@index([creatorId])
   @@index([status])
   @@index([fundingAddress])
+}
+
+// Lab-only, non-custodial giveaway registration. The server stores public
+// contest terms and participant payout addresses, but never wallet keys or
+// funds. drawSeedHex is a fairness seed committed before entries open; it is
+// revealed only after the one-time draw so the result can be independently
+// reproduced.
+model Giveaway {
+  id               String          @id @default(cuid())
+  publicId         String          @unique @default(cuid())
+  creatorId        String
+  creator          Creator         @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  amountSompi      BigInt
+  closesAt         DateTime
+  status           GiveawayStatus  @default(OPEN)
+  drawSeedHex      String
+  drawCommitment   String
+  drawDigest       String?
+  winnerIndex      Int?
+  winnerEntryId    String?
+  winnerAddress    String?
+  entryCountAtDraw Int?
+  drawnAt          DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  entries          GiveawayEntry[]
+
+  @@index([creatorId])
+  @@index([status])
+  @@index([closesAt])
+  @@index([createdAt])
+}
+
+model GiveawayEntry {
+  id         String   @id @default(cuid())
+  giveawayId String
+  giveaway   Giveaway @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  address    String
+  ipHash     String?
+  createdAt  DateTime @default(now())
+
+  @@unique([giveawayId, address])
+  @@index([giveawayId])
+  @@index([createdAt])
 }

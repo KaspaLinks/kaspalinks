@@ -87,6 +87,7 @@ Do not publish the app container port directly. Caddy should be the only public 
 - The app container does not run a Kaspa node. Optional indexer-backed detection uses the configured REST indexer. Normal payment-link wallet signing/broadcasting happens inside the user's wallet.
 - `TOCCATA_LAB_ENABLED` defaults to `false`. Turn it on only when you intentionally want to offer claimable links. The flow is mainnet-only, starts at 1 KAS, signs claim/refund spends in the browser, and relays signed JSON only after an explicit user action.
 - `TOCCATA_BATCH_LAB_ENABLED` defaults to `false` and separately gates the private two-to-ten-link batch experiment. Keep its Caddy operator authentication in place until the batch Mainnet acceptance checklist has been completed.
+- `GIVEAWAY_LAB_ENABLED` defaults to `false` and separately gates the unlinked address-giveaway experiment. It stores participant payout addresses and public draw terms, but no wallet keys or funds; creators pay a drawn winner directly from their wallet.
 - `TOCCATA_WRPC_RELAY_URL` should point at the internal `toccata-relay` service (`http://toccata-relay:3010` in Docker Compose). The relay keeps a reusable Kaspa wRPC client, warms the connection on startup/health checks, retries warm connection attempts every `TOCCATA_RELAY_WARM_CONNECT_INTERVAL_MS`, and is not published through Caddy.
 
 ## Database Migrations
