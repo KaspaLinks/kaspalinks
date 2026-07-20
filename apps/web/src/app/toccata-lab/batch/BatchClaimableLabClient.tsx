@@ -121,7 +121,6 @@ export function BatchClaimableLabClient({
   const [showFundingQr, setShowFundingQr] = useState(false);
   const [title, setTitle] = useState("Community claim drop");
   const [showKaswareHelp, setShowKaswareHelp] = useState(false);
-  const [fundingAutoChecking, setFundingAutoChecking] = useState(false);
   const [fundingLastCheckedAt, setFundingLastCheckedAt] = useState<null | number>(null);
   const [unmatchedFundingOutputs, setUnmatchedFundingOutputs] = useState<UnmatchedFundingOutput[]>(
     [],
@@ -251,7 +250,7 @@ export function BatchClaimableLabClient({
   useEffect(() => {
     if (!batch || batch.activation.status !== "awaiting_funding") return;
 
-    const tick = (quiet = true) => void checkFunding({ auto: true, quiet });
+    const tick = (quiet = true) => void checkFunding({ quiet });
     const initial = window.setTimeout(() => tick(), 1_500);
     const timer = window.setInterval(() => tick(), FUNDING_AUTO_CHECK_MS);
     const checkWhenVisible = () => {
@@ -613,7 +612,7 @@ export function BatchClaimableLabClient({
     }
   }
 
-  async function checkFunding(options: { auto?: boolean; quiet?: boolean } = {}) {
+  async function checkFunding(options: { quiet?: boolean } = {}) {
     const currentBatch = batchRef.current;
     if (!currentBatch || fundingCheckInFlight.current || batchActionInFlight.current) return;
     fundingCheckInFlight.current = true;
@@ -622,8 +621,6 @@ export function BatchClaimableLabClient({
       setError("");
       setChecking(true);
     }
-    if (options.auto) setFundingAutoChecking(true);
-
     try {
       const response = await fetch("/api/toccata-lab/funding-status", {
         body: JSON.stringify({
@@ -726,7 +723,6 @@ export function BatchClaimableLabClient({
       }
     } finally {
       fundingCheckInFlight.current = false;
-      if (options.auto) setFundingAutoChecking(false);
       if (!options.quiet) {
         setChecking(false);
       }
@@ -907,7 +903,6 @@ export function BatchClaimableLabClient({
       }
 
       setShowKaswareHelp(false);
-      setFundingAutoChecking(true);
       setNotice(
         result.txId
           ? `KasWare sent the batch funding transaction ${compactTransactionId(result.txId)}. Checking the one-time address now.`
@@ -2146,9 +2141,7 @@ export function BatchClaimableLabClient({
                   <div className="batch-funding-watch" aria-live="polite">
                     <span className="claimable-spinner" aria-hidden="true" />
                     <div>
-                      <strong>
-                        {fundingAutoChecking ? "Checking funding…" : "Watching for funding"}
-                      </strong>
+                      <strong>Watching for funding</strong>
                       <p>
                         Automatic check every 5 seconds
                         {fundingLastCheckedAt
