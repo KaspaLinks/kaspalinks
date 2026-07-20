@@ -28,12 +28,12 @@ import {
   sameBatchFundingMatch,
   type RegisteredBatchState,
 } from "@/lib/batch-claimable-state";
-import { encodeClaimableFragmentPayload } from "@/lib/claimable-share";
 import {
-  removeClaimableRecord,
-  saveClaimableRecord,
-  type ClaimableStoreRecord,
-} from "@/lib/claimable-store";
+  BATCH_CLAIMABLE_STORAGE_KEY,
+  buildBatchClaimUrl as buildClaimUrl,
+  buildBatchRefundUrl as buildRefundUrl,
+  saveBatchLinksToMyLinks,
+} from "@/lib/batch-claimable-store";
 import {
   readEncryptedLocalJson,
   removeEncryptedLocalJson,
@@ -84,9 +84,7 @@ type ScriptResponse = {
   }>;
 };
 
-const STORAGE_KEY = "kaspalinks.claimable-batch-lab.v1";
-const CLAIM_PREFIX = "lab-claim=";
-const REFUND_PREFIX = "lab-manage=";
+const STORAGE_KEY = BATCH_CLAIMABLE_STORAGE_KEY;
 const MAX_BATCH_SIZE = 10;
 const BATCH_ACTIVATION_FEE_SOMPI = 1_000_000n;
 const FUNDING_SAFE_CHANGE_SOMPI = 20_000_000n;
@@ -294,7 +292,10 @@ export function BatchClaimableLabClient({
   // allocator is checked without rewriting unchanged browser-held recovery data.
   useEffect(() => {
     if (!batch?.batchManifestRegisteredAt) return;
-    const reconcile = () => void reconcileRegisteredBatch();
+    const reconcile = () =>
+      void reconcileRegisteredBatch(undefined, {
+        syncMyLinks: batch.activation.status === "activated",
+      });
     reconcile();
 
     if (batch.activation.status === "awaiting_funding") return;
@@ -1056,7 +1057,10 @@ export function BatchClaimableLabClient({
         })),
       };
       await persist(next);
-      await reconcileRegisteredBatch(next);
+      await saveBatchLinksToMyLinks(next).catch(() => {
+        // My Links repairs this encrypted browser-only index from the batch vault on next open.
+      });
+      await reconcileRegisteredBatch(next, { syncMyLinks: true });
       setShowKaswareHelp(false);
       setShowCreatedDialog(true);
       setNotice(
@@ -2759,74 +2763,6 @@ export function BatchClaimableLabClient({
   );
 }
 
-function buildClaimUrl(link: BatchLink, batch: BatchRecord): string {
-  if (!link.fundingMatch) return "";
-  return `${window.location.origin}/claim?link=${encodeURIComponent(link.id)}#${CLAIM_PREFIX}${encodePayload(
-    {
-      amountKas: link.amountKas,
-      amountSompi: link.amountSompi,
-      claimCode: link.claimCode,
-      claimPublicKey: link.claimPublicKey,
-      createdAt: batch.createdAt,
-      createdAtMs: batch.createdAtMs,
-      description: link.description,
-      feeKas: link.feeKas,
-      feeSompi: link.feeSompi,
-      fundingAddress: link.fundingAddress,
-      fundingMatch: link.fundingMatch,
-      id: link.id,
-      netClaimKas: link.netClaimKas,
-      redeemScriptHex: link.redeemScriptHex,
-      refundLockTime: link.refundLockTime,
-      title: link.title,
-      validFor: batch.validFor,
-      version: 1,
-    },
-  )}`;
-}
-
-function toClaimableStoreRecord(link: BatchLink, batch: BatchRecord): ClaimableStoreRecord | null {
-  if (!link.fundingMatch || link.deletedAt) return null;
-
-  return {
-    amountKas: link.amountKas,
-    claimCode: link.claimCode,
-    claimUrl: buildClaimUrl(link, batch),
-    createdAt: batch.createdAt,
-    createdAtMs: batch.createdAtMs,
-    description: link.description,
-    feeKas: link.feeKas,
-    fundingAddress: link.fundingAddress,
-    id: link.id,
-    manageUrl: buildRefundUrl(link, batch),
-    netClaimKas: link.netClaimKas,
-    refundCode: link.refundCode,
-    refundLockTime: link.refundLockTime,
-    status:
-      link.status === "spent"
-        ? "spent_unknown"
-        : link.status === "awaiting_activation"
-          ? "funded"
-          : link.status,
-    title: link.title,
-    updatedAtMs: Date.now(),
-    validFor: batch.validFor,
-  };
-}
-
-async function saveBatchLinksToMyLinks(batch: BatchRecord): Promise<void> {
-  for (const link of batch.links) {
-    if (link.deletedAt) await removeClaimableRecord(link.id);
-  }
-  const records = batch.links
-    .map((link) => toClaimableStoreRecord(link, batch))
-    .filter((record): record is ClaimableStoreRecord => record !== null);
-
-  for (const record of records) {
-    await saveClaimableRecord(record);
-  }
-}
-
 function isBatchLinkTerminal(status: BatchLink["status"]): boolean {
   return isTerminalBatchChildStatus(status);
 }
@@ -2901,34 +2837,6 @@ async function registerAllBatchLinks(batch: BatchRecord): Promise<void> {
   if (!response.ok) {
     throw new Error(body.error?.message ?? "Could not register the public batch manifest.");
   }
-}
-
-function buildRefundUrl(link: BatchLink, batch: BatchRecord): string {
-  if (!link.fundingMatch) return "";
-  return `${window.location.origin}/claim/refund#${REFUND_PREFIX}${encodePayload({
-    amountKas: link.amountKas,
-    amountSompi: link.amountSompi,
-    createdAt: batch.createdAt,
-    createdAtMs: batch.createdAtMs,
-    description: link.description,
-    feeKas: link.feeKas,
-    feeSompi: link.feeSompi,
-    fundingAddress: link.fundingAddress,
-    fundingMatch: link.fundingMatch,
-    id: link.id,
-    netClaimKas: link.netClaimKas,
-    redeemScriptHex: link.redeemScriptHex,
-    refundCode: link.refundCode,
-    refundLockTime: link.refundLockTime,
-    refundPublicKey: link.refundPublicKey,
-    title: link.title,
-    validFor: batch.validFor,
-    version: 1,
-  })}`;
-}
-
-function encodePayload(payload: unknown): string {
-  return encodeClaimableFragmentPayload(payload);
 }
 
 function downloadCsv(filename: string, headers: string[], rows: Array<Array<number | string>>) {

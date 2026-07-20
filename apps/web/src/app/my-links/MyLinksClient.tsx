@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import { buildBatchRecoveryPath } from "@/lib/batch-claimable-recovery";
+import { restoreCurrentBatchLinksToMyLinks } from "@/lib/batch-claimable-store";
 import { buildClaimableRecoveryPath } from "@/lib/claimable-recovery";
 import { writeClipboardText } from "@/lib/clipboard";
 import {
@@ -740,7 +741,9 @@ export function MyLinksClient() {
 
   useEffect(() => {
     const refresh = () => {
-      void loadClaimableRecords()
+      void restoreCurrentBatchLinksToMyLinks()
+        .catch(() => 0)
+        .then(() => loadClaimableRecords())
         .then(setClaimableRecords)
         .catch(() => setClaimableRecords([]));
     };
