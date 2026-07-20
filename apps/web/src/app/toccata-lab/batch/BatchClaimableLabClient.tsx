@@ -49,7 +49,7 @@ import {
 } from "@/lib/toccata-lab-fee";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { estimateClaimableExpiry } from "@/lib/claimable-expiry";
-import { useFundingQrImage } from "@/lib/funding-qr-image";
+import { FundingQrCode } from "@/lib/funding-qr";
 
 import {
   buildBatchActivationSpendInBrowser,
@@ -394,9 +394,6 @@ export function BatchClaimableLabClient({
           })
         : "",
     [batch, batchFundingAmountKas],
-  );
-  const batchFundingQrImage = useFundingQrImage(
-    showFundingQr && batch?.recoveryExportedAt ? batchFundingWalletUri : "",
   );
   const firstDistributableLink =
     batch?.activation.status === "activated"
@@ -2295,23 +2292,10 @@ export function BatchClaimableLabClient({
                 ) : null}
                 {showFundingQr ? (
                   <div className="batch-lab-funding-qr">
-                    {batchFundingQrImage.error ? (
-                      <div className="notice notice-warn" role="status">
-                        QR code could not be loaded. Open Kaspium or copy the address instead.
-                      </div>
-                    ) : batchFundingQrImage.loading ? (
-                      <div className="funding-qr-loading" role="status">
-                        <span className="claimable-spinner" aria-hidden="true" />
-                        <span>Loading QR code</span>
-                      </div>
-                    ) : batchFundingQrImage.url ? (
-                      <img
-                        alt={`Funding QR code for ${batchFundingAmountKas} KAS`}
-                        src={batchFundingQrImage.url}
-                      />
-                    ) : (
-                      <div className="funding-qr-loading" aria-hidden="true" />
-                    )}
+                    <FundingQrCode
+                      ariaLabel={`Funding QR code for ${batchFundingAmountKas} KAS`}
+                      paymentUri={batchFundingWalletUri}
+                    />
                     <div>
                       <strong>Scan with Kaspium</strong>
                       <p>Exact address and total included.</p>

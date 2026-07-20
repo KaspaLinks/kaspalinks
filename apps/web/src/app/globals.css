@@ -1444,7 +1444,8 @@ textarea {
   margin-top: 4px;
 }
 
-.claimable-funding-qr img {
+.claimable-funding-qr .funding-qr-svg {
+  display: block;
   width: min(196px, 100%);
   aspect-ratio: 1 / 1;
   padding: 10px;
@@ -1455,21 +1456,6 @@ textarea {
 .claimable-funding-qr > .notice {
   max-width: 320px;
   margin: 0;
-}
-
-.funding-qr-loading {
-  display: grid;
-  width: min(220px, 100%);
-  aspect-ratio: 1 / 1;
-  place-items: center;
-  align-content: center;
-  gap: 10px;
-  padding: 18px;
-  border: 1px solid rgba(73, 234, 203, 0.22);
-  border-radius: var(--radius-sm);
-  background: rgba(8, 15, 19, 0.7);
-  color: var(--fg-muted);
-  font-size: 0.82rem;
 }
 
 .claimable-funding-qr-copy {
@@ -1745,7 +1731,7 @@ textarea {
     text-align: center;
   }
 
-  .claimable-funding-qr img {
+  .claimable-funding-qr .funding-qr-svg {
     width: min(240px, 100%);
   }
 
@@ -8552,7 +8538,7 @@ body:has(main.deck-main) {
   background: rgba(2, 12, 18, 0.28);
 }
 
-.batch-lab-funding-qr img {
+.batch-lab-funding-qr .funding-qr-svg {
   display: block;
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -9157,7 +9143,7 @@ body:has(main.deck-main) {
     text-align: center;
   }
 
-  .batch-lab-funding-qr img {
+  .batch-lab-funding-qr .funding-qr-svg {
     max-width: 220px;
   }
 
