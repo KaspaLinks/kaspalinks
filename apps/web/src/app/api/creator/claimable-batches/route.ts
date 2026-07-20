@@ -289,6 +289,83 @@ export async function POST(request: Request) {
   return apiJson({ claimableBatch: { batchKey: batch.batchKey, status: batch.status } });
 }
 
+export async function DELETE(request: Request) {
+  const guard = await requireCreator(request, prisma);
+  if (!guard.ok) return guard.response;
+
+  const limited = enforceRateLimit(RateBuckets.CREATOR_PROFILE_UPDATE, guard.creator.id);
+  if (!limited.allowed) return limited.response;
+
+  const batchKey = new URL(request.url).searchParams.get("batchKey")?.trim() ?? "";
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(batchKey)) {
+    return apiError(ErrorCodes.INVALID_BODY, "batchKey is required.", 400);
+  }
+
+  const batch = await prisma.claimableBatch.findUnique({
+    where: { creatorId_batchKey: { batchKey, creatorId: guard.creator.id } },
+  });
+  if (!batch) return apiError(ErrorCodes.NOT_FOUND, "Claimable batch not found.", 404);
+
+  const outputs = parseStoredClaimableBatchOutputs(batch.expectedOutputs);
+  const childLinks = await prisma.claimableLink.findMany({
+    select: { deletedAt: true, id: true, linkKey: true, status: true },
+    where: {
+      creatorId: guard.creator.id,
+      linkKey: { in: outputs.map((output) => output.linkKey) },
+    },
+  });
+  if (childLinks.length !== outputs.length) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "This batch is missing registered child links and cannot be deleted safely.",
+      409,
+    );
+  }
+  const activeLinks = childLinks.filter((link) => link.deletedAt === null);
+  const unsafeLink = activeLinks.find(
+    (link) =>
+      !REGISTERED_TERMINAL_BATCH_CHILD_STATUSES.includes(
+        link.status as (typeof REGISTERED_TERMINAL_BATCH_CHILD_STATUSES)[number],
+      ),
+  );
+  if (unsafeLink) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "Every link in this batch must be claimed, refunded, or otherwise spent on-chain before the batch can be deleted.",
+      409,
+    );
+  }
+
+  const deletedAt = new Date();
+  const deletion = await prisma.claimableLink.updateMany({
+    data: { deletedAt },
+    where: {
+      creatorId: guard.creator.id,
+      deletedAt: null,
+      id: { in: activeLinks.map((link) => link.id) },
+      status: { in: [...REGISTERED_TERMINAL_BATCH_CHILD_STATUSES] },
+    },
+  });
+
+  await writeAuditLog(prisma, {
+    actorType: AuditActorType.CREATOR,
+    creatorId: guard.creator.id,
+    event: "claimable_batch.deleted_from_creator_list",
+    ipHash: guard.ipHash,
+    metadata: {
+      batchKey: batch.batchKey,
+      deletedLinkCount: deletion.count,
+      outputCount: outputs.length,
+    },
+  });
+
+  return apiJson({
+    deleted: true,
+    deletedCount: deletion.count,
+    deletedLinkKeys: outputs.map((output) => output.linkKey),
+  });
+}
+
 function sameManifest(
   existing: {
     activationFeeSompi: bigint;
@@ -367,6 +444,6 @@ async function isAcceptedKaspaTransaction(transactionId: string): Promise<boolea
   }
 }
 
-const methodNotAllowed = () => apiMethodNotAllowed(["GET", "POST"]);
+const methodNotAllowed = () => apiMethodNotAllowed(["DELETE", "GET", "POST"]);
 
-export { methodNotAllowed as DELETE, methodNotAllowed as PATCH, methodNotAllowed as PUT };
+export { methodNotAllowed as PATCH, methodNotAllowed as PUT };

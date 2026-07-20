@@ -25,7 +25,7 @@ vi.mock("@kaspa-actions/db", () => ({
 vi.mock("@/lib/creator-guard", () => ({ requireCreator: mockRequireCreator }));
 vi.mock("@/lib/audit", () => ({ writeAuditLog: vi.fn() }));
 
-import { GET, POST } from "./route";
+import { DELETE, GET, POST } from "./route";
 
 const REFUND_LOCK_TIME = "500000000";
 const activation = deriveToccataLabKeyPair("1".padStart(64, "0"));
@@ -329,6 +329,129 @@ describe("GET /api/creator/claimable-batches", () => {
         status: "refunded",
       },
     });
+  });
+});
+
+describe("DELETE /api/creator/claimable-batches", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireCreator.mockResolvedValue({
+      creator: { id: "creator-1" },
+      ipHash: "ip-hash",
+      ok: true,
+    });
+    mockPrisma.claimableBatch.findUnique.mockResolvedValue({
+      batchKey: "batch-test",
+      creatorId: "creator-1",
+      expectedOutputs: outputs,
+    });
+    mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 2 });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetRateLimits();
+  });
+
+  it("soft-deletes every closed child link in one update", async () => {
+    mockPrisma.claimableLink.findMany.mockResolvedValue([
+      {
+        deletedAt: null,
+        id: "claimable-1",
+        linkKey: outputs[0]!.linkKey,
+        status: "claimed",
+      },
+      {
+        deletedAt: null,
+        id: "claimable-2",
+        linkKey: outputs[1]!.linkKey,
+        status: "refunded",
+      },
+    ]);
+
+    const response = await DELETE(
+      new Request("https://kaspalinks.com/api/creator/claimable-batches?batchKey=batch-test", {
+        method: "DELETE",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith({
+      data: { deletedAt: expect.any(Date) },
+      where: {
+        creatorId: "creator-1",
+        deletedAt: null,
+        id: { in: ["claimable-1", "claimable-2"] },
+        status: { in: ["claimed", "refunded", "spent_unknown"] },
+      },
+    });
+    await expect(response.json()).resolves.toEqual({
+      deleted: true,
+      deletedCount: 2,
+      deletedLinkKeys: outputs.map((output) => output.linkKey),
+    });
+  });
+
+  it("refuses to hide a batch while any child can still hold KAS", async () => {
+    mockPrisma.claimableLink.findMany.mockResolvedValue([
+      {
+        deletedAt: null,
+        id: "claimable-1",
+        linkKey: outputs[0]!.linkKey,
+        status: "claimed",
+      },
+      {
+        deletedAt: null,
+        id: "claimable-2",
+        linkKey: outputs[1]!.linkKey,
+        status: "refundable",
+      },
+    ]);
+
+    const response = await DELETE(
+      new Request("https://kaspalinks.com/api/creator/claimable-batches?batchKey=batch-test", {
+        method: "DELETE",
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        message:
+          "Every link in this batch must be claimed, refunded, or otherwise spent on-chain before the batch can be deleted.",
+      },
+    });
+  });
+
+  it("ignores children that were already removed individually", async () => {
+    mockPrisma.claimableLink.findMany.mockResolvedValue([
+      {
+        deletedAt: new Date("2026-07-19T12:00:00.000Z"),
+        id: "claimable-1",
+        linkKey: outputs[0]!.linkKey,
+        status: "claimed",
+      },
+      {
+        deletedAt: null,
+        id: "claimable-2",
+        linkKey: outputs[1]!.linkKey,
+        status: "spent_unknown",
+      },
+    ]);
+    mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 1 });
+
+    const response = await DELETE(
+      new Request("https://kaspalinks.com/api/creator/claimable-batches?batchKey=batch-test", {
+        method: "DELETE",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: { in: ["claimable-2"] } }) }),
+    );
   });
 });
 

@@ -7831,6 +7831,26 @@ body:has(main.deck-main) {
 .claimable-batch-details[open] > .claimable-batch-summary {
   border-bottom: 1px solid rgba(73, 234, 203, 0.2);
 }
+.claimable-batch-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(8, 18, 21, 0.38);
+}
+.claimable-batch-actions > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.claimable-batch-actions strong {
+  color: var(--fg-strong);
+}
+.claimable-batch-actions small {
+  color: var(--fg-muted);
+}
 .claimable-batch-links {
   display: grid;
   margin: 0;
@@ -9356,6 +9376,16 @@ body:has(main.deck-main) {
   .claimable-batch-chevron {
     grid-column: 2;
     grid-row: 1;
+  }
+
+  .claimable-batch-actions {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 14px;
+  }
+
+  .claimable-batch-actions .btn {
+    width: 100%;
   }
 
   .claimable-batch-links .claimable-mylinks-item {

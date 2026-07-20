@@ -380,6 +380,12 @@ type ClaimableListGroup = {
   records: MergedClaimable[];
 };
 
+type ClaimableBatchDeleteTarget = {
+  batchKey: string;
+  linkCount: number;
+  title: string;
+};
+
 function formatSompiKas(sompi: string): string {
   try {
     const value = BigInt(sompi);
@@ -718,8 +724,11 @@ export function MyLinksClient() {
   const [bulkDeletingClaimables, setBulkDeletingClaimables] = useState(false);
   const [showClaimableDeleteDialog, setShowClaimableDeleteDialog] = useState(false);
   const [claimableDeleteTarget, setClaimableDeleteTarget] = useState<MergedClaimable | null>(null);
+  const [claimableBatchDeleteTarget, setClaimableBatchDeleteTarget] =
+    useState<ClaimableBatchDeleteTarget | null>(null);
   const [claimableDeleteError, setClaimableDeleteError] = useState<null | string>(null);
   const [deletingClaimable, setDeletingClaimable] = useState(false);
+  const [deletingClaimableBatch, setDeletingClaimableBatch] = useState(false);
   const [claimableQr, setClaimableQr] = useState<null | {
     dataUrl: string;
     linkKey: string;
@@ -1028,6 +1037,76 @@ export function MyLinksClient() {
     setClaimableDeleteTarget(null);
     setStatus("Claimable link deleted.");
   }, [claimableDeleteTarget, deletingClaimable, removeClaimableLink]);
+
+  const confirmClaimableBatchDeletion = useCallback(async () => {
+    if (!claimableBatchDeleteTarget || deletingClaimableBatch) return;
+
+    setDeletingClaimableBatch(true);
+    setClaimableDeleteError(null);
+    setListError(null);
+    setStatus(null);
+    try {
+      const response = await fetch(
+        `/api/creator/claimable-batches?batchKey=${encodeURIComponent(
+          claimableBatchDeleteTarget.batchKey,
+        )}`,
+        { headers: authHeaders, method: "DELETE" },
+      );
+      const body = (await response.json().catch(() => null)) as null | {
+        deletedLinkKeys?: unknown;
+        error?: { message?: string };
+      };
+      if (!response.ok) {
+        setClaimableDeleteError(body?.error?.message ?? "Could not delete claimable batch.");
+        return;
+      }
+
+      const deletedLinkKeys = Array.isArray(body?.deletedLinkKeys)
+        ? body.deletedLinkKeys.filter(
+            (value: unknown): value is string => typeof value === "string",
+          )
+        : [];
+      const deletedKeySet = new Set(deletedLinkKeys);
+      setDbClaimableLinks((current) =>
+        current.filter((link) => !deletedKeySet.has(link.linkKey)),
+      );
+      setDbClaimableBatches((current) =>
+        current.filter((batch) => batch.batchKey !== claimableBatchDeleteTarget.batchKey),
+      );
+      setDeletedClaimableLinkKeys((current) => {
+        const next = new Set(current);
+        for (const linkKey of deletedLinkKeys) next.add(linkKey);
+        return next;
+      });
+      let localRecords = claimableRecords;
+      for (const linkKey of deletedLinkKeys) {
+        if (localRecords.some((record) => record.id === linkKey)) {
+          localRecords = await removeClaimableRecord(linkKey);
+        }
+      }
+      setClaimableRecords(localRecords);
+      setSelectedClaimableKeys((current) => {
+        const next = new Set(current);
+        for (const linkKey of deletedLinkKeys) next.delete(linkKey);
+        return next;
+      });
+      setClaimableBatchDeleteTarget(null);
+      setStatus(
+        `${claimableBatchDeleteTarget.title} and ${deletedLinkKeys.length} link${
+          deletedLinkKeys.length === 1 ? "" : "s"
+        } removed from My Links.`,
+      );
+    } catch {
+      setClaimableDeleteError("Network error while deleting claimable batch.");
+    } finally {
+      setDeletingClaimableBatch(false);
+    }
+  }, [
+    authHeaders,
+    claimableBatchDeleteTarget,
+    claimableRecords,
+    deletingClaimableBatch,
+  ]);
 
   const deleteSelectedClaimableLinks = useCallback(async () => {
     if (selectedDeletableClaimables.length === 0) return;
@@ -2540,6 +2619,69 @@ export function MyLinksClient() {
         </div>
       ) : null}
 
+      {claimableBatchDeleteTarget ? (
+        <div
+          className="batch-wallet-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target && !deletingClaimableBatch) {
+              setClaimableBatchDeleteTarget(null);
+            }
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="claimable-batch-delete-dialog-title"
+            aria-modal="true"
+            className="batch-wallet-modal claimable-delete-dialog"
+            role="dialog"
+          >
+            <button
+              aria-label="Cancel deleting claimable batch"
+              className="batch-wallet-modal-close"
+              disabled={deletingClaimableBatch}
+              onClick={() => setClaimableBatchDeleteTarget(null)}
+              type="button"
+            >
+              ×
+            </button>
+            <span className="label">Remove claim batch</span>
+            <h2 id="claimable-batch-delete-dialog-title">Delete the entire batch?</h2>
+            <p>
+              Remove <strong>{claimableBatchDeleteTarget.title}</strong> and all{" "}
+              {claimableBatchDeleteTarget.linkCount} links from My Links?
+            </p>
+            <p className="notice notice-critical">
+              The batch is removed only when all links are recorded as claimed, refunded, or
+              otherwise spent on-chain. This does not move KAS or erase the underlying on-chain
+              transactions.
+            </p>
+            {claimableDeleteError ? (
+              <p className="notice notice-critical" role="alert">
+                {claimableDeleteError}
+              </p>
+            ) : null}
+            <div className="batch-wallet-modal-actions">
+              <button
+                className="btn"
+                disabled={deletingClaimableBatch}
+                onClick={() => setClaimableBatchDeleteTarget(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                disabled={deletingClaimableBatch}
+                onClick={() => void confirmClaimableBatchDeletion()}
+                type="button"
+              >
+                {deletingClaimableBatch ? "Deleting…" : "Delete entire batch"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {mergedClaimable.length > 0 && (typeFilter === "all" || typeFilter === "kaspa.claimable") ? (
         <section className="card claimable-mylinks">
           <div className="claimable-mylinks-heading">
@@ -2974,6 +3116,10 @@ export function MyLinksClient() {
                   spentUnknownCount;
                 const visibleLinkCount = group.records.length;
                 const totalLinkCount = group.batch.linkKeys.length;
+                const batchCanBeDeleted =
+                  !claimableFiltersActive &&
+                  group.records.length > 0 &&
+                  group.records.every((record) => isClaimableTerminal(record.status));
 
                 return (
                   <li className="claimable-batch-group" key={group.key}>
@@ -3017,6 +3163,28 @@ export function MyLinksClient() {
                         </span>
                         <span className="claimable-batch-chevron" aria-hidden="true" />
                       </summary>
+                      {batchCanBeDeleted ? (
+                        <div className="claimable-batch-actions">
+                          <span>
+                            <strong>Batch complete</strong>
+                            <small>All remaining links are closed.</small>
+                          </span>
+                          <button
+                            className="btn btn-danger"
+                            onClick={() => {
+                              setClaimableDeleteError(null);
+                              setClaimableBatchDeleteTarget({
+                                batchKey: group.batch!.batchKey,
+                                linkCount: totalLinkCount,
+                                title: group.batch!.title,
+                              });
+                            }}
+                            type="button"
+                          >
+                            Delete batch
+                          </button>
+                        </div>
+                      ) : null}
                       <ul className="claimable-batch-links">
                         {group.records.map(renderClaimableRecord)}
                       </ul>
