@@ -52,6 +52,7 @@ import {
 } from "@/lib/toccata-lab-fee";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { buildXIntentUrl } from "@/lib/share-text";
+import { buildFundingQrPath, useFundingQrImage } from "@/lib/funding-qr-image";
 
 import {
   buildClaimableSpendInBrowser,
@@ -397,7 +398,6 @@ export function ToccataLabClient({
   const [recoveryExportedAt, setRecoveryExportedAt] = useState<null | string>(null);
   const [recoveryTarget, setRecoveryTarget] = useState<ClaimableRecoveryTarget | null>(null);
   const [createdDialog, setCreatedDialog] = useState<"ready" | "setup" | null>(null);
-  const [fundingQrFailed, setFundingQrFailed] = useState(false);
   const [creatorSignedIn, setCreatorSignedIn] = useState(true);
   const [claimDestination, setClaimDestination] = useState("");
   const [manualClaimCode, setManualClaimCode] = useState("");
@@ -499,6 +499,18 @@ export function ToccataLabClient({
     };
   }, []);
   const fundingWalletUri = useMemo(() => buildFundingWalletUri(labLink), [labLink]);
+  const fundingQrPath = useMemo(
+    () =>
+      labLink?.fundingAddress && recoveryExportedAt
+        ? buildFundingQrPath({
+            amountKas: labLink.amountKas,
+            label: "Kaspa Links claimable link",
+            recipientAddress: labLink.fundingAddress,
+          })
+        : "",
+    [labLink?.amountKas, labLink?.fundingAddress, recoveryExportedAt],
+  );
+  const fundingQrImage = useFundingQrImage(fundingQrPath);
   const linkFunded = labLink?.status === "funded" || labLink?.status === "shared";
   const shareReady = linkFunded && (claimOnlyView || manageOnlyView || Boolean(recoveryExportedAt));
 
@@ -509,10 +521,6 @@ export function ToccataLabClient({
       setCreatedDialog("ready");
     }
   }, [claimOnlyView, manageOnlyView, shareReady]);
-
-  useEffect(() => {
-    setFundingQrFailed(false);
-  }, [labLink?.id, recoveryExportedAt]);
 
   useEffect(() => {
     if (!createdDialog) return;
@@ -1019,11 +1027,6 @@ export function ToccataLabClient({
     } catch (claimCodeError) {
       setError(claimCodeError instanceof Error ? claimCodeError.message : "Claim code is invalid.");
     }
-  }
-
-  async function copyRefundCode() {
-    if (!labLink) return;
-    await copyText(labLink.refundCode, "Refund code copied. Store it somewhere safe.");
   }
 
   async function copyManageLink() {
@@ -1812,57 +1815,7 @@ export function ToccataLabClient({
           <div>
             <span className="label">Claimable link</span>
             <h2>Create, fund, then share.</h2>
-            <p className="muted">
-              Configure a claimable link, fund its one-time address, and share it once funding is
-              detected. The claim and refund codes stay in your browser — never on our servers.
-            </p>
-          </div>
-          <div className="claimable-lab-readiness">
-            <span
-              className={`status-pill ${capabilities.ready ? "status-confirmed" : "status-failed"}`}
-            >
-              SDK {capabilities.ready ? "ready" : "blocked"}
-            </span>
-            <p className="value-mono">{capabilities.version}</p>
-          </div>
-        </section>
-      ) : null}
-
-      {!claimOnlyView && !manageOnlyView ? (
-        <section className="card claimable-lab-intro">
-          <span className="label">How it works</span>
-          <h2>Send Kaspa that anyone can claim with a link.</h2>
-          <div className="claimable-intro-grid">
-            <div>
-              <span className="claimable-intro-step" aria-hidden="true">
-                1
-              </span>
-              <strong>Create &amp; fund</strong>
-              <p>
-                Set an amount and how long it can be claimed, then fund the link&rsquo;s one-time
-                address from your wallet.
-              </p>
-            </div>
-            <div>
-              <span className="claimable-intro-step" aria-hidden="true">
-                2
-              </span>
-              <strong>Share the link</strong>
-              <p>
-                Once funding arrives you get a link to share. The first person to open it claims the
-                Kaspa straight to their own wallet — no account needed.
-              </p>
-            </div>
-            <div>
-              <span className="claimable-intro-step" aria-hidden="true">
-                3
-              </span>
-              <strong>Refund if unclaimed</strong>
-              <p>
-                If nobody claims it in time, send the Kaspa back to yourself. The claim and refund
-                codes never leave your browser.
-              </p>
-            </div>
+            <p className="muted">Create a one-time reward, fund it, then share the claim link.</p>
           </div>
         </section>
       ) : null}
@@ -1884,15 +1837,11 @@ export function ToccataLabClient({
         </section>
       ) : null}
 
-      <div className="claimable-lab-feedback" aria-live="polite">
-        {error ? (
-          <p className="error-text">{error}</p>
-        ) : notice ? (
-          <p className="muted">{notice}</p>
-        ) : claimOnlyView ? null : (
-          <p className="muted">Status messages appear here.</p>
-        )}
-      </div>
+      {error || notice ? (
+        <div className="claimable-lab-feedback" aria-live="polite">
+          {error ? <p className="error-text">{error}</p> : <p className="muted">{notice}</p>}
+        </div>
+      ) : null}
 
       {createdDialog && labLink && !claimOnlyView && !manageOnlyView ? (
         <div
@@ -2018,7 +1967,6 @@ export function ToccataLabClient({
                     placeholder="Gift for the first claimant"
                     value={linkTitle}
                   />
-                  <p className="muted">Shown on the claim page and used to recognize this link.</p>
                 </div>
 
                 <div>
@@ -2032,9 +1980,6 @@ export function ToccataLabClient({
                     rows={3}
                     value={linkDescription}
                   />
-                  <p className="muted">
-                    Shown on the claim page. You can still change it after creating the link.
-                  </p>
                 </div>
 
                 <div className="grid-two">
@@ -2050,8 +1995,7 @@ export function ToccataLabClient({
                       value={amountKas}
                     />
                     <p className="muted">
-                      Minimum {TOCCATA_LAB_MIN_KAS} KAS. There is no artificial Kaspa Links cap, but
-                      start small until you trust your wallet flow. The fee is added automatically.
+                      Minimum {TOCCATA_LAB_MIN_KAS} KAS. Fee is added automatically.
                     </p>
                   </div>
                   <div>
@@ -2120,14 +2064,7 @@ export function ToccataLabClient({
                 </div>
 
                 <p className="notice notice-critical">
-                  A claimable link works like digital cash: the first person with the claim link can
-                  move the KAS to their own wallet. Share it only with the person or group you
-                  trust.
-                </p>
-                <p className="notice notice-warn">
-                  Before funding, download the private recovery bundle. If nobody claims before the
-                  timer ends, that file or the later private refund link is the only way to recover
-                  the unclaimed KAS on another device.
+                  Anyone with the claim link can claim first. Share it carefully.
                 </p>
 
                 {!enabled ? (
@@ -2176,10 +2113,7 @@ export function ToccataLabClient({
                     <div>
                       <span className="label">Before funding</span>
                       <strong>Save your private recovery bundle</strong>
-                      <p>
-                        It restores the refund key on another device. The file does not contain the
-                        claim key and is never uploaded to Kaspa Links.
-                      </p>
+                      <p>Needed to refund on another device. Keep it private.</p>
                     </div>
                     <button
                       className={recoveryExportedAt ? "btn" : "btn btn-primary"}
@@ -2192,26 +2126,13 @@ export function ToccataLabClient({
                       <span className="batch-recovery-saved">Recovery bundle saved</span>
                     ) : null}
                   </div>
-                  {!recoveryExportedAt ? (
-                    <div className="notice notice-critical">
-                      <strong>Save recovery before funding.</strong> Wallet, address-copy, and QR
-                      actions unlock after the private recovery bundle has been downloaded. Kaspa
-                      Links cannot recreate this browser-held refund key.
-                    </div>
-                  ) : null}
                   {labLink.status === "awaiting_funding" ? (
                     <div className="claimable-chain-event is-checking">
                       <span className="claimable-checking-head">
                         <span className="claimable-spinner" aria-hidden="true" />
                         Watching for your payment
                       </span>
-                      <p>
-                        Checking the funding address automatically every few seconds — no button
-                        needed. Send exactly {labLink.amountKas} KAS and this unlocks on its own.
-                        {fundingLastCheckedAt
-                          ? ` Last check: ${formatShortTime(fundingLastCheckedAt)}.`
-                          : ""}
-                      </p>
+                      <p>Send exactly {labLink.amountKas} KAS. Checking automatically.</p>
                     </div>
                   ) : null}
                   {labLink.fundingMatch && labLink.status !== "claimed" ? (
@@ -2403,36 +2324,28 @@ export function ToccataLabClient({
                         ? (labLink.fundingAddress ?? FUNDING_ADDRESS_PENDING)
                         : "Save the recovery bundle to reveal the funding address."}
                     </p>
-                    <p className="muted">
-                      Fresh one-time address generated from browser-created claim/refund keys. Do
-                      not show the claim link until this exact amount is detected on-chain.
-                    </p>
                     {labLink.fundingAddress && recoveryExportedAt ? (
                       <div className="claimable-funding-qr">
-                        {fundingQrFailed ? (
+                        {fundingQrImage.error ? (
                           <div className="notice notice-warn" role="status">
-                            QR code could not be loaded. Use Open in Kaspium or copy the funding URI
-                            below.
+                            QR code could not be loaded. Open Kaspium or copy the address instead.
                           </div>
-                        ) : (
+                        ) : fundingQrImage.loading ? (
+                          <div className="funding-qr-loading" role="status">
+                            <span className="claimable-spinner" aria-hidden="true" />
+                            <span>Loading QR code</span>
+                          </div>
+                        ) : fundingQrImage.url ? (
                           <img
                             alt={`Funding QR code for ${labLink.amountKas} KAS`}
-                            onError={() => setFundingQrFailed(true)}
-                            src={`/api/toccata-lab/qr?${new URLSearchParams({
-                              amountKas: labLink.amountKas,
-                              format: "png",
-                              label: "Kaspa Links claimable link",
-                              recipientAddress: labLink.fundingAddress,
-                              size: "512",
-                            }).toString()}`}
+                            src={fundingQrImage.url}
                           />
+                        ) : (
+                          <div className="funding-qr-loading" aria-hidden="true" />
                         )}
                         <div className="claimable-funding-qr-copy">
                           <strong>Scan with Kaspium</strong>
-                          <p>
-                            The one-time address and exact amount are included. Verify both before
-                            sending.
-                          </p>
+                          <p>Exact address and amount included.</p>
                         </div>
                       </div>
                     ) : null}
@@ -2537,11 +2450,6 @@ export function ToccataLabClient({
                       </button>
                     ) : null}
                   </div>
-
-                  <p className="notice notice-warn">
-                    Fund exactly the shown amount and wait until funding is detected before sharing
-                    the claim link. The claim link stays locked until the on-chain payment is found.
-                  </p>
                 </>
               ) : (
                 <p className="muted">
@@ -2573,13 +2481,6 @@ export function ToccataLabClient({
                         <p className="value-mono claimable-link-preview" title={claimUrl}>
                           {claimUrlPreview}
                         </p>
-                        <textarea
-                          aria-label="Full claimable link"
-                          className="claimable-link-field"
-                          readOnly
-                          rows={3}
-                          value={claimUrl}
-                        />
                       </div>
                     ) : null}
                   </div>
@@ -2608,9 +2509,6 @@ export function ToccataLabClient({
                     >
                       Copy X post
                     </button>
-                    <button className="btn" onClick={copyRefundCode} type="button">
-                      Copy refund code
-                    </button>
                     <button
                       className="btn"
                       onClick={() => void downloadRecoveryFile()}
@@ -2622,10 +2520,8 @@ export function ToccataLabClient({
                   <div className="claimable-link-box claimable-link-box-important">
                     <span className="label">Private refund link - save this now</span>
                     <p className="claimable-share-copy">
-                      Save this somewhere private. It is the <strong>only</strong> way to refund the
-                      KAS later if no one claims — even after you close this tab. Anyone who gets
-                      this link can send the refund to their own address after expiry, so treat it
-                      like the money itself.
+                      Keep this private. It can refund unclaimed KAS after expiry. Your recovery
+                      bundle is the backup.
                     </p>
                     {manageUrl ? (
                       <textarea
@@ -2645,10 +2541,6 @@ export function ToccataLabClient({
                       Copy refund link
                     </button>
                   </div>
-                  <p className="muted">
-                    The private claim key stays inside the link after <code>#</code>. Browsers do
-                    not send it to Kaspa Links.
-                  </p>
                 </>
               ) : (
                 <p className="muted">

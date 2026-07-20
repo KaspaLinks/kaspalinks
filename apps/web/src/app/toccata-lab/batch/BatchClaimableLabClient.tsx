@@ -49,6 +49,7 @@ import {
 } from "@/lib/toccata-lab-fee";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { estimateClaimableExpiry } from "@/lib/claimable-expiry";
+import { buildFundingQrPath, useFundingQrImage } from "@/lib/funding-qr-image";
 
 import {
   buildBatchActivationSpendInBrowser,
@@ -124,7 +125,6 @@ export function BatchClaimableLabClient({
   const [showFundingQr, setShowFundingQr] = useState(false);
   const [title, setTitle] = useState("Community claim drop");
   const [showKaswareHelp, setShowKaswareHelp] = useState(false);
-  const [fundingLastCheckedAt, setFundingLastCheckedAt] = useState<null | number>(null);
   const [unmatchedFundingOutputs, setUnmatchedFundingOutputs] = useState<UnmatchedFundingOutput[]>(
     [],
   );
@@ -338,7 +338,7 @@ export function BatchClaimableLabClient({
       {
         label: "Create",
         state: hasBatch ? "done" : "active",
-        text: "Browser generates activation + claim/refund keys. Only public keys sent to server.",
+        text: "Set names, amount, and expiry.",
       },
       {
         label: "Fund",
@@ -348,7 +348,7 @@ export function BatchClaimableLabClient({
             : status === "funded" || status === "activated" || status === "refunded"
               ? "done"
               : "locked",
-        text: "Send the exact total to the one-time batch allocator address.",
+        text: "Save recovery, then fund the exact total once.",
       },
       {
         label: "Create outputs",
@@ -360,12 +360,12 @@ export function BatchClaimableLabClient({
               : status === "refunded"
                 ? "done"
                 : "locked",
-        text: "Browser signs activation tx (using your activation code). Covenant enforces exact child outputs.",
+        text: "Create the individual on-chain rewards.",
       },
       {
         label: "Share",
         state: status === "activated" ? "active" : status === "refunded" ? "done" : "locked",
-        text: "Export and share individual claim links. Codes stay in browser + URL fragments only.",
+        text: "Copy or export each claim link.",
       },
     ] as const;
   }, [batch]);
@@ -395,6 +395,18 @@ export function BatchClaimableLabClient({
         : "",
     [batch, batchFundingAmountKas],
   );
+  const batchFundingQrPath = useMemo(
+    () =>
+      showFundingQr && batch?.recoveryExportedAt
+        ? buildFundingQrPath({
+            amountKas: batchFundingAmountKas,
+            label: "Kaspa Links batch funding",
+            recipientAddress: batch.activation.fundingAddress,
+          })
+        : "",
+    [batch, batchFundingAmountKas, showFundingQr],
+  );
+  const batchFundingQrImage = useFundingQrImage(batchFundingQrPath);
   const firstDistributableLink =
     batch?.activation.status === "activated"
       ? batch.links.find(
@@ -737,8 +749,6 @@ export function BatchClaimableLabClient({
         resolvedMessage =
           "A payment reached the allocator address, but it does not match the exact batch total. Review it below.";
       }
-      setFundingLastCheckedAt(Date.now());
-
       if (!options.quiet) {
         setNotice(resolvedMessage);
       }
@@ -1489,9 +1499,7 @@ export function BatchClaimableLabClient({
           <section className="card batch-recovery-import-card">
             <header>
               <span className="label">Different recovery bundle loaded</span>
-              <h2>
-                Use the bundle for {recoveryTarget.title || "the selected claim batch"}
-              </h2>
+              <h2>Use the bundle for {recoveryTarget.title || "the selected claim batch"}</h2>
               <p>
                 This browser currently holds recovery data for <strong>{batch.title}</strong> (
                 {shortBatchReference(batch.id)}). It cannot refund the requested batch (
@@ -1499,8 +1507,8 @@ export function BatchClaimableLabClient({
               </p>
             </header>
             <p className="notice notice-critical">
-              No refund action for the loaded batch is shown here, preventing recovery of the
-              wrong claim links.
+              No refund action for the loaded batch is shown here, preventing recovery of the wrong
+              claim links.
             </p>
             <div className="batch-recovery-actions">
               <button
@@ -1586,9 +1594,7 @@ export function BatchClaimableLabClient({
                 <p className="value-mono">Batch: {shortBatchReference(batch.id)}</p>
                 <p>{recoveryHeadingText}</p>
               </div>
-              <span className={`status-pill status-${recoveryStatusClass}`}>
-                {recoveryStatus}
-              </span>
+              <span className={`status-pill status-${recoveryStatusClass}`}>{recoveryStatus}</span>
             </header>
 
             <div className="batch-recovery-summary-grid">
@@ -1611,9 +1617,9 @@ export function BatchClaimableLabClient({
                     ? "Complete"
                     : remainingRefundCount === 0
                       ? "Nothing to refund"
-                    : batchExpiry?.expired
-                      ? `${remainingRefundCount} ${remainingRefundCount === 1 ? "link" : "links"} ready`
-                      : (batchExpiry?.remainingLabel ?? "Checking on-chain time")}
+                      : batchExpiry?.expired
+                        ? `${remainingRefundCount} ${remainingRefundCount === 1 ? "link" : "links"} ready`
+                        : (batchExpiry?.remainingLabel ?? "Checking on-chain time")}
                 </strong>
               </div>
             </div>
@@ -1683,7 +1689,9 @@ export function BatchClaimableLabClient({
                             <strong>{link.title}</strong>
                             <span>{link.netClaimKas} KAS</span>
                             {link.status === "refunded" ? (
-                              <small>Refund completed. This link no longer holds claimable KAS.</small>
+                              <small>
+                                Refund completed. This link no longer holds claimable KAS.
+                              </small>
                             ) : null}
                           </div>
                           <span className={`batch-lab-link-status is-${link.status}`}>
@@ -1742,19 +1750,13 @@ export function BatchClaimableLabClient({
       <section className="hero toccata-lab-hero">
         <span className="hero-eyebrow">Claim Drop</span>
         <h1 className="hero-title">Create multiple claim links at once.</h1>
-        <p className="hero-sub">
-          Prepare 2 to 10 separate rewards, fund one batch address, then share every claim link
-          individually. Private claim and recovery codes stay in your browser.
-        </p>
+        <p className="hero-sub">Create several separately claimable rewards and fund them once.</p>
       </section>
 
       <section className="batch-lab-warning" role="note">
         <span className="batch-lab-warning-label">Before you fund</span>
         <strong>Every claim link is separate digital cash.</strong>
-        <p>
-          Claim and recovery URLs carry bearer codes. Your browser creates them and the server never
-          receives them. The batch contract fixes every child amount and destination before you pay.
-        </p>
+        <p>Save the recovery bundle before funding. Anyone with a claim link can claim it.</p>
       </section>
 
       {batch ? (
@@ -1987,10 +1989,7 @@ export function BatchClaimableLabClient({
             <div>
               <span className="label">Configure</span>
               <h2 className="form-section-heading">Create a claim drop</h2>
-              <p>
-                Choose the shared settings, then give each claim link a clear name. All private
-                codes stay in your browser.
-              </p>
+              <p>Set shared values and name each link.</p>
             </div>
           </header>
           <form className="claimable-lab-form" onSubmit={createBatch}>
@@ -2057,7 +2056,6 @@ export function BatchClaimableLabClient({
 
             <fieldset className="batch-link-name-list">
               <legend className="batch-lab-section-title">Individual link names</legend>
-              <p className="muted">These names appear on the claim pages and in your export.</p>
               {linkTitles.slice(0, Number.parseInt(count, 10)).map((linkTitle, index) => (
                 <label
                   className="batch-link-name-row"
@@ -2130,18 +2128,13 @@ export function BatchClaimableLabClient({
                     <span>Exact batch total</span>
                     <strong>{batchCreationPreview.exactTotalKas} KAS</strong>
                   </div>
-                  <p>
-                    Claim fees are added automatically. The batch total also includes the activation
-                    transaction fee.
-                  </p>
+                  <p>Fees are included in the exact total.</p>
                 </div>
               ) : null}
             </div>
 
             <p className="notice notice-warn batch-lab-exact-notice">
-              Fund the generated address with the exact total. Extra KAS cannot be distributed to
-              the fixed child links. All private keys and codes are generated and kept in your
-              browser only (non-custodial).
+              Fund the exact total shown. Extra KAS cannot be distributed.
             </p>
             <button
               className="btn btn-primary"
@@ -2159,10 +2152,7 @@ export function BatchClaimableLabClient({
             <div>
               <span className="label">Fund and create outputs</span>
               <h2 className="form-section-heading">Batch status</h2>
-              <p>
-                Fund once. Then create the individual claim outputs in your browser. All private
-                codes (activation, claim, refund) stay in this browser only.
-              </p>
+              <p>Fund once, then create the individual claim links.</p>
             </div>
           </header>
           {batch && summary ? (
@@ -2208,10 +2198,7 @@ export function BatchClaimableLabClient({
                 <div>
                   <span className="label">Before funding</span>
                   <strong>Save your private recovery bundle</strong>
-                  <p>
-                    It restores the browser-held activation, claim, and refund codes on another
-                    device. Keep it private and offline.
-                  </p>
+                  <p>Needed to recover unclaimed KAS on another device. Keep it private.</p>
                 </div>
                 <button
                   className={batch.recoveryExportedAt ? "btn" : "btn btn-primary"}
@@ -2243,12 +2230,7 @@ export function BatchClaimableLabClient({
                     <span className="claimable-spinner" aria-hidden="true" />
                     <div>
                       <strong>Watching for funding</strong>
-                      <p>
-                        Automatic check every 5 seconds
-                        {fundingLastCheckedAt
-                          ? ` · last checked ${new Date(fundingLastCheckedAt).toLocaleTimeString()}`
-                          : ""}
-                      </p>
+                      <p>Checking automatically.</p>
                     </div>
                   </div>
                 ) : null}
@@ -2320,36 +2302,31 @@ export function BatchClaimableLabClient({
                     </button>
                   </div>
                 ) : null}
-                {batch.batchManifestRegisteredAt && !batch.recoveryExportedAt ? (
-                  <div className="notice notice-critical">
-                    <strong>Save recovery before funding.</strong> Wallet, address-copy, and QR
-                    actions unlock after the private recovery bundle has been downloaded. Kaspa
-                    Links cannot recover these browser-held keys for you.
-                  </div>
-                ) : null}
                 {showFundingQr ? (
                   <div className="batch-lab-funding-qr">
-                    <img
-                      alt={`Funding QR code for ${batchFundingAmountKas} KAS`}
-                      src={`/api/toccata-lab/qr?${new URLSearchParams({
-                        amountKas: batchFundingAmountKas,
-                        label: "Kaspa Links batch funding",
-                        recipientAddress: batch.activation.fundingAddress,
-                      }).toString()}`}
-                    />
+                    {batchFundingQrImage.error ? (
+                      <div className="notice notice-warn" role="status">
+                        QR code could not be loaded. Open Kaspium or copy the address instead.
+                      </div>
+                    ) : batchFundingQrImage.loading ? (
+                      <div className="funding-qr-loading" role="status">
+                        <span className="claimable-spinner" aria-hidden="true" />
+                        <span>Loading QR code</span>
+                      </div>
+                    ) : batchFundingQrImage.url ? (
+                      <img
+                        alt={`Funding QR code for ${batchFundingAmountKas} KAS`}
+                        src={batchFundingQrImage.url}
+                      />
+                    ) : (
+                      <div className="funding-qr-loading" aria-hidden="true" />
+                    )}
                     <div>
                       <strong>Scan with Kaspium</strong>
-                      <p>
-                        Address and exact total are included. Verify both values in Kaspium before
-                        sending.
-                      </p>
+                      <p>Exact address and total included.</p>
                     </div>
                   </div>
                 ) : null}
-                <p className="batch-lab-wallet-note">
-                  The wallet receives the exact total and one-time funding address. You still review
-                  and approve the transaction inside Kaspium or KasWare.
-                </p>
                 {unmatchedFundingOutputs.length > 0 ? (
                   <div className="claimable-unmatched-funding notice notice-critical">
                     <span className="label">Batch total does not match</span>
@@ -2455,11 +2432,6 @@ export function BatchClaimableLabClient({
 
               <div className="batch-lab-action-group">
                 <span className="batch-lab-section-title">Create claim outputs</span>
-                <p className="muted batch-lab-action-copy">
-                  Your browser will sign the activation transaction using the activation code. The
-                  on-chain script (covenant) guarantees that exactly the pre-committed child outputs
-                  are created. No secrets leave your browser.
-                </p>
 
                 {batch.activation.status === "funded" ? (
                   <div className="batch-activation-review" role="note">
@@ -2482,11 +2454,6 @@ export function BatchClaimableLabClient({
                         {formatSompiForToccataLab(BigInt(batch.activation.activationFeeSompi))} KAS
                       </strong>
                     </div>
-                    <p>
-                      The browser SDK validates the complete transaction and its mass before
-                      signing. More outputs increase transaction mass; no amount or destination can
-                      be changed during activation.
-                    </p>
                   </div>
                 ) : null}
 
@@ -2504,8 +2471,7 @@ export function BatchClaimableLabClient({
                       checked={activationConfirmed}
                       onChange={(e) => setActivationConfirmed(e.target.checked)}
                     />{" "}
-                    I understand: this spends the entire batch UTXO and creates the fixed child
-                    outputs. This action is irreversible and uses only browser-held secrets.
+                    I understand this creates the fixed claim outputs and cannot be undone.
                   </label>
                 ) : null}
 
@@ -2544,9 +2510,6 @@ export function BatchClaimableLabClient({
 
               <div className="batch-lab-action-group">
                 <span className="batch-lab-section-title">Share claim links</span>
-                <p className="muted">
-                  Export or copy the funded claim links when the individual outputs are ready.
-                </p>
                 <div className="batch-lab-actions">
                   <button
                     className="btn"
