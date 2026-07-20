@@ -8090,6 +8090,23 @@ body:has(main.deck-main) {
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
   background: rgba(8, 18, 21, 0.38);
 }
+
+.claimable-batch-recovery-notice {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  margin: 18px 20px 0;
+}
+
+.claimable-batch-recovery-notice > span {
+  display: grid;
+  gap: 4px;
+}
+
+.claimable-batch-recovery-notice small {
+  color: var(--fg-muted);
+}
 .claimable-batch-actions > span {
   display: grid;
   gap: 2px;
@@ -9734,6 +9751,16 @@ body:has(main.deck-main) {
     align-items: stretch;
     flex-direction: column;
     padding: 14px;
+  }
+
+  .claimable-batch-recovery-notice {
+    align-items: stretch;
+    flex-direction: column;
+    margin: 14px;
+  }
+
+  .claimable-batch-recovery-notice .btn {
+    width: 100%;
   }
 
   .claimable-batch-actions .btn {

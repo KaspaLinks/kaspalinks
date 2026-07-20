@@ -3128,6 +3128,7 @@ export function MyLinksClient() {
                   !claimableFiltersActive &&
                   group.records.length > 0 &&
                   group.records.every((record) => isClaimableTerminal(record.status));
+                const privateBatchLinksMissing = group.records.some((record) => !record.hasLocal);
 
                 return (
                   <li className="claimable-batch-group" key={group.key}>
@@ -3171,6 +3172,23 @@ export function MyLinksClient() {
                         </span>
                         <span className="claimable-batch-chevron" aria-hidden="true" />
                       </summary>
+                      {privateBatchLinksMissing ? (
+                        <div className="notice claimable-batch-recovery-notice">
+                          <span>
+                            <strong>Private share links are not on this device.</strong>
+                            <small>
+                              Restore the recovery bundle once to recover every claim and refund
+                              link in this batch.
+                            </small>
+                          </span>
+                          <Link
+                            className="btn btn-primary"
+                            href={buildBatchRecoveryPath(group.batch.batchKey, group.batch.title)}
+                          >
+                            Restore share links
+                          </Link>
+                        </div>
+                      ) : null}
                       {batchCanBeDeleted ? (
                         <div className="claimable-batch-actions">
                           <span>
