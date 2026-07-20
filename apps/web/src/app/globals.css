@@ -7813,6 +7813,10 @@ body:has(main.deck-main) {
   border-color: rgba(245, 158, 11, 0.38);
   color: var(--warn);
 }
+.claimable-batch-statuses > .is-refunded {
+  border-color: rgba(73, 234, 203, 0.38);
+  color: var(--accent-bright);
+}
 .claimable-batch-chevron {
   width: 9px;
   height: 9px;

@@ -725,6 +725,7 @@ export function MyLinksClient() {
     title: string;
   }>(null);
   const [claimableQrLoadingId, setClaimableQrLoadingId] = useState("");
+  const claimableLoadInFlightRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -766,44 +767,64 @@ export function MyLinksClient() {
   const [claimableDaaScore, setClaimableDaaScore] = useState("");
   const [claimableDaaLoadedAtMs, setClaimableDaaLoadedAtMs] = useState<null | number>(null);
   const [claimableNowMs, setClaimableNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!signedIn) return;
-    let cancelled = false;
-    const load = () => {
-      setLoadingClaimables(true);
-      void fetch("/api/creator/claimable-links", { headers: authHeaders })
+
+  const loadClaimableLinks = useCallback(
+    (showLoading = true): Promise<void> => {
+      if (!signedIn) return Promise.resolve();
+      if (claimableLoadInFlightRef.current) return claimableLoadInFlightRef.current;
+
+      if (showLoading) setLoadingClaimables(true);
+      const request = fetch("/api/creator/claimable-links", {
+        cache: "no-store",
+        headers: authHeaders,
+      })
         .then((response) => (response.ok ? response.json() : null))
         .then((body) => {
-          if (!cancelled && body && Array.isArray(body.claimableLinks)) {
-            setDbClaimableLinks(body.claimableLinks as DbClaimableLink[]);
-            setDbClaimableBatches(
-              Array.isArray(body.claimableBatches)
-                ? (body.claimableBatches as DbClaimableBatch[])
+          if (!body || !Array.isArray(body.claimableLinks)) return;
+          setDbClaimableLinks(body.claimableLinks as DbClaimableLink[]);
+          setDbClaimableBatches(
+            Array.isArray(body.claimableBatches)
+              ? (body.claimableBatches as DbClaimableBatch[])
+              : [],
+          );
+          setDeletedClaimableLinkKeys(
+            new Set(
+              Array.isArray(body.deletedClaimableLinkKeys)
+                ? body.deletedClaimableLinkKeys.filter(
+                    (value: unknown): value is string => typeof value === "string",
+                  )
                 : [],
-            );
-            setDeletedClaimableLinkKeys(
-              new Set(
-                Array.isArray(body.deletedClaimableLinkKeys)
-                  ? body.deletedClaimableLinkKeys.filter(
-                      (value: unknown): value is string => typeof value === "string",
-                    )
-                  : [],
-              ),
-            );
-          }
+            ),
+          );
         })
         .catch(() => {})
         .finally(() => {
-          if (!cancelled) setLoadingClaimables(false);
+          if (claimableLoadInFlightRef.current === request) {
+            claimableLoadInFlightRef.current = null;
+          }
+          if (showLoading) setLoadingClaimables(false);
         });
+
+      claimableLoadInFlightRef.current = request;
+      return request;
+    },
+    [authHeaders, signedIn],
+  );
+
+  useEffect(() => {
+    if (!signedIn) return;
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadClaimableLinks(false);
     };
-    load();
-    window.addEventListener("focus", load);
+
+    void loadClaimableLinks(true);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
-      cancelled = true;
-      window.removeEventListener("focus", load);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
     };
-  }, [authHeaders, signedIn]);
+  }, [loadClaimableLinks, signedIn]);
 
   const mergedClaimable = useMemo(
     () =>
@@ -824,6 +845,17 @@ export function MyLinksClient() {
       }),
     [claimableDaaLoadedAtMs, claimableDaaScore, claimableNowMs, mergedClaimable],
   );
+
+  useEffect(() => {
+    if (!signedIn || !mergedClaimable.some((record) => !isClaimableTerminal(record.status))) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadClaimableLinks(false);
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [loadClaimableLinks, mergedClaimable, signedIn]);
   const filteredClaimables = useMemo(() => {
     const normalizedQuery = claimableQuery.trim().toLowerCase();
     return mergedClaimable.filter((record) => {
@@ -1571,11 +1603,11 @@ export function MyLinksClient() {
           </Link>
           <button
             className="btn"
-            disabled={loadingList}
-            onClick={() => void loadLinks()}
+            disabled={loadingList || loadingClaimables}
+            onClick={() => void Promise.all([loadLinks(), loadClaimableLinks(true)])}
             type="button"
           >
-            {loadingList ? "Refreshing..." : "Refresh"}
+            {loadingList || loadingClaimables ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </section>
@@ -2897,11 +2929,18 @@ export function MyLinksClient() {
                   });
                   return record.status === "refundable" || expiry?.expired === true;
                 }).length;
-                const closedCount = group.records.filter(
-                  (record) => record.status === "refunded" || record.status === "spent_unknown",
+                const refundedCount = group.records.filter(
+                  (record) => record.status === "refunded",
+                ).length;
+                const spentUnknownCount = group.records.filter(
+                  (record) => record.status === "spent_unknown",
                 ).length;
                 const availableCount =
-                  group.records.length - claimedCount - refundableCount - closedCount;
+                  group.records.length -
+                  claimedCount -
+                  refundableCount -
+                  refundedCount -
+                  spentUnknownCount;
                 const visibleLinkCount = group.records.length;
                 const totalLinkCount = group.batch.linkKeys.length;
 
@@ -2938,7 +2977,12 @@ export function MyLinksClient() {
                           {refundableCount > 0 ? (
                             <span className="is-warning">{refundableCount} refundable</span>
                           ) : null}
-                          {closedCount > 0 ? <span>{closedCount} closed</span> : null}
+                          {refundedCount > 0 ? (
+                            <span className="is-refunded">{refundedCount} refunded</span>
+                          ) : null}
+                          {spentUnknownCount > 0 ? (
+                            <span>{spentUnknownCount} spent on-chain</span>
+                          ) : null}
                         </span>
                         <span className="claimable-batch-chevron" aria-hidden="true" />
                       </summary>
