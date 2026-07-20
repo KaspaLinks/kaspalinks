@@ -18,8 +18,8 @@ export default function Home() {
           into shareable links.
         </h1>
         <p className="hero-sub">
-          Tip a creator, crowdfund a goal, pay an invoice — with one URL, a QR, and a clear intent.
-          Non-custodial by design. Your wallet, your keys, your funds.
+          Tip a creator, crowdfund a goal, pay an invoice, or share one reward — or a whole claim
+          drop. Non-custodial by design. Your wallet, your keys, your funds.
         </p>
         <div className="row" style={{ justifyContent: "center" }}>
           <Link href="/try-it-out" className="btn btn-primary">
@@ -349,11 +349,11 @@ export default function Home() {
                 <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
               </svg>
             </span>
-            <span className="use-case-tag">Gifts &amp; rewards</span>
-            <h3 className="use-case-title">Claimable links</h3>
+            <span className="use-case-tag">Gifts, giveaways &amp; rewards</span>
+            <h3 className="use-case-title">Claimable links &amp; drops</h3>
             <p className="use-case-body">
-              Lock KAS into a one-time link. The first person to open it claims the funds, and you
-              keep a private refund link if the timer expires unclaimed.
+              Create one reward or a drop of up to 10 separate claim links. Fund a drop once, share
+              every link individually, and privately recover any KAS left unclaimed after expiry.
             </p>
           </Link>
         </div>
@@ -362,9 +362,9 @@ export default function Home() {
       <section className="card card-muted">
         <h2 style={{ marginBottom: 6 }}>What this is not</h2>
         <p className="muted" style={{ margin: 0 }}>
-          Not a wallet. Not custody. Not a payment processor in the legal sense. Payment links
-          and real on-chain detection are live today. Claimable links are rolling out as an
-          on-chain reward flow, while splits and advanced covenant features stay on the roadmap.
+          Not a wallet. Not custody. Not a payment processor in the legal sense. Payment links and
+          real on-chain detection are live today. Claimable links and multi-link claim drops are
+          live too, while splits and advanced covenant features stay on the roadmap.
           <Link href="/roadmap"> See the full roadmap →</Link>
         </p>
       </section>

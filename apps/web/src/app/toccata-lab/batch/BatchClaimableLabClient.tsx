@@ -1712,12 +1712,11 @@ export function BatchClaimableLabClient({
   return (
     <main className="main-wide toccata-lab-page">
       <section className="hero toccata-lab-hero">
-        <span className="hero-eyebrow">Private lab</span>
-        <h1 className="hero-title">Batch claim links.</h1>
+        <span className="hero-eyebrow">Claim Drop</span>
+        <h1 className="hero-title">Create multiple claim links at once.</h1>
         <p className="hero-sub">
-          Fund one contract address once, then activate the exact child claim outputs in your
-          browser. This test tool is protected and unlisted; it is not part of the public creator
-          flow.
+          Prepare 2 to 10 separate rewards, fund one batch address, then share every claim link
+          individually. Private claim and recovery codes stay in your browser.
         </p>
       </section>
 

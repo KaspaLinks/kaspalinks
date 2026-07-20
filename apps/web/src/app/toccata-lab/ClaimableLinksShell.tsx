@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import {
   ToccataLabClient,
   type ClaimableLinksInitialMode,
@@ -64,6 +66,12 @@ export async function ClaimableLinksShell({
           </>
         )}
       </section>
+
+      {mode === "create" ? (
+        <p className="hero-newcomer-link">
+          Need several rewards? <Link href="/claim/batch">Create a Claim Drop →</Link>
+        </p>
+      ) : null}
 
       <ToccataLabClient
         capabilities={capabilities}

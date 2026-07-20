@@ -254,27 +254,26 @@ export default function DeckPage() {
 
       <Slide index={9} of={10}>
         <article className="deck-slide">
-          <span className="deck-eyebrow">What&apos;s next</span>
+          <span className="deck-eyebrow">Programmable links</span>
           <h2 className="deck-title">
-            Soon: <span className="deck-title-accent">programmable</span> links.
+            On-chain rewards are <span className="deck-title-accent">live</span>.
           </h2>
           <p className="deck-sub">
-            Kaspa covenants ship with the next hardfork. Each feature lands as a new <em>Type</em>{" "}
-            in the same flow — no parallel app, no migrations.
+            Claimable links and multi-link Claim Drops add wallet-to-wallet rewards without turning
+            Kaspa Links into a custodian.
           </p>
           <ul className="deck-list deck-list-arrow">
             <li>
-              <strong>Claimable links</strong>
-              {" — “Here’s 10 KAS for whoever opens this first.”"}
+              <strong>Claimable links</strong> — One reward, first valid claim wins.
             </li>
             <li>
-              <strong>Splits</strong> — One payment, 3 wallets, 60/30/10.
+              <strong>Claim Drops</strong> — Up to 10 separate rewards, funded in one batch.
             </li>
             <li>
-              <strong>Time-locked refunds</strong> — Unclaimed funds auto-return to the sender.
+              <strong>Private recovery</strong> — Refund each unclaimed link after expiry.
             </li>
             <li>
-              <strong>Subscriptions</strong> — Recurring on-chain support, no platform between.
+              <strong>Next</strong> — Splits, pay-to-unlock, and recurring support.
             </li>
           </ul>
         </article>

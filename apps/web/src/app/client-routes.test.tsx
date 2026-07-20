@@ -52,4 +52,12 @@ describe("client route smoke rendering", () => {
     expect(markup).toContain("Choose your private recovery bundle");
     expect(markup).not.toContain("Create a claim drop");
   });
+
+  it("renders the public claim drop route", async () => {
+    const { default: ClaimBatchPage } = await import("./claim/batch/page");
+    const markup = renderToStaticMarkup(<ClaimBatchPage />);
+    expect(markup).toContain("Create multiple claim links at once");
+    expect(markup).toContain("Create a claim drop");
+    expect(markup).not.toContain("Private lab");
+  });
 });

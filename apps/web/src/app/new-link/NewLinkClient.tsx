@@ -687,6 +687,17 @@ export function NewLinkClient() {
             </span>
             <span className="quick-template-meta">One-time reward · refundable if unclaimed</span>
           </Link>
+          <Link className="quick-template-button" href="/claim/batch">
+            <span className="quick-template-icon" aria-hidden="true">
+              {CLAIMABLE_ICON}
+            </span>
+            <span className="quick-template-title">Claim Drop</span>
+            <span className="quick-template-description">
+              Create 2 to 10 separate claimable rewards, fund the batch once, then share each link
+              individually.
+            </span>
+            <span className="quick-template-meta">Multi-link giveaway · private recovery</span>
+          </Link>
           <button
             aria-pressed={blankTemplateActive}
             className={`quick-template-button quick-template-button-muted${

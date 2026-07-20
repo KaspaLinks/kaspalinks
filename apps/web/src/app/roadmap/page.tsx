@@ -4,7 +4,7 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 const ROADMAP_DESCRIPTION =
-  "Kaspa Links roadmap — what's live and what's next: claimable links, multi-recipient splits, time-locked refunds, recurring subscriptions.";
+  "Kaspa Links roadmap — what's live and what's next: claimable links, claim drops, multi-recipient splits, time-locked refunds, and recurring subscriptions.";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/roadmap" },
@@ -33,8 +33,8 @@ export default function RoadmapPage() {
         </h1>
         <p className="hero-sub">
           Today Kaspa Links does payment links, creator profiles, real on-chain detection, and
-          claimable links. The next features build on the same non-custodial idea: clear payment
-          intent first, wallet-controlled execution second.
+          claimable links — including multi-link Claim Drops. The next features build on the same
+          non-custodial idea: clear payment intent first, wallet-controlled execution second.
         </p>
       </section>
 
@@ -55,7 +55,8 @@ export default function RoadmapPage() {
               <li>Real on-chain detection — status flips to CONFIRMED automatically</li>
               <li>KasWare extension pay on desktop</li>
               <li>Mobile deep-links + QR for Kaspium and other wallets</li>
-              <li>Claimable links with a private refund path if they expire unclaimed</li>
+              <li>Single Claimable links with a private refund path if they expire unclaimed</li>
+              <li>Claim Drops with up to 10 individually shareable and refundable links</li>
               <li>Embed-button package and a kaspa-actions SDK</li>
               <li>Self-hostable on a single VPS via Docker Compose</li>
             </ul>
@@ -64,9 +65,9 @@ export default function RoadmapPage() {
           <article className="card card-muted roadmap-rollout">
             <h3 className="roadmap-feature-title">How we&apos;ll roll it out</h3>
             <p className="muted" style={{ margin: 0 }}>
-              Claimable links are the first on-chain programmable link type. Future features ship
-              into the existing creator workflow as they clear testing - same dashboard, same
-              account, and no parallel app. Existing links keep working unchanged.
+              Claimable links and Claim Drops are the first on-chain programmable link types. Future
+              features ship into the existing creator workflow as they clear testing - same
+              dashboard, same account, and no parallel app. Existing links keep working unchanged.
             </p>
           </article>
         </div>
@@ -83,16 +84,16 @@ export default function RoadmapPage() {
         <div className="roadmap-section-grid roadmap-section-grid-3">
           <article className="card roadmap-feature">
             <h3 className="roadmap-feature-title">
-              Claimable links <span className="soon-badge">Live</span>
+              Claimable links &amp; drops <span className="soon-badge">Live</span>
             </h3>
             <p>
-              Lock a fixed amount into a one-time on-chain address and share a link. The first
-              claimant sends the KAS to their own address; if nobody claims in time, the creator can
-              use a private refund link.
+              Share one claimable reward, or create up to 10 separate links in a Claim Drop. A drop
+              uses one funding step, then creates individual on-chain outputs that can be shared,
+              claimed, and privately refunded one by one.
             </p>
             <p className="muted roadmap-feature-usecase">
-              Use cases: giveaways, airdrops, one-off rewards, &ldquo;here&apos;s 10 KAS for whoever
-              opens this first&rdquo;.
+              Use cases: community giveaways, event rewards, social campaigns, and
+              &ldquo;here&apos;s 10 KAS for whoever opens this first&rdquo;.
             </p>
           </article>
 
@@ -110,13 +111,14 @@ export default function RoadmapPage() {
           </article>
 
           <article className="card roadmap-feature">
-            <h3 className="roadmap-feature-title">Refunds &amp; time-locked recovery</h3>
+            <h3 className="roadmap-feature-title">Advanced recovery rules</h3>
             <p>
-              If a claimable link isn&apos;t claimed within N days, the funds flow back to the
-              sender automatically. No more stuck transfers when the recipient never shows up.
+              Claimable links already unlock a private, browser-signed refund after expiry. The
+              next step is more flexible recovery windows and wallet-controlled recovery policies
+              without introducing custody.
             </p>
             <p className="muted roadmap-feature-usecase">
-              Use cases: invoices that expire, time-limited bounties, escrowed prizes.
+              Use cases: time-limited bounties, event prizes, and longer-running reward campaigns.
             </p>
           </article>
         </div>

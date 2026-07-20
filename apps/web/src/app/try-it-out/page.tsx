@@ -321,16 +321,20 @@ export default function TryItOutPage() {
         </article>
 
         <article className="card use-case-guide" id="claimable">
-          <span className="label">Gifts &amp; rewards</span>
-          <h2>A claimable link</h2>
+          <span className="label">Gifts, giveaways &amp; rewards</span>
+          <h2>A claimable link or claim drop</h2>
           <p>
-            Lock a fixed amount of KAS into a one-time link and share it. The first person who
-            opens it enters their own Kaspa address and claims the funds. If nobody claims before
-            the timer ends, your private refund link can recover the unclaimed KAS.
+            Create one claimable reward, or prepare 2 to 10 separate links as a Claim Drop. A drop
+            is funded once, but every recipient gets an individual link and on-chain output. The
+            first person with each link can claim it; after expiry, your private recovery data lets
+            you refund any link that was not claimed.
           </p>
           <div className="row use-case-guide-actions">
             <Link className="btn btn-primary" href="/claim/create">
               Create a claimable link
+            </Link>
+            <Link className="btn" href="/claim/batch">
+              Create a claim drop
             </Link>
           </div>
         </article>

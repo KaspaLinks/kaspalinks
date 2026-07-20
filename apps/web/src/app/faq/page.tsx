@@ -4,7 +4,7 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 const FAQ_DESCRIPTION =
-  "Common questions about Kaspa Links — custody, fees, refunds, lost tokens, privacy, and how non-custodial Kaspa payment links work.";
+  "Common questions about Kaspa Links — custody, fees, refunds, claim drops, lost tokens, privacy, and how non-custodial Kaspa payment links work.";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/faq" },
@@ -71,7 +71,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     answer:
-      "Tips (pay-what-you-want), Donations, fixed-amount Invoices, generic Transfers, Goals, and Claimable links. Normal payment links send directly to the creator's address. Claimable links lock a fixed amount into a one-time on-chain address so the first person with the link can claim it.",
+      "Tips (pay-what-you-want), Donations, fixed-amount Invoices, generic Transfers, Goals, Claimable links, and Claim Drops. Normal payment links send directly to the creator's address. Claimable links hold a fixed reward in a one-time on-chain output so the first person with the link can claim it. A Claim Drop creates 2 to 10 separate rewards in one flow.",
     link: { href: "/try-it-out", label: "Pick a starting point" },
     question: "What kinds of links can I create?",
   },
@@ -83,7 +83,13 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     answer:
-      "The browser creates separate claim and refund codes. The claim code is kept after the # in the claim URL, which browsers do not send to our server. The server stores public metadata and relays already signed transaction JSON, but it never stores claim/refund private keys and cannot claim or refund for you.",
+      "A Claim Drop creates 2 to 10 independent Claimable links with the same amount and expiry. You fund one batch address once, then your browser signs the activation transaction that creates a separate on-chain output for every link. Each link can be shared, claimed, tracked, and refunded individually. Save the private recovery bundle before funding — Kaspa Links cannot recreate it for you.",
+    link: { href: "/claim/batch", label: "Create a claim drop" },
+    question: "Can I create several claimable links at once?",
+  },
+  {
+    answer:
+      "The browser creates separate claim and refund codes. The claim code is kept after the # in the claim URL, which browsers do not send to our server. For a Claim Drop, every link gets its own private codes and the recovery bundle stays with you. The server stores public metadata and relays already signed transaction JSON, but it never stores claim/refund private keys and cannot claim or refund for you.",
     question: "How does the claimable link stay non-custodial?",
   },
   {
