@@ -14,6 +14,24 @@ type FundingQrImageState = {
   url: string;
 };
 
+const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10] as const;
+
+export function pngBytesToDataUrl(bytes: Uint8Array): string {
+  if (
+    bytes.length <= PNG_SIGNATURE.length ||
+    PNG_SIGNATURE.some((expected, index) => bytes[index] !== expected)
+  ) {
+    throw new Error("QR endpoint did not return a PNG image.");
+  }
+
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return `data:image/png;base64,${btoa(binary)}`;
+}
+
 export function buildFundingQrPath({
   amountKas,
   label,
@@ -43,7 +61,6 @@ export function useFundingQrImage(requestPath: string): FundingQrImageState {
     }
 
     const abortController = new AbortController();
-    let objectUrl = "";
     setState({ error: false, loading: true, url: "" });
 
     void (async () => {
@@ -55,18 +72,9 @@ export function useFundingQrImage(requestPath: string): FundingQrImageState {
         });
         if (!response.ok) throw new Error(`QR endpoint returned ${response.status}.`);
 
-        const blob = await response.blob();
-        if (!blob.type.startsWith("image/"))
-          throw new Error("QR endpoint did not return an image.");
+        const bytes = new Uint8Array(await response.arrayBuffer());
         if (abortController.signal.aborted) return;
-
-        objectUrl = URL.createObjectURL(blob);
-        if (abortController.signal.aborted) {
-          URL.revokeObjectURL(objectUrl);
-          objectUrl = "";
-          return;
-        }
-        setState({ error: false, loading: false, url: objectUrl });
+        setState({ error: false, loading: false, url: pngBytesToDataUrl(bytes) });
       } catch {
         if (abortController.signal.aborted) return;
         setState({ error: true, loading: false, url: "" });
@@ -75,7 +83,6 @@ export function useFundingQrImage(requestPath: string): FundingQrImageState {
 
     return () => {
       abortController.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [requestPath]);
 
