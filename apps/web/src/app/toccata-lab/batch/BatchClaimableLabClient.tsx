@@ -49,7 +49,7 @@ import {
 } from "@/lib/toccata-lab-fee";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { estimateClaimableExpiry } from "@/lib/claimable-expiry";
-import { buildFundingQrPath, useFundingQrImage } from "@/lib/funding-qr-image";
+import { useFundingQrImage } from "@/lib/funding-qr-image";
 
 import {
   buildBatchActivationSpendInBrowser,
@@ -395,18 +395,9 @@ export function BatchClaimableLabClient({
         : "",
     [batch, batchFundingAmountKas],
   );
-  const batchFundingQrPath = useMemo(
-    () =>
-      showFundingQr && batch?.recoveryExportedAt
-        ? buildFundingQrPath({
-            amountKas: batchFundingAmountKas,
-            label: "Kaspa Links batch funding",
-            recipientAddress: batch.activation.fundingAddress,
-          })
-        : "",
-    [batch, batchFundingAmountKas, showFundingQr],
+  const batchFundingQrImage = useFundingQrImage(
+    showFundingQr && batch?.recoveryExportedAt ? batchFundingWalletUri : "",
   );
-  const batchFundingQrImage = useFundingQrImage(batchFundingQrPath);
   const firstDistributableLink =
     batch?.activation.status === "activated"
       ? batch.links.find(

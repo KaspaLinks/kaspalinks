@@ -52,7 +52,7 @@ import {
 } from "@/lib/toccata-lab-fee";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { buildXIntentUrl } from "@/lib/share-text";
-import { buildFundingQrPath, useFundingQrImage } from "@/lib/funding-qr-image";
+import { useFundingQrImage } from "@/lib/funding-qr-image";
 
 import {
   buildClaimableSpendInBrowser,
@@ -499,18 +499,7 @@ export function ToccataLabClient({
     };
   }, []);
   const fundingWalletUri = useMemo(() => buildFundingWalletUri(labLink), [labLink]);
-  const fundingQrPath = useMemo(
-    () =>
-      labLink?.fundingAddress && recoveryExportedAt
-        ? buildFundingQrPath({
-            amountKas: labLink.amountKas,
-            label: "Kaspa Links claimable link",
-            recipientAddress: labLink.fundingAddress,
-          })
-        : "",
-    [labLink?.amountKas, labLink?.fundingAddress, recoveryExportedAt],
-  );
-  const fundingQrImage = useFundingQrImage(fundingQrPath);
+  const fundingQrImage = useFundingQrImage(recoveryExportedAt ? fundingWalletUri : "");
   const linkFunded = labLink?.status === "funded" || labLink?.status === "shared";
   const shareReady = linkFunded && (claimOnlyView || manageOnlyView || Boolean(recoveryExportedAt));
 
