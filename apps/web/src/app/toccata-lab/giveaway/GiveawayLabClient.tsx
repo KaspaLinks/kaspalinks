@@ -4,6 +4,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
+import {
+  connectKaswareWallet,
+  getKaswareProvider,
+  isKaswareInstalled,
+  sendKaspaPayment,
+} from "@kaspa-actions/wallet-adapter";
+
 import { CreatorSignInGate } from "@/app/CreatorSignInGate";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 
@@ -51,12 +58,30 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
   const [durationValue, setDurationValue] = useState("15");
   const [durationUnit, setDurationUnit] = useState<"days" | "hours" | "minutes">("minutes");
   const [qrById, setQrById] = useState<Record<string, string>>({});
+  const [payingId, setPayingId] = useState<null | string>(null);
+  const [payoutTxById, setPayoutTxById] = useState<Record<string, string>>({});
+  const [createdGiveaway, setCreatedGiveaway] = useState<null | GiveawaySummary>(null);
+  const [kaswareAvailable, setKaswareAvailable] = useState(false);
 
   useEffect(() => {
     const token = window.sessionStorage.getItem(TOKEN_STORAGE_KEY)?.trim() ?? "";
     const username = window.sessionStorage.getItem(USERNAME_STORAGE_KEY)?.trim() ?? "";
     setSession(token && username ? { token, username } : null);
     setSessionReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!createdGiveaway) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCreatedGiveaway(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [createdGiveaway]);
+
+  // KasWare is a desktop extension; on phones we keep the kaspa: deep link.
+  useEffect(() => {
+    setKaswareAvailable(isKaswareInstalled());
   }, []);
 
   // The countdown only needs to tick while something is actually counting down.
@@ -161,7 +186,7 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
         throw new Error(body.error?.message ?? "Giveaway could not be created.");
       }
       setGiveaways((current) => [body.giveaway!, ...current]);
-      setNotice("Giveaway created. Share the entry link when you are ready.");
+      setCreatedGiveaway(body.giveaway);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Giveaway could not be created.");
     } finally {
@@ -211,6 +236,36 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
       setError(caught instanceof Error ? caught.message : "Winner could not be drawn.");
     } finally {
       setDrawingId(null);
+    }
+  }
+
+  // The kaspa: deep link only resolves where a wallet registered the scheme —
+  // fine on phones, a dead click on desktop. KasWare is the desktop path.
+  async function payWinnerWithKasware(giveaway: GiveawaySummary) {
+    if (!giveaway.winnerAddress) return;
+    setPayingId(giveaway.publicId);
+    setError(null);
+    setNotice(null);
+    try {
+      const provider = getKaswareProvider();
+      if (!provider) {
+        throw new Error(
+          "KasWare was not detected. Install or unlock the extension, or use the QR code from a phone wallet.",
+        );
+      }
+      await connectKaswareWallet(provider);
+      const result = await sendKaspaPayment(provider, {
+        amountSompi: kaspaAmountToSompi(giveaway.amountKas),
+        toAddress: giveaway.winnerAddress,
+      });
+      if (result.txId) {
+        setPayoutTxById((current) => ({ ...current, [giveaway.publicId]: result.txId! }));
+      }
+      setNotice(`Payout sent to the winner${result.txId ? "" : " — check your wallet for the id"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The payout was not sent.");
+    } finally {
+      setPayingId(null);
     }
   }
 
@@ -317,6 +372,49 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
           >
             ×
           </button>
+        </div>
+      ) : null}
+
+      {createdGiveaway ? (
+        <div
+          aria-labelledby="giveaway-created-title"
+          aria-modal="true"
+          className="giveaway-dialog-backdrop"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setCreatedGiveaway(null);
+          }}
+          role="dialog"
+        >
+          <div className="card giveaway-dialog">
+            <span className="label">Giveaway created</span>
+            <h2 id="giveaway-created-title">{createdGiveaway.title}</h2>
+            <p className="muted">
+              Entries are open for {formatDeadline(createdGiveaway.closesAt, now)}. Share this link
+              — entrants submit their address, and you draw the winner once it closes.
+            </p>
+            <code className="giveaway-dialog-url">{absoluteEntryUrl(createdGiveaway)}</code>
+            <div className="row">
+              <button
+                autoFocus
+                className="btn btn-primary"
+                onClick={() =>
+                  void copyText(absoluteEntryUrl(createdGiveaway), "Entry link copied.")
+                }
+                type="button"
+              >
+                Copy entry link
+              </button>
+              <Link className="btn" href={createdGiveaway.publicUrl} target="_blank">
+                Open entry page
+              </Link>
+              <button className="btn" onClick={() => setCreatedGiveaway(null)} type="button">
+                Done
+              </button>
+            </div>
+            <p className="giveaway-dialog-hint">
+              The prize is paid from your own wallet after the draw. Nothing is held here.
+            </p>
+          </div>
         </div>
       ) : null}
 
@@ -482,9 +580,22 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
                       final confirmation step.
                     </p>
                     <div className="row">
-                      <a className="btn btn-primary" href={payoutUri}>
-                        Open payout in wallet
-                      </a>
+                      {kaswareAvailable ? (
+                        <button
+                          className="btn btn-primary"
+                          disabled={payingId === giveaway.publicId}
+                          onClick={() => void payWinnerWithKasware(giveaway)}
+                          type="button"
+                        >
+                          {payingId === giveaway.publicId
+                            ? "Waiting for KasWare…"
+                            : `Pay ${giveaway.amountKas} KAS with KasWare`}
+                        </button>
+                      ) : (
+                        <a className="btn btn-primary" href={payoutUri}>
+                          Open payout in wallet
+                        </a>
+                      )}
                       <button
                         className="btn"
                         onClick={() =>
@@ -514,6 +625,11 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
                         Copy result + proof
                       </button>
                     </div>
+                    {payoutTxById[giveaway.publicId] ? (
+                      <p className="giveaway-payout-sent">
+                        Sent · <code>{compactHash(payoutTxById[giveaway.publicId]!)}</code>
+                      </p>
+                    ) : null}
                     {payoutQr ? (
                       <Image
                         alt={`Payout QR for ${giveaway.title}`}
@@ -554,6 +670,23 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
       </section>
     </main>
   );
+}
+
+// @kaspa-actions/kaspa pulls in the WASM SDK and cannot be bundled for the
+// browser, so the KAS→sompi conversion lives here. Integer-only: never let a
+// float near an amount of money.
+function kaspaAmountToSompi(amountKas: string): bigint {
+  const trimmed = amountKas.trim();
+  if (!/^\d+(\.\d{1,8})?$/.test(trimmed)) {
+    throw new Error(`Reward amount "${amountKas}" is not a valid KAS value.`);
+  }
+  const [whole, fraction = ""] = trimmed.split(".");
+  return BigInt(whole!) * 100_000_000n + BigInt(fraction.padEnd(8, "0"));
+}
+
+function absoluteEntryUrl(giveaway: GiveawaySummary): string {
+  if (typeof window === "undefined") return giveaway.publicUrl;
+  return new URL(giveaway.publicUrl, window.location.origin).toString();
 }
 
 function statusLabel(status: GiveawayStatus): string {

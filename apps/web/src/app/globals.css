@@ -9376,6 +9376,59 @@ body:has(main.deck-main) {
   opacity: 1;
 }
 
+.giveaway-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(4, 8, 11, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.giveaway-dialog {
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.giveaway-dialog h2 {
+  margin: 0;
+}
+
+.giveaway-dialog-url {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  font-size: 13px;
+}
+
+.giveaway-dialog-hint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.giveaway-payout-sent {
+  margin: 0;
+  color: var(--accent-bright);
+  font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .giveaway-dialog-backdrop {
+    backdrop-filter: none;
+  }
+}
+
 .giveaway-create-card,
 .giveaway-manage-card,
 .giveaway-entry-card {
