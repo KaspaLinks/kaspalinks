@@ -26,6 +26,9 @@ export const createGiveawayInputSchema = z.object({
   amountKas: z.string().min(1).max(40),
   closesAt: z.string().datetime({ offset: true }),
   description: z.string().trim().max(280).optional().nullable(),
+  // Optional escrow: the linkKey of a claimable link the creator already
+  // registered for this prize. Only a reference — no key material.
+  prizeLinkKey: z.string().trim().min(1).max(128).optional().nullable(),
   title: z.string().trim().min(1).max(80),
 });
 

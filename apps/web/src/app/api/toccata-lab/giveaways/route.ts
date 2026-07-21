@@ -20,7 +20,18 @@ export async function GET(request: Request) {
   if (!guard.ok) return guard.response;
 
   const giveaways = await prisma.giveaway.findMany({
-    include: { _count: { select: { entries: true } } },
+    include: {
+      _count: { select: { entries: true } },
+      prizeLink: {
+        select: {
+          fundingAddress: true,
+          fundingOutputIndex: true,
+          fundingTxId: true,
+          linkKey: true,
+          status: true,
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
     take: 50,
     where: { creatorId: guard.creator.id },
@@ -43,6 +54,15 @@ export async function GET(request: Request) {
             }
           : null,
       entryCount: giveaway._count.entries,
+      prize: giveaway.prizeLink
+        ? {
+            funded: giveaway.prizeLink.fundingTxId !== null,
+            fundingAddress: giveaway.prizeLink.fundingAddress,
+            fundingTxId: giveaway.prizeLink.fundingTxId,
+            linkKey: giveaway.prizeLink.linkKey,
+            status: giveaway.prizeLink.status,
+          }
+        : null,
       publicId: giveaway.publicId,
       publicUrl: `/toccata-lab/giveaway/${giveaway.publicId}`,
       status: effectiveGiveawayStatus(giveaway.status, giveaway.closesAt),
@@ -88,6 +108,44 @@ export async function POST(request: Request) {
     );
   }
 
+  // An optional prize escrow must belong to this creator, must not already
+  // back another giveaway, and must still be spendable.
+  const prizeLinkKey = parsed.data.prizeLinkKey?.trim() ?? null;
+  if (prizeLinkKey) {
+    const prizeLink = await prisma.claimableLink.findUnique({
+      select: {
+        amountSompi: true,
+        creatorId: true,
+        deletedAt: true,
+        feeSompi: true,
+        prizeForGiveaway: { select: { publicId: true } },
+        status: true,
+      },
+      where: { linkKey: prizeLinkKey },
+    });
+    if (!prizeLink || prizeLink.creatorId !== guard.creator.id || prizeLink.deletedAt) {
+      return apiError(ErrorCodes.NOT_FOUND, "Prize link was not found.", 404);
+    }
+    if (prizeLink.prizeForGiveaway) {
+      return apiError(
+        ErrorCodes.INVALID_STATE,
+        "That prize link already backs another giveaway.",
+        409,
+      );
+    }
+    if (["claimed", "refunded", "spent_unknown"].includes(prizeLink.status)) {
+      return apiError(ErrorCodes.INVALID_STATE, "That prize link is already closed.", 409);
+    }
+    // The entry page will advertise this amount, so it has to be the real one.
+    if (prizeLink.amountSompi - prizeLink.feeSompi !== terms.amountSompi) {
+      return apiError(
+        ErrorCodes.INVALID_BODY,
+        "The prize link does not hold the advertised reward amount.",
+        400,
+      );
+    }
+  }
+
   const draw = createGiveawayDrawSeed();
   const giveaway = await prisma.giveaway.create({
     data: {
@@ -97,6 +155,7 @@ export async function POST(request: Request) {
       description: terms.description,
       drawCommitment: draw.commitment,
       drawSeedHex: draw.seedHex,
+      prizeLinkKey,
       status: GiveawayStatus.OPEN,
       title: terms.title,
     },

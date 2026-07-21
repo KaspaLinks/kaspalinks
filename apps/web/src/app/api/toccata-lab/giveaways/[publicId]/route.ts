@@ -24,6 +24,7 @@ export async function GET(_request: Request, context: { params: Promise<{ public
     include: {
       _count: { select: { entries: true } },
       entries: { orderBy: { createdAt: "asc" }, select: { address: true, id: true } },
+      prizeLink: { select: { fundingAddress: true, fundingTxId: true, status: true } },
     },
     where: { publicId: parsedId.data },
   });
@@ -86,6 +87,17 @@ export async function GET(_request: Request, context: { params: Promise<{ public
             }
           : null,
       entryCount: giveaway._count.entries,
+      // Entrants only learn whether the prize is really parked on-chain and
+      // where to verify it. Never the claim code — that stays in the browser
+      // of whoever created the giveaway.
+      prize:
+        giveaway.prizeLink && giveaway.prizeLink.fundingTxId
+          ? {
+              fundingAddress: giveaway.prizeLink.fundingAddress,
+              fundingTxId: giveaway.prizeLink.fundingTxId,
+              paidOut: giveaway.prizeLink.status === "claimed",
+            }
+          : null,
       publicId: giveaway.publicId,
       status: effectiveGiveawayStatus(giveaway.status, giveaway.closesAt),
       title: giveaway.title,

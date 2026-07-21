@@ -255,6 +255,7 @@ model ClaimableLink {
   deletedAt          DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+  prizeForGiveaway   Giveaway?
 
   @@unique([creatorId, linkKey])
   @@index([creatorId])
@@ -322,6 +323,10 @@ model Giveaway {
   winnerAddress    String?
   entryCountAtDraw Int?
   drawnAt          DateTime?
+  // Optional escrow: the prize is parked in a claimable link whose claim code
+  // stays in the creator's browser. Proves the prize exists without custody.
+  prizeLinkKey     String?         @unique
+  prizeLink        ClaimableLink?  @relation(fields: [prizeLinkKey], references: [linkKey], onDelete: SetNull)
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   entries          GiveawayEntry[]
