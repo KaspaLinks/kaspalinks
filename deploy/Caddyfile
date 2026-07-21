@@ -59,9 +59,9 @@ www.{$DOMAIN} {
 		# throughout the app. Tighter modes (nonces / strict-dynamic) need
 		# middleware support we haven't wired up yet.
 		# img-src allows data: and blob: so the QR code data-URLs and the OG
-		# image render. connect-src is intentionally tight — the only XHR/
-		# fetch destination from the client is our own API.
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		# image render. Cloudflare Turnstile is the only approved third-party
+		# script/frame/connect origin and protects public giveaway entries.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 
 		-Server
 	}

@@ -31,6 +31,7 @@ export const createGiveawayInputSchema = z.object({
 
 export const enterGiveawayInputSchema = z.object({
   address: z.string().trim().min(1).max(200),
+  turnstileToken: z.string().trim().min(1).max(2048).optional(),
 });
 
 export type GiveawayDrawEntry = {

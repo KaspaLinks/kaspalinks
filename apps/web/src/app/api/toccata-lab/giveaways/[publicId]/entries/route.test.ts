@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetRateLimits } from "@/lib/rate-limit";
 
-const { mockPrisma, mockTx } = vi.hoisted(() => {
+const { mockPrisma, mockTx, verifyGiveawayTurnstileMock } = vi.hoisted(() => {
   const tx = {
     giveaway: { findUnique: vi.fn() },
     giveawayEntry: { count: vi.fn(), create: vi.fn() },
@@ -10,6 +10,7 @@ const { mockPrisma, mockTx } = vi.hoisted(() => {
   return {
     mockPrisma: { $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)) },
     mockTx: tx,
+    verifyGiveawayTurnstileMock: vi.fn(),
   };
 });
 
@@ -18,13 +19,17 @@ vi.mock("@kaspa-actions/db", () => ({
   prisma: mockPrisma,
 }));
 
+vi.mock("@/lib/turnstile", () => ({
+  verifyGiveawayTurnstile: verifyGiveawayTurnstileMock,
+}));
+
 import { POST } from "./route";
 
 const ADDRESS = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
 
-function request(address = ADDRESS) {
+function request(address = ADDRESS, turnstileToken: string | undefined = undefined) {
   return new Request("https://kaspalinks.com/api/toccata-lab/giveaways/giveaway-1/entries", {
-    body: JSON.stringify({ address }),
+    body: JSON.stringify({ address, turnstileToken }),
     headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.42" },
     method: "POST",
   });
@@ -42,6 +47,7 @@ describe("POST /api/toccata-lab/giveaways/[publicId]/entries", () => {
     });
     mockTx.giveawayEntry.create.mockResolvedValue({ id: "entry-1" });
     mockTx.giveawayEntry.count.mockResolvedValue(1);
+    verifyGiveawayTurnstileMock.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -77,6 +83,38 @@ describe("POST /api/toccata-lab/giveaways/[publicId]/entries", () => {
 
     expect(response.status).toBe(409);
     expect(mockTx.giveawayEntry.create).not.toHaveBeenCalled();
+  });
+
+  it("requires successful server-side bot verification before writing an entry", async () => {
+    verifyGiveawayTurnstileMock.mockResolvedValue({ kind: "invalid", ok: false });
+
+    const response = await POST(request(ADDRESS, "invalid-token"), {
+      params: Promise.resolve({ publicId: "giveaway-1" }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(verifyGiveawayTurnstileMock).toHaveBeenCalledWith({
+      remoteIp: "203.0.113.42",
+      token: "invalid-token",
+    });
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "BOT_VERIFICATION_FAILED" },
+    });
+  });
+
+  it("returns a temporary error when Turnstile cannot be reached", async () => {
+    verifyGiveawayTurnstileMock.mockResolvedValue({ kind: "unavailable", ok: false });
+
+    const response = await POST(request(ADDRESS, "token"), {
+      params: Promise.resolve({ publicId: "giveaway-1" }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "BOT_VERIFICATION_UNAVAILABLE" },
+    });
   });
 
   it("turns a database uniqueness conflict into a clear duplicate-entry response", async () => {

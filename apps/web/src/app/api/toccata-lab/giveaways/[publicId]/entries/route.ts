@@ -11,13 +11,15 @@ import {
 } from "@/lib/giveaway-lab";
 import { isPrismaUniqueConstraintError } from "@/lib/prisma-errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
+import { verifyGiveawayTurnstile } from "@/lib/turnstile";
 
 export async function POST(request: Request, context: { params: Promise<{ publicId: string }> }) {
   if (!isGiveawayLabEnabled()) {
     return apiError(ErrorCodes.TOCCATA_LAB_DISABLED, "Giveaway lab is disabled.", 403);
   }
 
-  const ipHash = hashClientIp(extractClientIp(request.headers));
+  const clientIp = extractClientIp(request.headers);
+  const ipHash = hashClientIp(clientIp);
   const limited = enforceRateLimit(RateBuckets.TOCCATA_LAB_GIVEAWAY_ENTRY, ipHash);
   if (!limited.allowed) return limited.response;
 
@@ -38,6 +40,24 @@ export async function POST(request: Request, context: { params: Promise<{ public
       parsed.error.issues[0]?.message ?? "Invalid giveaway entry.",
       400,
     );
+  }
+
+  const verification = await verifyGiveawayTurnstile({
+    remoteIp: clientIp,
+    token: parsed.data.turnstileToken,
+  });
+  if (!verification.ok) {
+    return verification.kind === "unavailable"
+      ? apiError(
+          ErrorCodes.BOT_VERIFICATION_UNAVAILABLE,
+          "Security verification is temporarily unavailable. Please try again.",
+          503,
+        )
+      : apiError(
+          ErrorCodes.BOT_VERIFICATION_FAILED,
+          "Please complete the security check and try again.",
+          403,
+        );
   }
 
   let address: string;

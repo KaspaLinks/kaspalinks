@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
+import { GIVEAWAY_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
+
+import { TurnstileWidget } from "./TurnstileWidget";
+
 type PublicGiveaway = {
   amountKas: string;
   closesAt: string;
@@ -21,7 +25,13 @@ type PublicGiveaway = {
   winnerAddress: null | string;
 };
 
-export function GiveawayEntryClient({ publicId }: { publicId: string }) {
+export function GiveawayEntryClient({
+  publicId,
+  turnstile,
+}: {
+  publicId: string;
+  turnstile: { required: boolean; siteKey: string };
+}) {
   const [giveaway, setGiveaway] = useState<null | PublicGiveaway>(null);
   const [address, setAddress] = useState("");
   const [entryHash, setEntryHash] = useState<null | string>(null);
@@ -30,6 +40,8 @@ export function GiveawayEntryClient({ publicId }: { publicId: string }) {
   const [finalizing, setFinalizing] = useState(false);
   const [error, setError] = useState<null | string>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [turnstileToken, setTurnstileToken] = useState<null | string>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const finalizeInFlight = useRef(false);
 
   const loadGiveaway = useCallback(async () => {
@@ -107,13 +119,17 @@ export function GiveawayEntryClient({ publicId }: { publicId: string }) {
 
   async function enter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (turnstile.required && !turnstileToken) {
+      setError("Complete the security check before entering.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       const response = await fetch(
         `/api/toccata-lab/giveaways/${encodeURIComponent(publicId)}/entries`,
         {
-          body: JSON.stringify({ address }),
+          body: JSON.stringify({ address, turnstileToken: turnstileToken ?? undefined }),
           headers: { "Content-Type": "application/json" },
           method: "POST",
         },
@@ -132,6 +148,10 @@ export function GiveawayEntryClient({ publicId }: { publicId: string }) {
       window.localStorage.setItem(`kaspa-links:giveaway-entry:${publicId}`, body.entry.entryHash);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Entry could not be submitted.");
+      if (turnstile.required) {
+        setTurnstileToken(null);
+        setTurnstileResetKey((current) => current + 1);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -199,7 +219,33 @@ export function GiveawayEntryClient({ publicId }: { publicId: string }) {
                     value={address}
                   />
                 </label>
-                <button className="btn btn-primary" disabled={submitting} type="submit">
+                {turnstile.required && turnstile.siteKey ? (
+                  <div className="giveaway-security-check">
+                    <span className="label">Security check</span>
+                    <TurnstileWidget
+                      action={GIVEAWAY_TURNSTILE_ACTION}
+                      onError={() => {
+                        setTurnstileToken(null);
+                        setError("Security verification could not be loaded. Please try again.");
+                      }}
+                      onToken={setTurnstileToken}
+                      resetKey={turnstileResetKey}
+                      siteKey={turnstile.siteKey}
+                    />
+                  </div>
+                ) : null}
+                {turnstile.required && !turnstile.siteKey ? (
+                  <div className="notice notice-error" role="alert">
+                    Security verification is temporarily unavailable.
+                  </div>
+                ) : null}
+                <button
+                  className="btn btn-primary"
+                  disabled={
+                    submitting || (turnstile.required && (!turnstile.siteKey || !turnstileToken))
+                  }
+                  type="submit"
+                >
                   {submitting ? "Entering…" : "Enter giveaway"}
                 </button>
               </form>

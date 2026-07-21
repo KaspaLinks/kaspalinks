@@ -88,7 +88,23 @@ Do not publish the app container port directly. Caddy should be the only public 
 - `TOCCATA_LAB_ENABLED` defaults to `false`. Turn it on only when you intentionally want to offer claimable links. The flow is mainnet-only, starts at 1 KAS, signs claim/refund spends in the browser, and relays signed JSON only after an explicit user action.
 - `TOCCATA_BATCH_LAB_ENABLED` defaults to `false` and separately gates the private two-to-ten-link batch experiment. Keep its Caddy operator authentication in place until the batch Mainnet acceptance checklist has been completed.
 - `GIVEAWAY_LAB_ENABLED` defaults to `false` and separately gates the unlinked address-giveaway experiment. It stores participant payout addresses and public draw terms, but no wallet keys or funds; creators pay a drawn winner directly from their wallet.
+- `GIVEAWAY_TURNSTILE_ENABLED` defaults to `false`. When enabled, public giveaway entries require a Cloudflare Turnstile token that is validated server-side. Set `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, and `TURNSTILE_EXPECTED_HOSTNAME`; never commit the secret key. If protection is enabled but verification is unavailable or misconfigured, new entries fail closed.
 - `TOCCATA_WRPC_RELAY_URL` should point at the internal `toccata-relay` service (`http://toccata-relay:3010` in Docker Compose). The relay keeps a reusable Kaspa wRPC client, warms the connection on startup/health checks, retries warm connection attempts every `TOCCATA_RELAY_WARM_CONNECT_INTERVAL_MS`, and is not published through Caddy.
+
+### Giveaway Turnstile setup
+
+1. In Cloudflare Turnstile, create a **Managed** widget restricted to `kaspalinks.com`.
+2. Add the public site key and private secret key to the server `.env` as
+   `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`.
+3. Set `TURNSTILE_EXPECTED_HOSTNAME=kaspalinks.com` and
+   `GIVEAWAY_TURNSTILE_ENABLED=true`.
+4. Rebuild the app and reload Caddy so both the server validation and the required CSP origins are
+   active.
+5. Verify one successful entry and one rejected request without a Turnstile token before sharing a
+   giveaway publicly.
+
+Turnstile complements the existing rate limit and one-entry-per-address rule. It does not prove
+that different Kaspa addresses belong to different people.
 
 ## Database Migrations
 
