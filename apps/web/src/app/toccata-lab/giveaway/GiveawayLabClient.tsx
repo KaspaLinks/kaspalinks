@@ -12,6 +12,9 @@ import {
 } from "@kaspa-actions/wallet-adapter";
 
 import { CreatorSignInGate } from "@/app/CreatorSignInGate";
+import { saveClaimableRecord } from "@/lib/claimable-store";
+import { planToccataCanaryClaimFromNetKas } from "@/lib/toccata-lab-fee";
+import { createToccataLabKeyPair } from "@/lib/toccata-lab-keys";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 
 const TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
@@ -33,6 +36,13 @@ type GiveawaySummary = {
     winnerIndex: null | number;
   };
   entryCount: number;
+  prize: null | {
+    funded: boolean;
+    fundingAddress: string;
+    fundingTxId: null | string;
+    linkKey: string;
+    status: string;
+  };
   publicId: string;
   publicUrl: string;
   status: GiveawayStatus;
@@ -41,6 +51,21 @@ type GiveawaySummary = {
 };
 
 type Session = { token: string; username: string };
+
+type PrizeEscrow = {
+  amountKas: string;
+  feeKas: string;
+  fundingAddress: string;
+  linkKey: string;
+  netClaimKas: string;
+};
+
+// The prize can only be pulled back once entries are closed. The sequence is
+// enforced on-chain by a DAA lock time, and DAA drifts slightly against the
+// clock, so the margin grows with the duration instead of being a fixed value.
+function refundDelaySeconds(entryWindowSeconds: number): number {
+  return Math.ceil(15 * 60 + entryWindowSeconds * 0.02);
+}
 
 export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
   const [session, setSession] = useState<null | Session>(null);
@@ -61,6 +86,8 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
   const [payingId, setPayingId] = useState<null | string>(null);
   const [payoutTxById, setPayoutTxById] = useState<Record<string, string>>({});
   const [createdGiveaway, setCreatedGiveaway] = useState<null | GiveawaySummary>(null);
+  const [createdEscrow, setCreatedEscrow] = useState<null | PrizeEscrow>(null);
+  const [escrowPrize, setEscrowPrize] = useState(false);
   const [kaswareAvailable, setKaswareAvailable] = useState(false);
 
   useEffect(() => {
@@ -157,6 +184,105 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
     };
   }, [creatorHeaders, hasOpenGiveaway, loadGiveaways]);
 
+  // Parks the prize in a claimable link before the giveaway exists. Both codes
+  // are generated here and only ever leave this browser inside the encrypted
+  // vault — the server receives public keys and the script, nothing spendable.
+  async function createPrizeEscrow(
+    netAmountKas: string,
+    entryWindowSeconds: number,
+  ): Promise<PrizeEscrow> {
+    if (!creatorHeaders) throw new Error("Sign in again to escrow a prize.");
+
+    const plan = planToccataCanaryClaimFromNetKas({ netAmountKas });
+    const claimKey = createToccataLabKeyPair();
+    const refundKey = createToccataLabKeyPair();
+
+    const dagResponse = await fetch("/api/toccata-lab/dag-info");
+    const dagBody = (await dagResponse.json()) as {
+      dagInfo?: { virtualDaaScore?: string };
+      error?: { message?: string };
+    };
+    const currentDaaScore = dagBody.dagInfo?.virtualDaaScore;
+    if (!dagResponse.ok || !currentDaaScore) {
+      throw new Error(
+        dagBody.error?.message ?? "The Kaspa DAA score is unavailable — try again shortly.",
+      );
+    }
+    const refundLockTime = (
+      BigInt(currentDaaScore) + BigInt(refundDelaySeconds(entryWindowSeconds)) * 10n
+    ).toString();
+
+    const scriptResponse = await fetch("/api/toccata-lab/claimable-script", {
+      body: JSON.stringify({
+        linkPublicKey: claimKey.xOnlyPublicKey,
+        refundLockTime,
+        refundPublicKey: refundKey.xOnlyPublicKey,
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const scriptBody = (await scriptResponse.json()) as {
+      error?: { message?: string };
+      script?: { fundingAddress: string; redeemScriptHex: string };
+    };
+    if (!scriptResponse.ok || !scriptBody.script) {
+      throw new Error(scriptBody.error?.message ?? "The prize contract could not be built.");
+    }
+
+    const linkKey = `giveaway-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+    const registerResponse = await fetch("/api/creator/claimable-links", {
+      body: JSON.stringify({
+        amountSompi: plan.utxoSompi.toString(),
+        claimPublicKey: claimKey.xOnlyPublicKey,
+        description: `Prize escrow for “${title.trim()}”`,
+        feeSompi: plan.feeSompi.toString(),
+        fundingAddress: scriptBody.script.fundingAddress,
+        linkKey,
+        redeemScriptHex: scriptBody.script.redeemScriptHex,
+        refundLockTime,
+        refundPublicKey: refundKey.xOnlyPublicKey,
+        title: title.trim().slice(0, 80) || "Giveaway prize",
+      }),
+      headers: creatorHeaders,
+      method: "POST",
+    });
+    const registerBody = (await registerResponse.json()) as { error?: { message?: string } };
+    if (!registerResponse.ok) {
+      throw new Error(registerBody.error?.message ?? "The prize could not be registered.");
+    }
+
+    // Store the recovery data before showing the funding address: money must
+    // never be sent to an address whose refund code is not durably saved.
+    const createdAt = new Date();
+    await saveClaimableRecord({
+      amountKas: plan.utxoKas,
+      claimCode: claimKey.privateKey,
+      claimUrl: "",
+      createdAt: createdAt.toISOString(),
+      createdAtMs: createdAt.getTime(),
+      description: `Prize escrow for “${title.trim()}”`,
+      feeKas: plan.feeKas,
+      fundingAddress: scriptBody.script.fundingAddress,
+      id: linkKey,
+      manageUrl: "",
+      netClaimKas: plan.netOutputKas,
+      refundCode: refundKey.privateKey,
+      refundLockTime,
+      status: "awaiting_funding",
+      title: title.trim() || "Giveaway prize",
+      updatedAtMs: createdAt.getTime(),
+      validFor: `Until Kaspa DAA ${refundLockTime}`,
+    });
+
+    return {
+      amountKas: plan.utxoKas,
+      feeKas: plan.feeKas,
+      fundingAddress: scriptBody.script.fundingAddress,
+      linkKey,
+      netClaimKas: plan.netOutputKas,
+    };
+  }
+
   async function createGiveaway(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!creatorHeaders) return;
@@ -173,8 +299,21 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
       const unitMs =
         durationUnit === "days" ? 86_400_000 : durationUnit === "hours" ? 3_600_000 : 60_000;
       const closesAt = new Date(Date.now() + duration * unitMs).toISOString();
+
+      // Escrow first: if parking the prize fails, no giveaway is advertised.
+      let escrow: null | PrizeEscrow = null;
+      if (escrowPrize) {
+        escrow = await createPrizeEscrow(amountKas, (duration * unitMs) / 1000);
+      }
+
       const response = await fetch("/api/toccata-lab/giveaways", {
-        body: JSON.stringify({ amountKas, closesAt, description, title }),
+        body: JSON.stringify({
+          amountKas,
+          closesAt,
+          description,
+          prizeLinkKey: escrow?.linkKey ?? null,
+          title,
+        }),
         headers: creatorHeaders,
         method: "POST",
       });
@@ -187,6 +326,7 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
       }
       setGiveaways((current) => [body.giveaway!, ...current]);
       setCreatedGiveaway(body.giveaway);
+      setCreatedEscrow(escrow);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Giveaway could not be created.");
     } finally {
@@ -393,6 +533,43 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
               — entrants submit their address, and you draw the winner once it closes.
             </p>
             <code className="giveaway-dialog-url">{absoluteEntryUrl(createdGiveaway)}</code>
+
+            {createdEscrow ? (
+              <div className="giveaway-escrow-panel">
+                <span className="label">Fund the prize</span>
+                <p>
+                  Send exactly <strong>{createdEscrow.amountKas} KAS</strong> to this one-time
+                  address. The winner receives {createdEscrow.netClaimKas} KAS; {createdEscrow.feeKas}{" "}
+                  KAS covers the network fee. Entrants see the prize as verified once the payment is
+                  detected.
+                </p>
+                <code className="giveaway-dialog-url">{createdEscrow.fundingAddress}</code>
+                <div className="row">
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      void copyText(createdEscrow.fundingAddress, "Funding address copied.")
+                    }
+                    type="button"
+                  >
+                    Copy address
+                  </button>
+                  <a
+                    className="btn"
+                    href={buildWalletLaunchUri({
+                      amountKas: createdEscrow.amountKas,
+                      recipientAddress: createdEscrow.fundingAddress,
+                    })}
+                  >
+                    Open in wallet
+                  </a>
+                </div>
+                <p className="giveaway-dialog-hint">
+                  Your refund code is saved in this browser. Export the recovery data from My Links
+                  if you might switch devices.
+                </p>
+              </div>
+            ) : null}
             <div className="row">
               <button
                 autoFocus
@@ -476,8 +653,29 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
               </div>
             </div>
           </div>
+          <label className="giveaway-escrow-toggle">
+            <input
+              checked={escrowPrize}
+              onChange={(event) => setEscrowPrize(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <strong>Park the prize on-chain before entries open</strong>
+              <span className="muted">
+                You fund a one-time address, so entrants can verify the prize really exists. The
+                codes stay in this browser. If nobody enters, you pull it back shortly after entries
+                close.
+              </span>
+            </span>
+          </label>
           <button className="btn btn-primary" disabled={submitting} type="submit">
-            {submitting ? "Creating…" : "Create giveaway"}
+            {submitting
+              ? escrowPrize
+                ? "Preparing prize…"
+                : "Creating…"
+              : escrowPrize
+                ? "Create and fund giveaway"
+                : "Create giveaway"}
           </button>
         </form>
       </section>
@@ -531,6 +729,19 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
                   <strong className="giveaway-amount">{giveaway.amountKas} KAS</strong>
                 </div>
                 {giveaway.description ? <p className="muted">{giveaway.description}</p> : null}
+                {giveaway.prize ? (
+                  <p
+                    className={`giveaway-prize-state${giveaway.prize.funded ? " is-funded" : ""}`}
+                  >
+                    {giveaway.prize.status === "claimed"
+                      ? "Prize paid out from escrow"
+                      : giveaway.prize.status === "refunded"
+                        ? "Prize pulled back"
+                        : giveaway.prize.funded
+                          ? "Prize parked on-chain · entrants can verify it"
+                          : "Waiting for your funding payment — entrants see no prize yet"}
+                  </p>
+                ) : null}
                 <div className="giveaway-metrics">
                   <div>
                     <span>Entries</span>
