@@ -9346,6 +9346,36 @@ body:has(main.deck-main) {
   color: var(--fg-strong);
 }
 
+.giveaway-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.giveaway-notice-close {
+  flex: none;
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: var(--radius-sm);
+}
+
+.giveaway-notice-close:hover {
+  opacity: 1;
+}
+
+.giveaway-notice-close:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+  opacity: 1;
+}
+
 .giveaway-create-card,
 .giveaway-manage-card,
 .giveaway-entry-card {

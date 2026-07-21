@@ -9,6 +9,7 @@ import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 
 const TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
 const USERNAME_STORAGE_KEY = "kaspa-actions:creator-username";
+const ENTRY_POLL_MS = 15_000;
 
 type GiveawayStatus = "CANCELLED" | "CLOSED" | "DRAWN" | "NO_ENTRIES" | "OPEN";
 
@@ -58,10 +59,12 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
     setSessionReady(true);
   }, []);
 
+  // The countdown only needs to tick while something is actually counting down.
   useEffect(() => {
+    if (!giveaways.some((giveaway) => giveaway.status === "OPEN")) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [giveaways]);
 
   const creatorHeaders = useMemo(
     () =>
@@ -75,31 +78,59 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
     [session],
   );
 
-  const loadGiveaways = useCallback(async () => {
-    if (!creatorHeaders) return;
-    setLoading(true);
-    try {
-      const response = await fetch("/api/toccata-lab/giveaways", {
-        cache: "no-store",
-        headers: creatorHeaders,
-      });
-      const body = (await response.json()) as {
-        error?: { message?: string };
-        giveaways?: GiveawaySummary[];
-      };
-      if (!response.ok) throw new Error(body.error?.message ?? "Giveaways could not be loaded.");
-      setGiveaways(body.giveaways ?? []);
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Giveaways could not be loaded.");
-    } finally {
-      setLoading(false);
-    }
-  }, [creatorHeaders]);
+  const loadGiveaways = useCallback(
+    async (options: { quiet?: boolean } = {}) => {
+      if (!creatorHeaders) return;
+      if (!options.quiet) setLoading(true);
+      try {
+        const response = await fetch("/api/toccata-lab/giveaways", {
+          cache: "no-store",
+          headers: creatorHeaders,
+        });
+        const body = (await response.json()) as {
+          error?: { message?: string };
+          giveaways?: GiveawaySummary[];
+        };
+        if (!response.ok) throw new Error(body.error?.message ?? "Giveaways could not be loaded.");
+        setGiveaways(body.giveaways ?? []);
+        setError(null);
+      } catch (caught) {
+        // A failed background poll must not replace what the creator is reading.
+        if (!options.quiet) {
+          setError(caught instanceof Error ? caught.message : "Giveaways could not be loaded.");
+        }
+      } finally {
+        if (!options.quiet) setLoading(false);
+      }
+    },
+    [creatorHeaders],
+  );
 
   useEffect(() => {
     void loadGiveaways();
   }, [loadGiveaways]);
+
+  // While entries are open the creator is watching the counter, so keep it live
+  // instead of making them press Refresh. Idle accounts poll nothing at all.
+  const hasOpenGiveaway = useMemo(
+    () => giveaways.some((giveaway) => giveaway.status === "OPEN"),
+    [giveaways],
+  );
+
+  useEffect(() => {
+    if (!hasOpenGiveaway || !creatorHeaders) return;
+    const timer = window.setInterval(() => void loadGiveaways({ quiet: true }), ENTRY_POLL_MS);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadGiveaways({ quiet: true });
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [creatorHeaders, hasOpenGiveaway, loadGiveaways]);
 
   async function createGiveaway(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -108,6 +139,10 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
     setError(null);
     setNotice(null);
     try {
+      const reward = Number(amountKas);
+      if (!Number.isFinite(reward) || reward <= 0) {
+        throw new Error("Enter the reward as a number, for example 10 or 2.5.");
+      }
       const duration = Number(durationValue);
       if (!Number.isFinite(duration) || duration <= 0) throw new Error("Enter a valid duration.");
       const unitMs =
@@ -259,13 +294,29 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
       </section>
 
       {error ? (
-        <div className="notice notice-error" role="alert">
-          {error}
+        <div className="notice notice-error giveaway-notice" role="alert">
+          <span>{error}</span>
+          <button
+            aria-label="Dismiss message"
+            className="giveaway-notice-close"
+            onClick={() => setError(null)}
+            type="button"
+          >
+            ×
+          </button>
         </div>
       ) : null}
       {notice ? (
-        <div className="notice notice-success" role="status">
-          {notice}
+        <div className="notice notice-success giveaway-notice" role="status">
+          <span>{notice}</span>
+          <button
+            aria-label="Dismiss message"
+            className="giveaway-notice-close"
+            onClick={() => setNotice(null)}
+            type="button"
+          >
+            ×
+          </button>
         </div>
       ) : null}
 
@@ -391,7 +442,9 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
                     <span>Closes</span>
                     <strong>{formatDeadline(giveaway.closesAt, now)}</strong>
                   </div>
-                  <div>
+                  <div
+                    title="Published before entries close. After the draw, the seed must match this value — that is how entrants verify nothing was swapped."
+                  >
                     <span>Commitment</span>
                     <code>{compactHash(giveaway.drawCommitment)}</code>
                   </div>
@@ -448,6 +501,18 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
                       >
                         Show payout QR
                       </button>
+                      <button
+                        className="btn"
+                        onClick={() =>
+                          void copyText(
+                            buildResultAnnouncement(giveaway, publicUrl),
+                            "Result and proof copied — ready to post.",
+                          )
+                        }
+                        type="button"
+                      >
+                        Copy result + proof
+                      </button>
                     </div>
                     {payoutQr ? (
                       <Image
@@ -501,12 +566,46 @@ function statusLabel(status: GiveawayStatus): string {
 
 function formatDeadline(value: string, now: number): string {
   const remaining = new Date(value).getTime() - now;
-  if (remaining <= 0) return new Date(value).toLocaleString();
+  if (remaining <= 0) {
+    const elapsed = Math.abs(remaining);
+    const minutes = Math.floor(elapsed / 60_000);
+    if (minutes < 1) return "Closed just now";
+    if (minutes < 60) return `Closed ${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `Closed ${hours}h ago`;
+    return `Closed ${Math.floor(hours / 24)}d ago`;
+  }
   const minutes = Math.ceil(remaining / 60_000);
   if (minutes < 60) return `${minutes}m remaining`;
   const hours = Math.ceil(minutes / 60);
   if (hours < 48) return `${hours}h remaining`;
   return `${Math.ceil(hours / 24)}d remaining`;
+}
+
+// The whole point of a committed draw is that the community can check it. Hand
+// the creator one block of text that contains everything needed to do that.
+function buildResultAnnouncement(giveaway: GiveawaySummary, entryUrl: string): string {
+  const lines = [
+    `${giveaway.title} — winner drawn`,
+    `Prize: ${giveaway.amountKas} KAS`,
+    "",
+    `Winner: ${giveaway.winnerAddress ?? "—"}`,
+    "",
+    "Verify the draw:",
+    `Commitment (published before entries closed): ${giveaway.drawCommitment}`,
+  ];
+  if (giveaway.drawProof) {
+    lines.push(`Seed: ${giveaway.drawProof.seed}`);
+    if (giveaway.drawProof.digest) lines.push(`Digest: ${giveaway.drawProof.digest}`);
+    if (giveaway.drawProof.entryCount !== null) {
+      lines.push(`Entries: ${giveaway.drawProof.entryCount}`);
+    }
+    if (giveaway.drawProof.winnerIndex !== null) {
+      lines.push(`Winner index: ${giveaway.drawProof.winnerIndex}`);
+    }
+  }
+  lines.push("", entryUrl);
+  return lines.join("\n");
 }
 
 function compactAddress(value: string): string {
