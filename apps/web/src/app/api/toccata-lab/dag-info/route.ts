@@ -1,15 +1,8 @@
-import { z } from "zod";
-
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
+import { readResilientMainnetDagInfo } from "@/lib/mainnet-dag-info";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { isToccataLabEnabled } from "@/lib/toccata-lab";
-
-const blockDagInfoSchema = z.object({
-  networkName: z.string(),
-  pastMedianTime: z.string(),
-  virtualDaaScore: z.string().regex(/^[0-9]+$/),
-});
 
 export async function GET(request: Request) {
   if (!isToccataLabEnabled()) {
@@ -25,28 +18,11 @@ export async function GET(request: Request) {
   if (!limited.allowed) return limited.response;
 
   try {
-    const response = await fetch("https://api.kaspa.org/info/blockdag", {
-      headers: { accept: "application/json" },
-      next: { revalidate: 5 },
-    });
-
-    if (!response.ok) {
-      return apiError(
-        ErrorCodes.SERVER_ERROR,
-        "Could not read current Kaspa BlockDAG info.",
-        503,
-      );
-    }
-
-    const parsed = blockDagInfoSchema.safeParse(await response.json());
-    if (!parsed.success || parsed.data.networkName !== "kaspa-mainnet") {
-      return apiError(ErrorCodes.SERVER_ERROR, "Unexpected Kaspa BlockDAG response.", 503);
-    }
-
+    const dagInfo = await readResilientMainnetDagInfo();
     return apiJson({
       network: "mainnet",
-      pastMedianTime: parsed.data.pastMedianTime,
-      virtualDaaScore: parsed.data.virtualDaaScore,
+      pastMedianTime: dagInfo.pastMedianTime,
+      virtualDaaScore: dagInfo.virtualDaaScore,
     });
   } catch {
     return apiError(ErrorCodes.SERVER_ERROR, "Could not reach Kaspa BlockDAG info.", 503);

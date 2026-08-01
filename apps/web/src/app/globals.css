@@ -9346,6 +9346,38 @@ body:has(main.deck-main) {
   color: var(--fg-strong);
 }
 
+.giveaway-draw-disclosure {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.giveaway-draw-disclosure-lead {
+  display: grid;
+  gap: 4px;
+}
+
+.giveaway-draw-disclosure strong {
+  color: var(--fg-strong);
+}
+
+.giveaway-draw-disclosure p {
+  margin: 0;
+}
+
+.giveaway-draw-disclosure .giveaway-protocol-details {
+  padding: 14px 0 0;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+
 .giveaway-notice {
   display: flex;
   align-items: flex-start;
@@ -9401,6 +9433,15 @@ body:has(main.deck-main) {
   margin: 0;
 }
 
+.giveaway-delete-dialog {
+  width: min(480px, 100%);
+}
+
+.giveaway-delete-actions {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
 .giveaway-dialog-url {
   display: block;
   overflow-wrap: anywhere;
@@ -9423,7 +9464,8 @@ body:has(main.deck-main) {
   font-size: 13px;
 }
 
-.giveaway-escrow-toggle {
+.giveaway-escrow-toggle,
+.giveaway-auto-payout-toggle {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -9434,20 +9476,28 @@ body:has(main.deck-main) {
   cursor: pointer;
 }
 
-.giveaway-escrow-toggle input {
+.giveaway-escrow-toggle input,
+.giveaway-auto-payout-toggle input {
   margin-top: 3px;
   flex: none;
 }
 
-.giveaway-escrow-toggle > span {
+.giveaway-escrow-toggle > span,
+.giveaway-auto-payout-toggle > span {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 14px;
 }
 
-.giveaway-escrow-toggle .muted {
+.giveaway-escrow-toggle .muted,
+.giveaway-auto-payout-toggle .muted {
   font-size: 13px;
+}
+
+.giveaway-card-auto-payout {
+  margin-top: 12px;
+  background: rgba(73, 234, 203, 0.04);
 }
 
 .giveaway-escrow-panel {
@@ -9465,6 +9515,89 @@ body:has(main.deck-main) {
   font-size: 14px;
 }
 
+.giveaway-prize-funding-qr {
+  margin-top: 2px;
+  padding: 12px;
+  border: 1px solid rgba(73, 234, 203, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(7, 17, 22, 0.38);
+}
+
+.giveaway-funding-monitor {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(246, 186, 73, 0.32);
+  border-radius: var(--radius-sm);
+  background: rgba(246, 186, 73, 0.08);
+}
+
+.giveaway-funding-monitor > span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.giveaway-funding-monitor strong,
+.giveaway-funding-monitor span {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.giveaway-funding-monitor-dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border: 2px solid rgba(246, 186, 73, 0.28);
+  border-top-color: #f6ba49;
+  border-radius: 50%;
+}
+
+.giveaway-funding-monitor.is-watching .giveaway-funding-monitor-dot {
+  animation: giveaway-funding-spin 900ms linear infinite;
+}
+
+.giveaway-funding-monitor.is-confirmed {
+  border-color: rgba(73, 234, 203, 0.36);
+  background: rgba(73, 234, 203, 0.1);
+}
+
+.giveaway-funding-monitor.is-confirmed .giveaway-funding-monitor-dot {
+  border: none;
+  background: var(--accent-bright);
+  box-shadow: 0 0 0 4px rgba(73, 234, 203, 0.12);
+}
+
+@keyframes giveaway-funding-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.giveaway-funding-panel {
+  margin-top: 4px;
+}
+
+.giveaway-file-button {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.giveaway-file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.giveaway-lab-page .btn.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .giveaway-prize-state {
   margin: 0;
   font-size: 13px;
@@ -9475,9 +9608,28 @@ body:has(main.deck-main) {
   color: var(--accent-bright);
 }
 
+.giveaway-delete-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.giveaway-delete-hint {
+  margin: 0 auto 0 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .giveaway-dialog-backdrop {
     backdrop-filter: none;
+  }
+
+  .giveaway-funding-monitor.is-watching .giveaway-funding-monitor-dot {
+    animation: none;
   }
 }
 
@@ -9563,6 +9715,12 @@ body:has(main.deck-main) {
   color: var(--accent-bright);
 }
 
+.status-pending_funding {
+  border-color: rgba(251, 191, 36, 0.38);
+  background: rgba(251, 191, 36, 0.08);
+  color: #f8c867;
+}
+
 .status-closed {
   border-color: rgba(251, 191, 36, 0.38);
   background: rgba(251, 191, 36, 0.08);
@@ -9571,7 +9729,7 @@ body:has(main.deck-main) {
 
 .giveaway-metrics {
   display: grid;
-  grid-template-columns: 0.65fr 1fr 1fr;
+  grid-template-columns: 0.65fr 1fr 1fr 1fr;
   border-block: 1px solid var(--border);
 }
 
@@ -9615,6 +9773,28 @@ body:has(main.deck-main) {
   margin: 0;
 }
 
+.giveaway-winner-claim {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 520px);
+  margin-top: 8px;
+  padding: 18px;
+  border: 1px solid rgba(73, 234, 203, 0.35);
+  border-radius: var(--radius-sm);
+  background: rgba(73, 234, 203, 0.08);
+}
+
+.giveaway-winner-claim > strong {
+  color: var(--accent-bright);
+  font-size: 1.5rem;
+}
+
+.giveaway-winner-claim p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+}
+
 .giveaway-payout-qr {
   width: min(100%, 320px);
   height: auto;
@@ -9635,6 +9815,20 @@ body:has(main.deck-main) {
   cursor: pointer;
 }
 
+.giveaway-proof > code,
+.giveaway-proof > strong {
+  display: block;
+  margin-top: 10px;
+}
+
+.proof-entry-included {
+  color: var(--accent-bright);
+}
+
+.proof-entry-missing {
+  color: var(--danger);
+}
+
 .giveaway-proof dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -9646,9 +9840,79 @@ body:has(main.deck-main) {
   margin: 0;
 }
 
+.giveaway-proof-verifier {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.giveaway-proof-verifier strong {
+  font-size: 0.88rem;
+}
+
+.giveaway-proof-verifier .is-valid {
+  color: var(--accent-bright);
+}
+
+.giveaway-proof-verifier .is-invalid {
+  color: var(--danger);
+}
+
+.giveaway-verifiable-state {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgba(73, 234, 203, 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(73, 234, 203, 0.06);
+}
+
+.giveaway-verifiable-state p {
+  margin: 0;
+  color: var(--fg-muted);
+}
+
+.giveaway-verifiable-state code {
+  overflow-wrap: anywhere;
+  color: var(--accent-bright);
+}
+
+.giveaway-protocol-details {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted);
+}
+
+.giveaway-protocol-details summary {
+  color: var(--fg);
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.giveaway-protocol-details ol {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding-left: 20px;
+}
+
 .giveaway-entry-page {
   max-width: 780px;
   padding-top: clamp(38px, 7vw, 82px);
+}
+
+@media (min-width: 1024px) {
+  .giveaway-entry-page {
+    max-width: 1100px;
+  }
+
+  body:has(main.giveaway-entry-page) .brand-bar,
+  body:has(main.giveaway-entry-page) .app-footer {
+    max-width: 1100px;
+  }
 }
 
 .giveaway-entry-hero {
@@ -9672,9 +9936,51 @@ body:has(main.deck-main) {
   color: var(--fg-muted);
 }
 
-.giveaway-entry-hero > strong {
+.giveaway-hero-prize {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.giveaway-hero-prize strong {
   color: var(--accent-bright);
   font-size: clamp(1.55rem, 5vw, 2.5rem);
+  line-height: 1.05;
+}
+
+.giveaway-verified-prize {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid rgba(73, 234, 203, 0.38);
+  border-radius: var(--radius-sm);
+  background: rgba(73, 234, 203, 0.07);
+}
+
+.giveaway-verified-prize > span {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  color: var(--bg-deep);
+  font-weight: 900;
+}
+
+.giveaway-verified-prize p {
+  margin: 3px 0 0;
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+}
+
+.giveaway-verified-prize a,
+.giveaway-claim-transaction {
+  color: var(--accent-bright);
+  font-weight: 750;
 }
 
 .giveaway-entry-card {
@@ -9705,10 +10011,16 @@ body:has(main.deck-main) {
   min-width: 0;
 }
 
+/* No reserved height: Cloudflare's managed/invisible mode renders nothing when
+   no challenge is needed, so a fixed min-height left a dead "Security check"
+   box. A visible challenge sizes itself and pushes the button down only then. */
 .turnstile-widget {
-  min-height: 65px;
   min-width: 0;
   width: 100%;
+}
+
+.turnstile-widget:empty {
+  display: none;
 }
 
 .giveaway-entry-success {
@@ -9789,6 +10101,30 @@ body:has(main.deck-main) {
   .giveaway-actions .btn,
   .giveaway-winner-panel .btn {
     width: 100%;
+  }
+
+  .giveaway-delete-row,
+  .giveaway-delete-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .giveaway-delete-row .btn,
+  .giveaway-delete-actions .btn {
+    width: 100%;
+  }
+
+  .giveaway-verified-prize {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .giveaway-verified-prize > a {
+    grid-column: 2;
+  }
+
+  .giveaway-draw-disclosure {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .giveaway-proof dl {

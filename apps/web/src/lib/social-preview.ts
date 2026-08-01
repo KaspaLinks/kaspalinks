@@ -3,6 +3,14 @@ export type SocialPreview = {
   title: string;
 };
 
+export type GiveawayPreviewStatus =
+  | "CANCELLED"
+  | "CLOSED"
+  | "DRAWN"
+  | "NO_ENTRIES"
+  | "OPEN"
+  | "PENDING_FUNDING";
+
 const MAX_DESCRIPTION_LENGTH = 180;
 
 export function collapseWhitespace(value: null | string | undefined): string {
@@ -78,5 +86,79 @@ export function buildActionSocialPreview(input: {
   return {
     description: truncatePreviewText(description ? `${description} ${fallback}` : fallback),
     title: `${title} · ${creatorName}`,
+  };
+}
+
+export function buildGiveawaySocialPreview(input: {
+  amountKas: string;
+  closesAt: Date | string;
+  description?: null | string;
+  prizeFunded: boolean;
+  status: GiveawayPreviewStatus;
+  title: string;
+}): SocialPreview & { amountLabel: string; typeLabel: string } {
+  const title = collapseWhitespace(input.title) || "Kaspa giveaway";
+  const description = collapseWhitespace(input.description);
+  const closesAt = new Date(input.closesAt).getTime();
+  const status =
+    input.status === "OPEN" && Number.isFinite(closesAt) && closesAt <= Date.now()
+      ? "CLOSED"
+      : input.status;
+
+  const state = giveawayPreviewState(status, input.prizeFunded, input.amountKas);
+  const fallback = `${state.description} Non-custodial and wallet-to-wallet.`;
+
+  return {
+    amountLabel: `${input.amountKas} KAS prize`,
+    description: truncatePreviewText(description ? `${description} ${fallback}` : fallback),
+    title: `${title} · ${state.title}`,
+    typeLabel: state.typeLabel,
+  };
+}
+
+function giveawayPreviewState(
+  status: GiveawayPreviewStatus,
+  prizeFunded: boolean,
+  amountKas: string,
+): { description: string; title: string; typeLabel: string } {
+  if (status === "PENDING_FUNDING" || !prizeFunded) {
+    return {
+      description: `A ${amountKas} KAS giveaway is being prepared. Entries open after the prize is verified on-chain.`,
+      title: `${amountKas} KAS giveaway`,
+      typeLabel: "Preparing",
+    };
+  }
+  if (status === "OPEN") {
+    return {
+      description: `The ${amountKas} KAS prize is verified on-chain. The winner is selected with a verifiable Kaspa draw.`,
+      title: `Win ${amountKas} KAS`,
+      typeLabel: "Enter giveaway",
+    };
+  }
+  if (status === "DRAWN") {
+    return {
+      description: `The winner of this ${amountKas} KAS giveaway has been selected with an auditable draw.`,
+      title: "Winner drawn",
+      typeLabel: "Winner selected",
+    };
+  }
+  if (status === "NO_ENTRIES") {
+    return {
+      description: `This ${amountKas} KAS giveaway ended without eligible entries.`,
+      title: "Giveaway ended",
+      typeLabel: "No entries",
+    };
+  }
+  if (status === "CANCELLED") {
+    return {
+      description: `This ${amountKas} KAS giveaway was cancelled.`,
+      title: "Giveaway cancelled",
+      typeLabel: "Cancelled",
+    };
+  }
+  return {
+    description: `Entries for this ${amountKas} KAS giveaway are closed while the draw is completed.`,
+    title: "Entries closed",
+    typeLabel: "Draw pending",
   };
 }

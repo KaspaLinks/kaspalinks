@@ -9,6 +9,7 @@ import {
   isGiveawayLabEnabled,
   normalizeGiveawayAddress,
 } from "@/lib/giveaway-lab";
+import { reconcileGiveawayPrize } from "@/lib/giveaway-prize";
 import { isPrismaUniqueConstraintError } from "@/lib/prisma-errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { verifyGiveawayTurnstile } from "@/lib/turnstile";
@@ -26,6 +27,49 @@ export async function POST(request: Request, context: { params: Promise<{ public
   const params = await context.params;
   const parsedId = giveawayPublicIdSchema.safeParse(params.publicId);
   if (!parsedId.success) return apiError(ErrorCodes.NOT_FOUND, "Giveaway not found.", 404);
+
+  const candidate = await prisma.giveaway.findUnique({
+    include: {
+      prizeLink: {
+        select: {
+          amountSompi: true,
+          claimTxId: true,
+          createdAt: true,
+          feeSompi: true,
+          fundingAddress: true,
+          fundingOutputIndex: true,
+          fundingTxId: true,
+          id: true,
+          linkKey: true,
+          redeemScriptHex: true,
+          refundLockTime: true,
+          refundTxId: true,
+          status: true,
+        },
+      },
+    },
+    where: { publicId: parsedId.data },
+  });
+  if (!candidate) return apiError(ErrorCodes.NOT_FOUND, "Giveaway not found.", 404);
+
+  let availableGiveaway = candidate;
+  try {
+    availableGiveaway = await reconcileGiveawayPrize(candidate);
+  } catch {
+    // Once a prize-backed giveaway has opened, a temporary indexer outage must
+    // not stop otherwise valid entries. The DB activation is monotonic and the
+    // transaction below still enforces the stored window.
+    if (candidate.openedAt === null) {
+      return apiError(
+        ErrorCodes.SERVER_ERROR,
+        "Prize funding could not be verified. Please try again shortly.",
+        503,
+      );
+    }
+  }
+  if (availableGiveaway.openedAt === null) {
+    return apiError(ErrorCodes.INVALID_STATE, "Giveaway prize funding is not confirmed yet.", 409);
+  }
 
   let rawBody: unknown;
   try {
@@ -76,7 +120,12 @@ export async function POST(request: Request, context: { params: Promise<{ public
       async (tx) => {
         const giveaway = await tx.giveaway.findUnique({ where: { publicId: parsedId.data } });
         if (!giveaway) return { kind: "missing" as const };
-        if (giveaway.status !== "OPEN" || giveaway.closesAt.getTime() <= Date.now()) {
+        if (
+          giveaway.status !== "OPEN" ||
+          giveaway.openedAt === null ||
+          giveaway.entriesFrozenAt != null ||
+          giveaway.closesAt.getTime() <= Date.now()
+        ) {
           return { kind: "closed" as const };
         }
 
@@ -107,8 +156,14 @@ export async function POST(request: Request, context: { params: Promise<{ public
       201,
     );
   } catch (error) {
-    if (isPrismaUniqueConstraintError(error, ["giveawayId", "address"])) {
-      return apiError(ErrorCodes.INVALID_STATE, "This address is already entered.", 409);
+    // This insert has only one user-reachable unique conflict: one address per
+    // giveaway. Prisma's driver-adapter errors do not always expose `meta.target`.
+    if (isPrismaUniqueConstraintError(error)) {
+      return apiError(
+        ErrorCodes.INVALID_STATE,
+        "This address is already entered in this giveaway.",
+        409,
+      );
     }
     throw error;
   }

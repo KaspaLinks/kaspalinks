@@ -23,6 +23,13 @@ export type ClaimableStoreRecord = {
   // keys here allows recovery URLs to be rebuilt after a render interruption.
   claimCode?: string;
   refundCode?: string;
+  // Explicit creator consent for preparing a fixed-destination winner claim.
+  // This flag is encrypted with the local record and grants the server no key.
+  giveawayAutoPrepareEnabled?: boolean;
+  // Legacy local preference retained so existing encrypted stores remain
+  // readable while the Giveaway Lab migrates from direct payout to claims.
+  giveawayAutoPayoutEnabled?: boolean;
+  giveawayPublicId?: string;
   recoveryBackupSkippedAt?: string;
   recoveryExportedAt?: string;
   updatedAtMs: number;

@@ -20,6 +20,7 @@ export { buildKaspaPaymentUri, type BuildKaspaPaymentUriInput } from "./payment-
 export { buildKaspaQrPayload, type BuildKaspaQrPayloadInput } from "./qr";
 export {
   assertToccataSdkReady,
+  buildKaspaAddressScriptPublicKeyHex,
   buildToccataBatchAllocatorLabScript,
   buildToccataClaimableLabScript,
   createToccataPsktSmokePrototype,

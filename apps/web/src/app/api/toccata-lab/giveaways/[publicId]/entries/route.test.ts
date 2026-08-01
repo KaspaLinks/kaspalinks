@@ -2,17 +2,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetRateLimits } from "@/lib/rate-limit";
 
-const { mockPrisma, mockTx, verifyGiveawayTurnstileMock } = vi.hoisted(() => {
-  const tx = {
-    giveaway: { findUnique: vi.fn() },
-    giveawayEntry: { count: vi.fn(), create: vi.fn() },
-  };
-  return {
-    mockPrisma: { $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)) },
-    mockTx: tx,
-    verifyGiveawayTurnstileMock: vi.fn(),
-  };
-});
+const { mockPrisma, mockTx, reconcileGiveawayPrizeMock, verifyGiveawayTurnstileMock } = vi.hoisted(
+  () => {
+    const tx = {
+      giveaway: { findUnique: vi.fn() },
+      giveawayEntry: { count: vi.fn(), create: vi.fn() },
+    };
+    return {
+      mockPrisma: {
+        $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
+        giveaway: { findUnique: vi.fn() },
+      },
+      mockTx: tx,
+      reconcileGiveawayPrizeMock: vi.fn(),
+      verifyGiveawayTurnstileMock: vi.fn(),
+    };
+  },
+);
 
 vi.mock("@kaspa-actions/db", () => ({
   Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
@@ -21,6 +27,9 @@ vi.mock("@kaspa-actions/db", () => ({
 
 vi.mock("@/lib/turnstile", () => ({
   verifyGiveawayTurnstile: verifyGiveawayTurnstileMock,
+}));
+vi.mock("@/lib/giveaway-prize", () => ({
+  reconcileGiveawayPrize: reconcileGiveawayPrizeMock,
 }));
 
 import { POST } from "./route";
@@ -40,11 +49,16 @@ describe("POST /api/toccata-lab/giveaways/[publicId]/entries", () => {
     vi.clearAllMocks();
     vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
     vi.stubEnv("GIVEAWAY_LAB_ENABLED", "true");
-    mockTx.giveaway.findUnique.mockResolvedValue({
+    const openGiveaway = {
       closesAt: new Date(Date.now() + 60_000),
       id: "giveaway-db-1",
+      openedAt: new Date(),
+      prizeLink: null,
       status: "OPEN",
-    });
+    };
+    mockPrisma.giveaway.findUnique.mockResolvedValue(openGiveaway);
+    reconcileGiveawayPrizeMock.mockImplementation(async (value) => value);
+    mockTx.giveaway.findUnique.mockResolvedValue(openGiveaway);
     mockTx.giveawayEntry.create.mockResolvedValue({ id: "entry-1" });
     mockTx.giveawayEntry.count.mockResolvedValue(1);
     verifyGiveawayTurnstileMock.mockResolvedValue({ ok: true });
@@ -74,6 +88,7 @@ describe("POST /api/toccata-lab/giveaways/[publicId]/entries", () => {
     mockTx.giveaway.findUnique.mockResolvedValue({
       closesAt: new Date(Date.now() - 1),
       id: "giveaway-db-1",
+      openedAt: new Date(Date.now() - 60_000),
       status: "OPEN",
     });
 
@@ -83,6 +98,36 @@ describe("POST /api/toccata-lab/giveaways/[publicId]/entries", () => {
 
     expect(response.status).toBe(409);
     expect(mockTx.giveawayEntry.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses entries until a parked prize is funded", async () => {
+    const pending = {
+      closesAt: new Date(Date.now() + 60_000),
+      id: "giveaway-db-1",
+      openedAt: null,
+      prizeLink: { id: "prize-1" },
+      status: "OPEN",
+    };
+    mockPrisma.giveaway.findUnique.mockResolvedValue(pending);
+    reconcileGiveawayPrizeMock.mockResolvedValue(pending);
+
+    const response = await POST(request(), {
+      params: Promise.resolve({ publicId: "giveaway-1" }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(verifyGiveawayTurnstileMock).not.toHaveBeenCalled();
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("keeps an already-open giveaway available during a temporary indexer error", async () => {
+    reconcileGiveawayPrizeMock.mockRejectedValue(new Error("indexer unavailable"));
+
+    const response = await POST(request(), {
+      params: Promise.resolve({ publicId: "giveaway-1" }),
+    });
+
+    expect(response.status).toBe(201);
   });
 
   it("requires successful server-side bot verification before writing an entry", async () => {
@@ -117,10 +162,10 @@ describe("POST /api/toccata-lab/giveaways/[publicId]/entries", () => {
     });
   });
 
-  it("turns a database uniqueness conflict into a clear duplicate-entry response", async () => {
+  it("turns a driver-adapter uniqueness conflict into a clear duplicate-entry response", async () => {
     mockTx.giveawayEntry.create.mockRejectedValue({
       code: "P2002",
-      meta: { target: ["giveawayId", "address"] },
+      meta: { modelName: "GiveawayEntry", driverAdapterError: {} },
     });
 
     const response = await POST(request(), {
@@ -129,7 +174,7 @@ describe("POST /api/toccata-lab/giveaways/[publicId]/entries", () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
-      error: { message: "This address is already entered." },
+      error: { message: "This address is already entered in this giveaway." },
     });
   });
 });

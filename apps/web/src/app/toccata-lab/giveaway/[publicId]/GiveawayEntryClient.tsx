@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { GIVEAWAY_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
+import {
+  verifyGiveawayDrawInBrowser,
+  type BrowserGiveawayVerification,
+} from "@/lib/giveaway-proof-browser";
+import { kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
+import { readJsonResponse } from "@/lib/response-json";
 
 import { TurnstileWidget } from "./TurnstileWidget";
 
@@ -11,16 +17,44 @@ type PublicGiveaway = {
   closesAt: string;
   description: null | string;
   drawCommitment: string;
+  drawProtocol: {
+    entropyBlockBlueScore: null | string;
+    entropyBlockHash: null | string;
+    entropyTargetBlueScore: null | string;
+    entriesFrozenAt: null | string;
+    entriesRoot: null | string;
+    entryHashes: string[];
+    entryCount: null | number;
+    freezeCommitment: null | string;
+    version: number;
+  };
   drawProof: null | {
     digest: null | string;
     entryCount: null | number;
     entryHashes: string[];
+    entropyBlockBlueScore: null | string;
+    entropyBlockHash: null | string;
+    entropyTargetBlueScore: null | string;
+    entriesRoot: null | string;
+    freezeCommitment: null | string;
     seed: string;
+    version: number;
     winnerIndex: null | number;
   };
   entryCount: number;
+  prize: null | {
+    claimTxId: null | string;
+    fundingAddress: string;
+    fundingTxId: string;
+    paidOut: boolean;
+  };
+  winnerClaim: {
+    expiresAt: null | string;
+    prepared: boolean;
+    transactionId: null | string;
+  };
   publicId: string;
-  status: "CANCELLED" | "CLOSED" | "DRAWN" | "NO_ENTRIES" | "OPEN";
+  status: "CANCELLED" | "CLOSED" | "DRAWN" | "NO_ENTRIES" | "OPEN" | "PENDING_FUNDING";
   title: string;
   winnerAddress: null | string;
 };
@@ -38,10 +72,16 @@ export function GiveawayEntryClient({
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
+  const [claimingPrize, setClaimingPrize] = useState(false);
   const [error, setError] = useState<null | string>(null);
   const [now, setNow] = useState(() => Date.now());
   const [turnstileToken, setTurnstileToken] = useState<null | string>(null);
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+  const [proofVerification, setProofVerification] = useState<null | BrowserGiveawayVerification>(
+    null,
+  );
+  const [verifyingProof, setVerifyingProof] = useState(false);
+  const [freezeReceiptChanged, setFreezeReceiptChanged] = useState(false);
   const finalizeInFlight = useRef(false);
 
   const loadGiveaway = useCallback(async () => {
@@ -49,10 +89,11 @@ export function GiveawayEntryClient({
       const response = await fetch(`/api/toccata-lab/giveaways/${encodeURIComponent(publicId)}`, {
         cache: "no-store",
       });
-      const body = (await response.json()) as {
+      const body = await readJsonResponse<{
         error?: { message?: string };
         giveaway?: PublicGiveaway;
-      };
+      }>(response);
+      if (!body) throw new Error("Giveaway could not be loaded. Please try again.");
       if (!response.ok || !body.giveaway)
         throw new Error(body.error?.message ?? "Giveaway could not be loaded.");
       setGiveaway(body.giveaway);
@@ -78,8 +119,8 @@ export function GiveawayEntryClient({
         { method: "POST" },
       );
       if (!response.ok && response.status !== 409) {
-        const body = (await response.json()) as { error?: { message?: string } };
-        throw new Error(body.error?.message ?? "Giveaway draw could not be completed.");
+        const body = await readJsonResponse<{ error?: { message?: string } }>(response);
+        throw new Error(body?.error?.message ?? "Giveaway draw could not be completed.");
       }
       await loadGiveaway();
     } catch (caught) {
@@ -91,18 +132,22 @@ export function GiveawayEntryClient({
   }, [loadGiveaway, publicId]);
 
   useEffect(() => {
-    if (
-      !giveaway ||
-      giveaway.status === "DRAWN" ||
-      giveaway.status === "NO_ENTRIES" ||
-      giveaway.status === "CANCELLED"
-    ) {
+    if (!giveaway || giveaway.status === "NO_ENTRIES" || giveaway.status === "CANCELLED") {
       return;
     }
     const timer = window.setInterval(() => {
       setNow(Date.now());
       if (giveaway.status === "CLOSED") {
         void finalizeGiveaway();
+      } else if (giveaway.status === "DRAWN") {
+        if (
+          giveaway.prize &&
+          !giveaway.prize.paidOut &&
+          (!giveaway.winnerClaim.expiresAt ||
+            new Date(giveaway.winnerClaim.expiresAt).getTime() > Date.now())
+        ) {
+          void loadGiveaway();
+        }
       } else if (
         giveaway.status !== "OPEN" ||
         new Date(giveaway.closesAt).getTime() <= Date.now()
@@ -134,11 +179,14 @@ export function GiveawayEntryClient({
           method: "POST",
         },
       );
-      const body = (await response.json()) as {
+      const body = await readJsonResponse<{
         entry?: { entryHash: string };
         entryCount?: number;
         error?: { message?: string };
-      };
+      }>(response);
+      if (!body) {
+        throw new Error("Entry service is temporarily unavailable. Please try again.");
+      }
       if (!response.ok || !body.entry)
         throw new Error(body.error?.message ?? "Entry could not be submitted.");
       setEntryHash(body.entry.entryHash);
@@ -157,9 +205,108 @@ export function GiveawayEntryClient({
     }
   }
 
+  async function claimPrize(): Promise<void> {
+    setClaimingPrize(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/toccata-lab/giveaways/${encodeURIComponent(publicId)}/claim-prize`,
+        { method: "POST" },
+      );
+      const body = await readJsonResponse<{
+        claimed?: boolean;
+        error?: { message?: string };
+        transactionId?: string;
+      }>(response);
+      if (!body || !response.ok || !body.claimed || !body.transactionId) {
+        throw new Error(body?.error?.message ?? "Prize could not be claimed.");
+      }
+      setGiveaway((current) =>
+        current?.prize
+          ? {
+              ...current,
+              prize: {
+                ...current.prize,
+                claimTxId: body.transactionId!,
+                paidOut: true,
+              },
+              winnerClaim: {
+                ...current.winnerClaim,
+                transactionId: body.transactionId!,
+              },
+            }
+          : current,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Prize could not be claimed.");
+    } finally {
+      setClaimingPrize(false);
+    }
+  }
+
+  async function verifyDrawProof(): Promise<void> {
+    if (
+      !giveaway?.drawProof ||
+      giveaway.drawProof.version < 2 ||
+      !giveaway.drawProof.digest ||
+      !giveaway.drawProof.entriesRoot ||
+      !giveaway.drawProof.freezeCommitment ||
+      !giveaway.drawProof.entropyTargetBlueScore ||
+      !giveaway.drawProof.entropyBlockBlueScore ||
+      !giveaway.drawProof.entropyBlockHash ||
+      giveaway.drawProof.winnerIndex === null ||
+      !giveaway.winnerAddress
+    ) {
+      return;
+    }
+    setVerifyingProof(true);
+    setProofVerification(null);
+    try {
+      const result = await verifyGiveawayDrawInBrowser({
+        closesAt: giveaway.closesAt,
+        digest: giveaway.drawProof.digest,
+        drawCommitment: giveaway.drawCommitment,
+        entriesRoot: giveaway.drawProof.entriesRoot,
+        entryHashes: giveaway.drawProof.entryHashes,
+        entropyBlockBlueScore: giveaway.drawProof.entropyBlockBlueScore,
+        entropyBlockHash: giveaway.drawProof.entropyBlockHash,
+        entropyTargetBlueScore: giveaway.drawProof.entropyTargetBlueScore,
+        freezeCommitment: giveaway.drawProof.freezeCommitment,
+        publicId: giveaway.publicId,
+        seed: giveaway.drawProof.seed,
+        winnerAddress: giveaway.winnerAddress,
+        winnerIndex: giveaway.drawProof.winnerIndex,
+      });
+      setProofVerification(result);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Draw proof could not be verified.");
+    } finally {
+      setVerifyingProof(false);
+    }
+  }
+
   useEffect(() => {
     setEntryHash(window.localStorage.getItem(`kaspa-links:giveaway-entry:${publicId}`));
   }, [publicId]);
+
+  useEffect(() => {
+    const protocol = giveaway?.drawProtocol;
+    if (!protocol?.freezeCommitment || !protocol.entriesRoot) return;
+    const key = `kaspa-links:giveaway-freeze:${publicId}`;
+    const receipt = JSON.stringify({
+      entriesRoot: protocol.entriesRoot,
+      entryCount: protocol.entryCount,
+      entropyTargetBlueScore: protocol.entropyTargetBlueScore,
+      freezeCommitment: protocol.freezeCommitment,
+    });
+    const saved = window.localStorage.getItem(key);
+    if (saved && saved !== receipt) {
+      setFreezeReceiptChanged(true);
+      return;
+    }
+    window.localStorage.setItem(key, receipt);
+    setFreezeReceiptChanged(false);
+  }, [giveaway?.drawProtocol, publicId]);
 
   if (loading)
     return (
@@ -182,6 +329,10 @@ export function GiveawayEntryClient({
     entryHash &&
     giveaway.drawProof?.entryHashes[giveaway.drawProof.winnerIndex ?? -1] === entryHash,
   );
+  const winnerClaimExpired = Boolean(
+    giveaway.winnerClaim.expiresAt && new Date(giveaway.winnerClaim.expiresAt).getTime() <= now,
+  );
+  const entryIncluded = Boolean(entryHash && giveaway.drawProtocol.entryHashes.includes(entryHash));
 
   return (
     <main className="main giveaway-entry-page">
@@ -189,11 +340,64 @@ export function GiveawayEntryClient({
         <span className="hero-eyebrow">Giveaway Lab</span>
         <h1>{giveaway.title}</h1>
         {giveaway.description ? <p>{giveaway.description}</p> : null}
-        <strong>{giveaway.amountKas} KAS</strong>
+        <div className="giveaway-hero-prize">
+          <span className="label">Prize</span>
+          <strong>{giveaway.amountKas} KAS</strong>
+        </div>
+      </section>
+
+      {giveaway.prize ? (
+        <section className="giveaway-verified-prize" aria-label="Verified prize funding">
+          <span aria-hidden="true">✓</span>
+          <div>
+            <strong>Prize verified on-chain</strong>
+            <p>The exact prize is parked in a one-time Kaspa output before entries open.</p>
+          </div>
+          <a
+            href={kaspaStreamTransactionUrl(giveaway.prize.fundingTxId)}
+            rel="noreferrer"
+            target="_blank"
+          >
+            View funding
+          </a>
+        </section>
+      ) : null}
+
+      <section className="giveaway-draw-disclosure" aria-label="Giveaway draw trust model">
+        <div className="giveaway-draw-disclosure-lead">
+          <strong>Fair draw, verifiable on Kaspa</strong>
+          <p>
+            When entries close, the participant list is locked and a later Kaspa block supplies the
+            random value that picks the winner — so nobody can choose the result in advance, and you
+            can check it right here.
+          </p>
+        </div>
+        <details className="giveaway-protocol-details">
+          <summary>How does the fair draw work?</summary>
+          <ol>
+            <li>The participant list is locked when entries close.</li>
+            <li>A newly confirmed Kaspa block supplies the random input.</li>
+            <li>This page checks the list, the Kaspa block, and the selected winner for you.</li>
+          </ol>
+        </details>
       </section>
 
       <section className="card giveaway-entry-card">
-        {status === "OPEN" ? (
+        {freezeReceiptChanged ? (
+          <div className="notice notice-error" role="alert">
+            The published freeze receipt changed after this browser saved it. Do not trust this draw
+            until the discrepancy is resolved.
+          </div>
+        ) : null}
+        {status === "PENDING_FUNDING" ? (
+          <div className="giveaway-result-state">
+            <span className="label">Prize funding pending</span>
+            <h2>Entries are not open yet</h2>
+            <p>
+              The creator is funding the prize. This page opens automatically after confirmation.
+            </p>
+          </div>
+        ) : status === "OPEN" ? (
           <>
             <div className="giveaway-entry-status">
               <span>Entries close in</span>
@@ -221,7 +425,6 @@ export function GiveawayEntryClient({
                 </label>
                 {turnstile.required && turnstile.siteKey ? (
                   <div className="giveaway-security-check">
-                    <span className="label">Security check</span>
                     <TurnstileWidget
                       action={GIVEAWAY_TURNSTILE_ACTION}
                       onError={() => {
@@ -253,9 +456,21 @@ export function GiveawayEntryClient({
           </>
         ) : status === "CLOSED" ? (
           <div className="giveaway-result-state">
-            <span className="label">Entries closed</span>
-            <h2>{finalizing ? "Drawing the winner…" : "Finalizing the draw"}</h2>
-            <p>The one-time draw starts automatically.</p>
+            <span className="label">
+              {giveaway.drawProtocol.entriesFrozenAt ? "Entries frozen" : "Entries closed"}
+            </span>
+            <h2>
+              {giveaway.drawProtocol.entriesFrozenAt
+                ? "Waiting for future Kaspa entropy"
+                : finalizing
+                  ? "Freezing the participant list…"
+                  : "Finalizing the participant list"}
+            </h2>
+            <p>
+              {giveaway.drawProtocol.entropyTargetBlueScore
+                ? `The draw uses the confirmed chain block at or after blue score ${giveaway.drawProtocol.entropyTargetBlueScore}.`
+                : "The participant root and future chain target are published before the winner can be known."}
+            </p>
           </div>
         ) : status === "DRAWN" ? (
           <div className={`giveaway-result-state${isWinner ? " is-winner" : ""}`}>
@@ -265,9 +480,57 @@ export function GiveawayEntryClient({
             <code>{giveaway.winnerAddress}</code>
             {isWinner ? (
               <p>
-                The creator still needs to send the KAS from their wallet. Kaspa Links never holds
-                the prize.
+                {giveaway.prize?.paidOut
+                  ? "The prize was sent to your winning address on-chain."
+                  : giveaway.prize && winnerClaimExpired
+                    ? "The winner claim window has ended. The creator can now recover the unclaimed prize."
+                    : giveaway.prize?.fundingTxId && giveaway.winnerClaim.prepared
+                      ? "Your claim is ready. The prepared transaction can only pay the winning address."
+                      : giveaway.prize
+                        ? "The creator is preparing your fixed-address winner claim."
+                        : "The creator still needs to send the KAS from their wallet. Kaspa Links never holds the prize."}
               </p>
+            ) : null}
+            {giveaway.prize &&
+            !giveaway.prize.paidOut &&
+            giveaway.winnerClaim.prepared &&
+            !winnerClaimExpired ? (
+              <div className="giveaway-winner-claim">
+                <span className="label">Claim available for</span>
+                <strong>{countdown(giveaway.winnerClaim.expiresAt!, now)}</strong>
+                <button
+                  className="btn btn-primary"
+                  disabled={claimingPrize}
+                  onClick={() => void claimPrize()}
+                  type="button"
+                >
+                  {claimingPrize ? "Sending prize…" : "Claim prize"}
+                </button>
+                <p>
+                  The signed transaction is already fixed to the winning address. Nobody pressing
+                  this button can redirect the KAS.
+                </p>
+              </div>
+            ) : null}
+            {giveaway.prize &&
+            !giveaway.prize.paidOut &&
+            giveaway.winnerClaim.expiresAt &&
+            !winnerClaimExpired &&
+            !giveaway.winnerClaim.prepared ? (
+              <p>
+                Claim window: {countdown(giveaway.winnerClaim.expiresAt, now)}. Waiting for the
+                creator browser to prepare the winner claim.
+              </p>
+            ) : null}
+            {giveaway.prize?.paidOut && giveaway.prize.claimTxId ? (
+              <a
+                className="giveaway-claim-transaction"
+                href={kaspaStreamTransactionUrl(giveaway.prize.claimTxId)}
+                rel="noreferrer"
+                target="_blank"
+              >
+                View prize transaction
+              </a>
             ) : null}
           </div>
         ) : (
@@ -289,11 +552,23 @@ export function GiveawayEntryClient({
           <span>
             Draw commitment <code>{compactHash(giveaway.drawCommitment)}</code>
           </span>
+          {giveaway.drawProtocol.entriesRoot ? (
+            <span>
+              Frozen root <code>{compactHash(giveaway.drawProtocol.entriesRoot)}</code>
+            </span>
+          ) : null}
         </div>
         {entryHash ? (
           <details className="giveaway-proof">
             <summary>Your entry receipt</summary>
             <code>{entryHash}</code>
+            {giveaway.drawProtocol.entriesFrozenAt ? (
+              <strong className={entryIncluded ? "proof-entry-included" : "proof-entry-missing"}>
+                {entryIncluded
+                  ? "Included in the frozen participant manifest."
+                  : "Not included in the frozen participant manifest. Do not trust this draw."}
+              </strong>
+            ) : null}
           </details>
         ) : null}
         {giveaway.drawProof ? (
@@ -310,14 +585,49 @@ export function GiveawayEntryClient({
               </dd>
               <dt>Selected index</dt>
               <dd>{giveaway.drawProof.winnerIndex ?? "—"}</dd>
+              {giveaway.drawProof.version >= 2 ? (
+                <>
+                  <dt>Frozen entry root</dt>
+                  <dd>
+                    <code>{giveaway.drawProof.entriesRoot}</code>
+                  </dd>
+                  <dt>Future entropy target</dt>
+                  <dd>{giveaway.drawProof.entropyTargetBlueScore}</dd>
+                  <dt>Entropy chain block</dt>
+                  <dd>
+                    <code>{giveaway.drawProof.entropyBlockHash}</code>
+                  </dd>
+                  <dt>Entropy block blue score</dt>
+                  <dd>{giveaway.drawProof.entropyBlockBlueScore}</dd>
+                </>
+              ) : null}
             </dl>
+            {giveaway.drawProof.version >= 2 ? (
+              <div className="giveaway-proof-verifier">
+                <button
+                  className="btn"
+                  disabled={verifyingProof}
+                  onClick={() => void verifyDrawProof()}
+                  type="button"
+                >
+                  {verifyingProof ? "Verifying…" : "Verify draw in this browser"}
+                </button>
+                {proofVerification ? (
+                  <strong className={proofVerification.valid ? "is-valid" : "is-invalid"}>
+                    {proofVerification.valid
+                      ? "Verified locally: root, seed, chain entropy, digest, and winner match."
+                      : "Verification failed. Do not trust this draw result."}
+                  </strong>
+                ) : null}
+              </div>
+            ) : null}
           </details>
         ) : null}
       </section>
 
       <p className="giveaway-entry-footnote">
         One entry per Kaspa address. Addresses are checked for format, not wallet ownership. No
-        funds are held by Kaspa Links.
+        funds or wallet keys are held by Kaspa Links.
       </p>
     </main>
   );

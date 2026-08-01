@@ -47,14 +47,14 @@ enum GiveawayStatus {
 }
 
 model Creator {
-  id          String     @id @default(cuid())
-  username    String     @unique
-  displayName String?
+  id               String           @id @default(cuid())
+  username         String           @unique
+  displayName      String?
   // Short public-facing description shown on /u/<username>. Optional.
-  bio         String?
+  bio              String?
   // Whitelisted public social links shown on /u/<username>. JSON keeps
   // platform additions additive while validation stays in app code.
-  socialLinks Json?
+  socialLinks      Json?
   // FK into Action that this creator wants surfaced as the canonical
   // "quick tip" target on their profile page. Auto-set to the first
   // visible active Action a creator creates (so a fresh profile starts
@@ -64,16 +64,16 @@ model Creator {
   //   (b) onDelete: SetNull means deleting the chosen Action leaves the
   //       profile in a "no quick-tip card" state instead of FK-cascading
   //       the whole profile away.
-  tipActionId String?
-  tipAction   Action?    @relation("CreatorTipAction", fields: [tipActionId], references: [id], onDelete: SetNull)
-  tokenHash   String
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  actions        Action[]
-  auditLogs      AuditLog[]
+  tipActionId      String?
+  tipAction        Action?          @relation("CreatorTipAction", fields: [tipActionId], references: [id], onDelete: SetNull)
+  tokenHash        String
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  actions          Action[]
+  auditLogs        AuditLog[]
   claimableBatches ClaimableBatch[]
-  claimableLinks ClaimableLink[]
-  giveaways Giveaway[]
+  claimableLinks   ClaimableLink[]
+  giveaways        Giveaway[]
 
   @@index([createdAt])
 }
@@ -231,10 +231,10 @@ model OperatorPageView {
 // record and the URL fragment, so /my-links can merge server status with the
 // browser-held secrets.
 model ClaimableLink {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   creatorId          String
-  creator            Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  linkKey            String   @unique
+  creator            Creator   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  linkKey            String    @unique
   title              String
   description        String?
   amountSompi        BigInt
@@ -250,11 +250,11 @@ model ClaimableLink {
   claimedAt          DateTime?
   refundTxId         String?
   refundedAt         DateTime?
-  status             String   @default("awaiting_funding")
-  network            Network  @default(MAINNET)
+  status             String    @default("awaiting_funding")
+  network            Network   @default(MAINNET)
   deletedAt          DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   prizeForGiveaway   Giveaway?
 
   @@unique([creatorId, linkKey])
@@ -270,29 +270,29 @@ model ClaimableLink {
 // exact ordered child outputs that the browser-created covenant can produce.
 // Activation and refund private keys remain exclusively in browser storage.
 model ClaimableBatch {
-  id                     String   @id @default(cuid())
-  creatorId              String
-  creator                Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  batchKey               String   @unique
-  title                  String
-  activationPublicKey    String
-  refundPublicKey        String
-  refundLockTime         String
-  fundingAddress         String
-  fundingAmountSompi     BigInt
-  activationFeeSompi     BigInt
-  redeemScriptHex        String
-  expectedOutputs        Json
-  fundingTxId            String?
-  fundingOutputIndex     Int?
-  pendingActivationTxId  String?
-  activationTxId         String?
-  pendingRefundTxId      String?
-  refundTxId             String?
-  status                 String   @default("awaiting_funding")
-  network                Network  @default(MAINNET)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  creatorId             String
+  creator               Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  batchKey              String   @unique
+  title                 String
+  activationPublicKey   String
+  refundPublicKey       String
+  refundLockTime        String
+  fundingAddress        String
+  fundingAmountSompi    BigInt
+  activationFeeSompi    BigInt
+  redeemScriptHex       String
+  expectedOutputs       Json
+  fundingTxId           String?
+  fundingOutputIndex    Int?
+  pendingActivationTxId String?
+  activationTxId        String?
+  pendingRefundTxId     String?
+  refundTxId            String?
+  status                String   @default("awaiting_funding")
+  network               Network  @default(MAINNET)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@unique([creatorId, batchKey])
   @@index([creatorId])
@@ -306,30 +306,52 @@ model ClaimableBatch {
 // revealed only after the one-time draw so the result can be independently
 // reproduced.
 model Giveaway {
-  id               String          @id @default(cuid())
-  publicId         String          @unique @default(cuid())
-  creatorId        String
-  creator          Creator         @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  title            String
-  description      String?
-  amountSompi      BigInt
-  closesAt         DateTime
-  status           GiveawayStatus  @default(OPEN)
-  drawSeedHex      String
-  drawCommitment   String
-  drawDigest       String?
-  winnerIndex      Int?
-  winnerEntryId    String?
-  winnerAddress    String?
-  entryCountAtDraw Int?
-  drawnAt          DateTime?
+  id                            String          @id @default(cuid())
+  publicId                      String          @unique @default(cuid())
+  creatorId                     String
+  creator                       Creator         @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  title                         String
+  description                   String?
+  amountSompi                   BigInt
+  closesAt                      DateTime
+  status                        GiveawayStatus  @default(OPEN)
+  // Draw protocol v1 used only the precommitted server seed. Protocol v2
+  // freezes the entry set before deriving the result from future Kaspa chain
+  // entropy. Existing rows remain v1 for backwards-compatible verification.
+  drawProtocolVersion           Int             @default(1)
+  drawSeedHex                   String
+  drawCommitment                String
+  drawDigest                    String?
+  entriesRoot                   String?
+  entriesFrozenAt               DateTime?
+  entropyTargetBlueScore        BigInt?
+  entropyBlockBlueScore         BigInt?
+  entropyBlockHash              String?
+  winnerIndex                   Int?
+  winnerEntryId                 String?
+  winnerAddress                 String?
+  entryCountAtDraw              Int?
+  drawnAt                       DateTime?
+  // Prize-backed giveaways do not open until the linked output is confirmed.
+  // entryWindowSeconds preserves the creator's chosen duration so closesAt can
+  // start from the actual on-chain funding confirmation instead of creation.
+  entryWindowSeconds            Int?
+  openedAt                      DateTime?
+  // The winner can trigger a prepared, fixed-destination payout during this
+  // window. The creator's browser signs it after the draw; no private key is
+  // ever sent to or stored by the server.
+  winnerClaimWindowSeconds      Int?
+  winnerClaimExpiresAt          DateTime?
+  prizeClaimPreparedAt          DateTime?
+  prizeClaimTransactionId       String?         @unique
+  prizeClaimTransactionSafeJson String?
   // Optional escrow: the prize is parked in a claimable link whose claim code
   // stays in the creator's browser. Proves the prize exists without custody.
-  prizeLinkKey     String?         @unique
-  prizeLink        ClaimableLink?  @relation(fields: [prizeLinkKey], references: [linkKey], onDelete: SetNull)
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  entries          GiveawayEntry[]
+  prizeLinkKey                  String?         @unique
+  prizeLink                     ClaimableLink?  @relation(fields: [prizeLinkKey], references: [linkKey], onDelete: SetNull)
+  createdAt                     DateTime        @default(now())
+  updatedAt                     DateTime        @updatedAt
+  entries                       GiveawayEntry[]
 
   @@index([creatorId])
   @@index([status])

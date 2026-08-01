@@ -94,6 +94,11 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     answer:
+      "The prize and its private claim/refund keys stay with the creator's browser, so Kaspa Links never holds or controls the funds. In the current Lab protocol, entry hashes are frozen into a Merkle root after entries close, before a preselected future Kaspa chain block exists. The confirmed block hash then supplies entropy for the draw. Entrants can verify their receipt, the frozen root, committed seed, block hash, digest, and winner directly in their browser. This makes post-freeze changes detectable, but it does not prove that different Kaspa addresses belong to different people or prevent a dishonest operator from adding addresses before the freeze. The draw is non-custodial and tamper-evident, not absolute Sybil-proof identity verification.",
+    question: "Are giveaways non-custodial and impossible to manipulate?",
+  },
+  {
+    answer:
       "As little as possible. There are no third-party tracking scripts. Off-chain supporter notes are visible only to you, the creator. Visit analytics are aggregated from server logs using daily visitor hashes instead of raw IP addresses.",
     question: "What data do you store about me and my supporters?",
   },

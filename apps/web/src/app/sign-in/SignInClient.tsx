@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { SESSION_EVENT } from "../BrandNav";
 import { sanitizeInternalNextPath } from "@/lib/internal-next-path";
+import { readJsonResponse } from "@/lib/response-json";
 
 const TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
 const USERNAME_STORAGE_KEY = "kaspa-actions:creator-username";
@@ -62,9 +63,20 @@ export function SignInClient() {
           headers: { "content-type": "application/json" },
           method: "POST",
         });
-        const body = await response.json();
+        const body = await readJsonResponse<{
+          creator?: { username: string };
+          error?: { message?: string };
+        }>(response);
+        if (!body) {
+          setError("Sign-in service is temporarily unavailable. Please try again.");
+          return;
+        }
         if (!response.ok) {
           setError(body?.error?.message ?? "Invalid token or username.");
+          return;
+        }
+        if (!body.creator) {
+          setError("Sign-in could not be completed. Please try again.");
           return;
         }
         writeSessionValue(USERNAME_STORAGE_KEY, body.creator.username);

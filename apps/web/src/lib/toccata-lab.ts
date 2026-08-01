@@ -679,6 +679,7 @@ export type ClaimableBroadcastSafeJsonSummary = {
   fundingTransactionId: string;
   lockTime: string;
   outputAmountSompi: string;
+  outputScriptPublicKeyHex: string;
   signatureScriptHex: string;
   transactionId: string;
 };
@@ -721,7 +722,7 @@ export function readClaimableBroadcastSafeJsonSummary(
   const signatureScriptHex = parseSignatureScript(input.signatureScript);
   const lockTime = parseLockTimeBigInt(parsed.lockTime);
   const fundingAmountSompi = parseClaimableInputUtxoAmount(input.utxo);
-  parseSafeJsonScriptPublicKey(output.scriptPublicKey);
+  const outputScriptPublicKeyHex = parseSafeJsonScriptPublicKey(output.scriptPublicKey);
 
   return {
     fundingAmountSompi: fundingAmountSompi.toString(),
@@ -729,6 +730,7 @@ export function readClaimableBroadcastSafeJsonSummary(
     fundingTransactionId,
     lockTime: lockTime.toString(),
     outputAmountSompi: outputAmountSompi.toString(),
+    outputScriptPublicKeyHex,
     signatureScriptHex,
     transactionId: parsed.id,
   };

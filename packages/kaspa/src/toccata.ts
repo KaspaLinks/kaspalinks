@@ -249,6 +249,15 @@ export type ToccataSafeJsonTransactionSubmitResult = {
   submittedTransactionId: string;
 };
 
+export function buildKaspaAddressScriptPublicKeyHex(
+  address: string,
+  wasmModule: KaspaWasmModule = loadKaspaWasm(),
+): string {
+  const normalizedAddress = validateMainnetSpendAddress(address);
+  const scriptPublicKey = wasmModule.payToAddressScript(normalizedAddress);
+  return serializeScriptPublicKey(scriptPublicKey.toJSON() as ScriptPublicKeyJson).toLowerCase();
+}
+
 type ScriptPublicKeyJson = {
   script: string;
   version: number;
@@ -572,7 +581,10 @@ export function buildToccataBatchAllocatorLabScript(
 ): ToccataBatchAllocatorLabScript {
   assertToccataSdkReady(wasmModule);
 
-  const activationPublicKey = normalizeXOnlyPublicKey(input.activationPublicKey, "activationPublicKey");
+  const activationPublicKey = normalizeXOnlyPublicKey(
+    input.activationPublicKey,
+    "activationPublicKey",
+  );
   const refundPublicKey = normalizeXOnlyPublicKey(input.refundPublicKey, "refundPublicKey");
   const refundLockTime = normalizeRefundLockTime(input.refundLockTime);
   const outputs = normalizeBatchAllocatorOutputs(input.outputs);
@@ -649,10 +661,7 @@ export function buildToccataClaimableLabSpend(
   const redeemScriptHex = normalizeHex(input.redeemScriptHex, "redeemScriptHex");
   const fundingTransactionId = normalizeTransactionId(input.fundingTransactionId);
   const fundingOutputIndex = normalizeOutputIndex(input.fundingOutputIndex);
-  const fundingAmountSompi = parsePositiveBigInt(
-    input.fundingAmountSompi,
-    "fundingAmountSompi",
-  );
+  const fundingAmountSompi = parsePositiveBigInt(input.fundingAmountSompi, "fundingAmountSompi");
   const feeSompi = parsePositiveBigInt(input.feeSompi, "feeSompi");
   const lockTime = parseNonNegativeBigInt(input.lockTime ?? 0n, "lockTime");
   const computeBudget = normalizeComputeBudget(

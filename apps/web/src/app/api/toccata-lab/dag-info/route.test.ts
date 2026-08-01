@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resetRateLimits } from "@/lib/rate-limit";
+import { resetMainnetDagInfoCacheForTests } from "@/lib/mainnet-dag-info";
 
 import { GET, POST } from "./route";
 
@@ -15,6 +16,7 @@ describe("GET /api/toccata-lab/dag-info", () => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     resetRateLimits();
+    resetMainnetDagInfoCacheForTests();
   });
 
   it("is disabled by default", async () => {
@@ -65,6 +67,50 @@ describe("GET /api/toccata-lab/dag-info", () => {
       error: {
         code: "SERVER_ERROR",
       },
+    });
+  });
+
+  it("recovers from a transient upstream failure", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("Unavailable", { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            networkName: "kaspa-mainnet",
+            pastMedianTime: "1783170335272",
+            virtualDaaScore: "477506357",
+          }),
+          { status: 200 },
+        ),
+      );
+
+    const response = await GET(dagInfoRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ virtualDaaScore: "477506357" });
+  });
+
+  it("uses only a recent previously validated mainnet value as fallback", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          networkName: "kaspa-mainnet",
+          pastMedianTime: "1783170335272",
+          virtualDaaScore: "477506357",
+        }),
+        { status: 200 },
+      ),
+    );
+    expect((await GET(dagInfoRequest())).status).toBe(200);
+
+    fetchMock.mockRejectedValue(new Error("temporary outage"));
+    const fallbackResponse = await GET(dagInfoRequest());
+
+    expect(fallbackResponse.status).toBe(200);
+    await expect(fallbackResponse.json()).resolves.toMatchObject({
+      virtualDaaScore: "477506357",
     });
   });
 
