@@ -9928,7 +9928,7 @@ body:has(main.deck-main) {
 }
 
 .giveaway-entry-hero h1 {
-  font-size: clamp(2rem, 7vw, 4rem);
+  font-size: clamp(1.9rem, 6vw, 3.4rem);
 }
 
 .giveaway-entry-hero p {
@@ -9939,14 +9939,16 @@ body:has(main.deck-main) {
 .giveaway-hero-prize {
   display: grid;
   justify-items: center;
-  gap: 2px;
-  margin-top: 2px;
+  gap: 4px;
+  margin-top: 8px;
 }
 
 .giveaway-hero-prize strong {
   color: var(--accent-bright);
-  font-size: clamp(1.55rem, 5vw, 2.5rem);
-  line-height: 1.05;
+  font-size: clamp(2.6rem, 9vw, 4.6rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.015em;
 }
 
 .giveaway-verified-prize {
