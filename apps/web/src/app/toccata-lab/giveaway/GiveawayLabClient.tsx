@@ -1764,6 +1764,25 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
                       >
                         Copy result + proof
                       </button>
+                      <button
+                        className="btn"
+                        onClick={() => shareWinnerOnX(giveaway, publicUrl)}
+                        type="button"
+                      >
+                        Share winner on X
+                      </button>
+                      <button
+                        className="btn"
+                        onClick={() =>
+                          void copyText(
+                            buildWinnerTweet(giveaway, publicUrl, Date.now()),
+                            "Winner announcement copied.",
+                          )
+                        }
+                        type="button"
+                      >
+                        Copy announcement
+                      </button>
                     </div>
                     {giveaway.prize &&
                     giveaway.winnerClaim.expiresAt &&
@@ -1993,6 +2012,63 @@ function buildResultAnnouncement(giveaway: GiveawaySummary, entryUrl: string): s
   }
   lines.push("", entryUrl);
   return lines.join("\n");
+}
+
+// A snapshot, not a live counter — the tweet is static once posted.
+function tweetClaimWindow(value: string, now: number): string {
+  const totalMinutes = Math.max(0, Math.round((new Date(value).getTime() - now) / 60_000));
+  const days = Math.floor(totalMinutes / 1_440);
+  const hours = Math.floor((totalMinutes % 1_440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}
+
+// Celebratory winner announcement for social. Distinct from the proof block:
+// this one pings the winner and drives them to claim. The address is compacted
+// for readability; the full address and claim button live on the linked page,
+// and the payout is cryptographically bound to the exact winner anyway.
+function buildWinnerTweet(giveaway: GiveawaySummary, entryUrl: string, now: number): string {
+  const winner = giveaway.winnerAddress ? compactAddress(giveaway.winnerAddress) : "The winner";
+  // Titles can be up to 80 chars; cap so the whole tweet stays under 280 even
+  // with the longest claim line and the URL (which X counts as 23).
+  const title = giveaway.title.length > 50 ? `${giveaway.title.slice(0, 49)}…` : giveaway.title;
+  const expiresAt = giveaway.winnerClaim.expiresAt;
+
+  let claimLine: string;
+  let cta: string;
+  if (giveaway.prize && expiresAt && new Date(expiresAt).getTime() > now) {
+    claimLine = `Claim it within ${tweetClaimWindow(expiresAt, now)} — the payout is locked on-chain to the winning address.`;
+    cta = "Verify the draw & claim 👉";
+  } else if (giveaway.prize) {
+    claimLine = "The prize is escrowed on-chain and ready to claim.";
+    cta = "Verify the draw & claim 👉";
+  } else {
+    claimLine = "Prize on its way from the creator's wallet — wallet-to-wallet, non-custodial.";
+    cta = "See the result 👉";
+  }
+
+  return [
+    "🎉 We have a winner!",
+    "",
+    `${winner} won ${giveaway.amountKas} KAS in "${title}".`,
+    "",
+    claimLine,
+    "",
+    `${cta} ${entryUrl}`,
+    "",
+    "#Kaspa",
+  ].join("\n");
+}
+
+function shareWinnerOnX(giveaway: GiveawaySummary, entryUrl: string): void {
+  const text = buildWinnerTweet(giveaway, entryUrl, Date.now());
+  window.open(
+    `https://x.com/intent/post?text=${encodeURIComponent(text)}`,
+    "_blank",
+    "noopener,noreferrer",
+  );
 }
 
 function compactAddress(value: string): string {
