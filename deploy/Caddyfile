@@ -30,12 +30,17 @@ www.{$DOMAIN} {
 	# public claimable-link creation/claim/refund routes are not behind this
 	# shared password.
 	#
+	# /admin is the pre-creator MVP panel, superseded by /new-link + /my-links
+	# and linked from nowhere. Its APIs already require ADMIN_ACCESS_TOKEN, so
+	# this gate is a second factor: a leaked token alone can no longer mint
+	# creator-less payment links on this domain from the outside.
+	#
 	# The bcrypt hash for the operator gate is sourced from BASIC_AUTH_HASH
 	# in .env. Caddyfile parser quirk: a bare $-prefixed bcrypt
 	# hash like $2a$14$… would be silently dropped, so we keep it in env.
 	# Rotate with `caddy hash-password --plaintext '...'` inside the caddy
 	# container and update BASIC_AUTH_HASH in .env.
-	@operator path /operator-stats /operator-stats/* /toccata-lab/batch /toccata-lab/batch/* /api/toccata-lab/batch-scripts /api/toccata-lab/batch-allocator-script /api/toccata-lab/batch-activate /api/toccata-lab/batch-refund /api/toccata-lab/pskt-smoke /api/toccata-lab/safe-json-smoke
+	@operator path /admin /admin/* /api/admin/* /operator-stats /operator-stats/* /toccata-lab/batch /toccata-lab/batch/* /api/toccata-lab/batch-scripts /api/toccata-lab/batch-allocator-script /api/toccata-lab/batch-activate /api/toccata-lab/batch-refund /api/toccata-lab/pskt-smoke /api/toccata-lab/safe-json-smoke
 	basic_auth @operator {
 		kaspa {$BASIC_AUTH_HASH}
 	}
