@@ -27,6 +27,12 @@ const STATIC_FILE_RE =
 const BOT_UA_RE =
   /bot|crawl|spider|slurp|facebookexternalhit|twitterbot|discordbot|telegrambot|whatsapp|preview|crawler|uptime|monitor|headless/i;
 
+// Vulnerability scanners send an ordinary Chrome or Safari user agent, so the
+// requested path is the stronger signal: this site serves no PHP, no WordPress
+// and no dotfiles, and a human never asks for them. Deliberately narrow —
+// /vendor/ (the Kaspa WASM SDK) and /admin are real paths here.
+const BOT_PATH_RE = /(?:^\/wp-|\/\.(?:env|git|aws|ssh)|\.(?:php|asp|aspx|jsp|cgi)$)/i;
+
 const COUNTRY_POINTS: Record<string, { lat: number; lon: number; name: string }> = {
   AR: { lat: -34.6, lon: -58.4, name: "Argentina" },
   AT: { lat: 48.2, lon: 16.4, name: "Austria" },
@@ -640,8 +646,8 @@ function parseCaddyAccessLogLine(line: string): ParsedLine {
   const remoteIp = stringValue(request.remote_ip);
   const ip = clientIp ?? remoteIp ?? "unknown";
   const trustedProxy = Boolean(clientIp && remoteIp && clientIp !== remoteIp);
-  const isBot = BOT_UA_RE.test(ua);
   const pathName = parsedUrl?.pathname ?? uri.split("?")[0] ?? "/";
+  const isBot = BOT_UA_RE.test(ua) || BOT_PATH_RE.test(pathName);
   const utmSource = sanitizeMetricLabel(parsedUrl?.searchParams.get("utm_source") ?? null);
 
   return {

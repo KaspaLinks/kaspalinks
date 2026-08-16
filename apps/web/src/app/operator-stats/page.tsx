@@ -119,6 +119,7 @@ async function refreshClaimableStatsSnapshot() {
     orderBy: { updatedAt: "asc" },
     take: 25,
     where: {
+      deletedAt: null,
       status: {
         in: CLAIMABLE_REFRESH_STATUSES,
       },
@@ -159,20 +160,32 @@ export default async function OperatorStatsPage() {
   const stats = await loadPersistentOperatorStatsFromAccessLogs(prisma);
   await refreshClaimableStatsSnapshot();
 
+  // Links the creator removed from My Links stay in the table for the audit
+  // trail, but counting them here inflated every tile — most deleted links are
+  // already refunded ones.
   const claimableGroups = await prisma.claimableLink.groupBy({
     _count: { _all: true },
     _sum: { amountSompi: true },
     by: ["status"],
+    where: { deletedAt: null },
   });
   const claimableByStatus = new Map(claimableGroups.map((group) => [group.status, group]));
   const claimableCountFor = (status: string) => claimableByStatus.get(status)?._count._all ?? 0;
   const claimableSumFor = (status: string): bigint =>
     claimableByStatus.get(status)?._sum.amountSompi ?? 0n;
   const claimableTotal = claimableGroups.reduce((sum, group) => sum + group._count._all, 0);
-  const claimableLockedSompi = ["awaiting_funding", "funded", "shared", "refundable"].reduce(
-    (acc, status) => acc + claimableSumFor(status),
-    0n,
-  );
+  // "Locked" must mean capital actually parked on-chain. An awaiting_funding
+  // link was never paid, so adding its intended amount overstated the figure
+  // several times over; requiring a funding transaction keeps it honest.
+  const claimableLocked = await prisma.claimableLink.aggregate({
+    _sum: { amountSompi: true },
+    where: {
+      deletedAt: null,
+      fundingTxId: { not: null },
+      status: { in: ["funded", "shared", "refundable"] },
+    },
+  });
+  const claimableLockedSompi = claimableLocked._sum.amountSompi ?? 0n;
   const claimableClaimedSompi = claimableSumFor("claimed");
 
   return (
