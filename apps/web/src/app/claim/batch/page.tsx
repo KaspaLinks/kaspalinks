@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { TOCCATA_BATCH_MAX_SAFE_OUTPUTS } from "@kaspa-actions/kaspa/toccata-constants";
 
 import { isToccataBatchLabEnabled, readToccataLabCapabilities } from "@/lib/toccata-lab";
 
@@ -6,8 +7,7 @@ import { BatchClaimableLabClient } from "../../toccata-lab/batch/BatchClaimableL
 
 export const dynamic = "force-dynamic";
 
-const DESCRIPTION =
-  "Create a Claim Drop with 2 to 10 separate Kaspa rewards, fund the batch once, and share each non-custodial claim link individually.";
+const DESCRIPTION = `Create a Claim Drop with 2 to ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} separate Kaspa rewards, fund the batch once, and share each non-custodial claim link individually.`;
 
 export const metadata: Metadata = {
   alternates: { canonical: "/claim/batch" },
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 function parseInitialCount(value: string | string[] | undefined): number {
   const raw = Array.isArray(value) ? value[0] : value;
   if (!raw || !/^\d+$/.test(raw)) return 2;
-  return Math.min(10, Math.max(2, Number(raw)));
+  return Math.min(TOCCATA_BATCH_MAX_SAFE_OUTPUTS, Math.max(2, Number(raw)));
 }
 
 export default async function ClaimBatchPage({

@@ -1,3 +1,4 @@
+import { lockActionPaymentLifecycle } from "@kaspa-actions/application";
 import { prisma } from "@kaspa-actions/db";
 import { ActionType, AuditActorType, PaymentRequestStatus } from "@kaspa-actions/db";
 import { buildKaspaPaymentUri, parseKaspaAmountToSompi } from "@kaspa-actions/kaspa";
@@ -60,6 +61,14 @@ export async function POST(request: Request, context: RouteContext) {
 
   if (isActionExpired(action)) {
     return apiError(ErrorCodes.ACTION_EXPIRED, "Action has expired.", 410);
+  }
+
+  if (action.type === ActionType.KASPA_INVOICE && action.invoicePaidAt !== null) {
+    return apiError(
+      ErrorCodes.INVOICE_PAID,
+      "This invoice has already been paid and cannot accept another payment request.",
+      409,
+    );
   }
 
   // If the creator flagged this Action as "note required", reject any
@@ -133,20 +142,37 @@ export async function POST(request: Request, context: RouteContext) {
 
   const expiresAt = new Date(Date.now() + PAYMENT_REQUEST_LIFETIME_MS);
 
-  const paymentRequest = await prisma.paymentRequest.create({
-    data: {
-      actionId: action.id,
-      amountSompi,
-      expiresAt,
-      network: action.network,
-      paymentUri,
-      recipientAddress: action.recipientAddress,
-      requestedMessage: parsed.data.requestedMessage ?? null,
-      supporterMessage: parsed.data.supporterMessage ?? null,
-      supporterName,
-      supporterPublic,
-    },
+  const paymentRequest = await prisma.$transaction(async (tx) => {
+    await lockActionPaymentLifecycle(tx, action.id);
+    if (action.type === ActionType.KASPA_INVOICE) {
+      const invoice = await tx.action.findUnique({
+        select: { invoicePaidAt: true },
+        where: { id: action.id },
+      });
+      if (invoice?.invoicePaidAt) return null;
+    }
+    return tx.paymentRequest.create({
+      data: {
+        actionId: action.id,
+        amountSompi,
+        expiresAt,
+        network: action.network,
+        paymentUri,
+        recipientAddress: action.recipientAddress,
+        requestedMessage: parsed.data.requestedMessage ?? null,
+        supporterMessage: parsed.data.supporterMessage ?? null,
+        supporterName,
+        supporterPublic,
+      },
+    });
   });
+  if (!paymentRequest) {
+    return apiError(
+      ErrorCodes.INVOICE_PAID,
+      "This invoice has already been paid and cannot accept another payment request.",
+      409,
+    );
+  }
 
   await writeAuditLog(prisma, {
     actionId: action.id,

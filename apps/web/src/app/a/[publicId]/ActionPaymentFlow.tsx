@@ -915,6 +915,7 @@ export function ActionPaymentFlow({
     paymentRequest?.amountKas ?? action.amountKas ?? variablePreview?.amountKas ?? null;
   const successAmountUsdEstimate = formatApproxUsdValue(successAmountKas, kasUsdPrice);
   const humanType = humanActionType(action.type);
+  const invoicePaid = action.type === "kaspa.invoice" && action.invoicePaid;
 
   // Show a dedicated waiting hero once KasWare has accepted the send flow
   // but the indexer hasn't yet flipped the PaymentRequest to CONFIRMED.
@@ -932,7 +933,24 @@ export function ActionPaymentFlow({
         {action.message ? <p className="muted">&ldquo;{action.message}&rdquo;</p> : null}
       </section>
 
-      {isConfirmed ? (
+      {invoicePaid ? (
+        <section className="card pay-success" key="invoice-paid" role="status">
+          <div className="pay-success-check" aria-hidden="true">
+            <svg
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="3"
+              viewBox="0 0 24 24"
+            >
+              <polyline points="5 13 10 18 19 7" />
+            </svg>
+          </div>
+          <h2 className="pay-success-title">Invoice paid</h2>
+          <p className="muted">This invoice is complete and no longer accepts new payments.</p>
+        </section>
+      ) : isConfirmed ? (
         /* Success hero — replaces the pay surface once the payment lands */
         <section className="card pay-success" key="success">
           <div className="pay-success-check" aria-hidden="true">

@@ -17,7 +17,10 @@ RUN corepack enable && corepack prepare pnpm@11.1.1 --activate
 FROM base AS deps
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/agent-worker/package.json ./apps/agent-worker/package.json
 COPY apps/web/package.json ./apps/web/package.json
+COPY packages/agent/package.json ./packages/agent/package.json
+COPY packages/application/package.json ./packages/application/package.json
 COPY packages/db/package.json ./packages/db/package.json
 COPY packages/embed-button/package.json ./packages/embed-button/package.json
 COPY packages/kaspa/package.json ./packages/kaspa/package.json
@@ -34,6 +37,22 @@ FROM deps AS builder
 COPY . .
 
 RUN pnpm db:generate && pnpm --filter @kaspa-actions/web build
+
+FROM deps AS agent-worker
+
+ENV AGENT_WORKER_ENABLED=false
+ENV NODE_ENV=production
+
+COPY . .
+
+RUN pnpm db:generate \
+  && groupadd --system --gid 1001 nodejs \
+  && useradd --system --uid 1001 --gid nodejs agent \
+  && chown -R agent:nodejs /app
+
+USER agent
+
+CMD ["pnpm", "--filter", "@kaspa-actions/agent-worker", "start"]
 
 FROM node:24-bookworm-slim AS wrpc-relay
 

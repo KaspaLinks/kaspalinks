@@ -27,6 +27,18 @@ const STATIC_FILE_RE =
 const BOT_UA_RE =
   /bot|crawl|spider|slurp|facebookexternalhit|twitterbot|discordbot|telegrambot|whatsapp|preview|crawler|uptime|monitor|headless/i;
 
+// A response nobody could read is not a page view. 4xx are almost entirely
+// scanner probes for paths that do not exist here — a single sweep of them
+// otherwise reads as a traffic spike, and unlike a path pattern this holds no
+// matter which path the scanner invents. A 3xx is the redirect hop of a visit
+// whose 200 is already counted, so counting it doubles that visitor; 304 is a
+// genuine cached revisit and stays.
+function countsAsPageView(status: number): boolean {
+  if (status >= 500) return false;
+  if (status >= 400) return false;
+  return status < 300 || status === 304;
+}
+
 // Vulnerability scanners send an ordinary Chrome or Safari user agent, so the
 // requested path is the stronger signal: this site serves no PHP, no WordPress
 // and no dotfiles, and a human never asks for them. Deliberately narrow —
@@ -438,7 +450,10 @@ export function buildOperatorStatsFromStoredPageViews(
   const cutoff24h = now.getTime() - DAY_MS;
   const cutoff7d = now.getTime() - 7 * DAY_MS;
   const cutoff30d = now.getTime() - 30 * DAY_MS;
-  const humanPageViews = rows.filter((row) => !row.isBot);
+  // Rows stored before scanner probes and redirect hops were excluded at
+  // ingestion are still in the table, so apply the same rule when reading.
+  // That corrects the history without deleting anything.
+  const humanPageViews = rows.filter((row) => !row.isBot && countsAsPageView(row.status));
   const humanPageViews7d = humanPageViews.filter((row) => row.seenAt.getTime() >= cutoff7d);
   const uniqueAll = new Set<string>();
   const unique7d = new Set<string>();
@@ -681,7 +696,7 @@ function isPageView({
   status: number;
 }): boolean {
   if (method !== "GET" && method !== "HEAD") return false;
-  if (status >= 500) return false;
+  if (!countsAsPageView(status)) return false;
   if (STATIC_PATH_PREFIXES.some((prefix) => pathName.startsWith(prefix))) return false;
   if (STATIC_FILE_RE.test(pathName)) return false;
   return true;

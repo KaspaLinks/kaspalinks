@@ -70,6 +70,16 @@ export async function POST(request: Request, context: { params: Promise<{ public
   if (availableGiveaway.openedAt === null) {
     return apiError(ErrorCodes.INVALID_STATE, "Giveaway prize funding is not confirmed yet.", 409);
   }
+  if (
+    availableGiveaway.prizeLink &&
+    ["claimed", "refunded", "spent_unknown"].includes(availableGiveaway.prizeLink.status)
+  ) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "Giveaway entries are closed because the parked prize is no longer available.",
+      409,
+    );
+  }
 
   let rawBody: unknown;
   try {

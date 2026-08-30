@@ -97,7 +97,16 @@ type Session = { token: string; username: string };
 
 type PrizeEscrow = GiveawayPrizeRecoveryRecord;
 
-export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
+function durationFields(seconds: number): {
+  unit: "days" | "hours" | "minutes";
+  value: string;
+} {
+  if (seconds % 86_400 === 0) return { unit: "days", value: String(seconds / 86_400) };
+  if (seconds % 3_600 === 0) return { unit: "hours", value: String(seconds / 3_600) };
+  return { unit: "minutes", value: String(Math.max(1, Math.ceil(seconds / 60))) };
+}
+
+export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enabled: boolean }) {
   const [session, setSession] = useState<null | Session>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [giveaways, setGiveaways] = useState<GiveawaySummary[]>([]);
@@ -135,6 +144,7 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
   const autoDrawLastAttemptRef = useRef(new Map<string, number>());
   const autoPrepareInFlightRef = useRef(new Set<string>());
   const autoPrepareLastAttemptRef = useRef(new Map<string, number>());
+  const loadedDraftRef = useRef<null | string>(null);
 
   useEffect(() => {
     const token = window.sessionStorage.getItem(TOKEN_STORAGE_KEY)?.trim() ?? "";
@@ -177,6 +187,44 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
         : null,
     [session],
   );
+
+  useEffect(() => {
+    if (!draftId || !creatorHeaders || loadedDraftRef.current === draftId) return;
+    loadedDraftRef.current = draftId;
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/creator/agent/giveaway-drafts/${encodeURIComponent(draftId)}`,
+          { cache: "no-store", headers: creatorHeaders },
+        );
+        const body = await readJsonResponse<{
+          draft?: {
+            amountKas: string;
+            entryWindowSeconds: number;
+            title: string;
+            winnerClaimWindowSeconds: number;
+          };
+          error?: { message?: string };
+        }>(response);
+        if (!response.ok || !body?.draft) {
+          throw new Error(body?.error?.message ?? "Telegram giveaway draft could not be loaded.");
+        }
+        const entryWindow = durationFields(body.draft.entryWindowSeconds);
+        const winnerWindow = durationFields(body.draft.winnerClaimWindowSeconds);
+        setAmountKas(body.draft.amountKas);
+        setDurationUnit(entryWindow.unit);
+        setDurationValue(entryWindow.value);
+        setTitle(body.draft.title);
+        setWinnerClaimUnit(winnerWindow.unit);
+        setWinnerClaimValue(winnerWindow.value);
+        setNotice("Telegram giveaway draft loaded. Review the details before creating it.");
+      } catch (caught) {
+        setError(
+          caught instanceof Error ? caught.message : "Telegram giveaway draft could not be loaded.",
+        );
+      }
+    })();
+  }, [creatorHeaders, draftId]);
 
   const loadGiveaways = useCallback(
     async (options: { quiet?: boolean } = {}) => {
@@ -1503,10 +1551,11 @@ export function GiveawayLabClient({ enabled }: { enabled: boolean }) {
                       type="checkbox"
                     />
                     <span>
-                      <strong>Automatic claim preparation</strong>
+                      <strong>Automatic preparation on this device</strong>
                       <span className="muted">
-                        Signs the fixed winner payout after the draw while this browser is
-                        available.
+                        {prizeAutoPrepareByLink[giveaway.prize.linkKey] === true
+                          ? "Enabled in this browser. Keep it available after the draw."
+                          : "Off in this browser. Another device may still have it enabled."}
                       </span>
                     </span>
                   </label>
@@ -1993,7 +2042,7 @@ function formatDuration(seconds: null | number): string {
 function buildResultAnnouncement(giveaway: GiveawaySummary, entryUrl: string): string {
   const lines = [
     `${giveaway.title} — winner drawn`,
-    `Prize: ${giveaway.amountKas} KAS`,
+    `Prize: ${giveaway.amountKas} $KAS`,
     "",
     `Winner: ${giveaway.winnerAddress ?? "—"}`,
     "",
@@ -2052,7 +2101,7 @@ function buildWinnerTweet(giveaway: GiveawaySummary, entryUrl: string, now: numb
   return [
     "🎉 We have a winner!",
     "",
-    `${winner} won ${giveaway.amountKas} KAS in "${title}".`,
+    `${winner} won ${giveaway.amountKas} $KAS in "${title}".`,
     "",
     claimLine,
     "",

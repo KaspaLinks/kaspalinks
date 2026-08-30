@@ -14,19 +14,10 @@ const { mockPrisma } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@kaspa-actions/db", () => ({
-  AuditActorType: {
-    SYSTEM: "SYSTEM",
-  },
-  PaymentRequestStatus: {
-    CONFIRMED: "CONFIRMED",
-    EXPIRED: "EXPIRED",
-    FAILED: "FAILED",
-    PENDING: "PENDING",
-  },
-  Prisma: {},
-  prisma: mockPrisma,
-}));
+vi.mock("@kaspa-actions/db", async () => {
+  const actual = await vi.importActual<typeof import("@kaspa-actions/db")>("@kaspa-actions/db");
+  return { ...actual, prisma: mockPrisma };
+});
 
 import { GET, POST } from "./route";
 

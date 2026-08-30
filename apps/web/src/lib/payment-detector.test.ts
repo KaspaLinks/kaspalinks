@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { PaymentRequest, PrismaClient } from "@kaspa-actions/db";
-import { Network, PaymentRequestStatus } from "@kaspa-actions/db";
+import { ActionType, Network, NotificationRuleKind, PaymentRequestStatus } from "@kaspa-actions/db";
 import type {
   KaspaIndexer,
   KaspaIndexerIncomingPayment,
   KaspaIndexerMatch,
 } from "@kaspa-actions/kaspa-indexer";
 
-import { detectAndConfirmPayment, resetPaymentDetectorForTests } from "./payment-detector";
+import {
+  confirmMockPayment,
+  detectAndConfirmPayment,
+  resetPaymentDetectorForTests,
+} from "./payment-detector";
 
 const RECIPIENT = "kaspatest:qqnapngv3zxp305qf06w6hpzmyxtx2r99jjhs04lu980xdyd2ulwwmx9evrfz";
 
@@ -16,7 +20,10 @@ type PrismaStub = {
   audits: Array<{ event: string; metadata?: unknown }>;
   client: PrismaClient;
   control: { expireBeforeUpdate: boolean };
+  events: Array<{ paymentRequestId: string; txId: string }>;
   existingByTxId: Map<string, PaymentRequest>;
+  invoicePaidAt: Date | null;
+  outbox: Array<{ dedupeKey: string }>;
   request: PaymentRequest;
 };
 
@@ -27,12 +34,14 @@ function buildPaymentRequest(overrides: Partial<PaymentRequest> = {}): PaymentRe
     amountSompi: 1_000_000_000n,
     confirmedAt: null,
     createdAt,
+    detectionAttempts: 0,
     detectionSource: null,
     expiresAt: new Date(createdAt.getTime() + 15 * 60 * 1000),
     failedAt: null,
     fakeTxId: null,
     id: "pr-1",
     network: Network.TESTNET,
+    nextDetectionAt: null,
     paymentUri: null,
     recipientAddress: RECIPIENT,
     requestedMessage: null,
@@ -47,21 +56,79 @@ function buildPaymentRequest(overrides: Partial<PaymentRequest> = {}): PaymentRe
   };
 }
 
-function buildPrismaStub(initial: Partial<PaymentRequest> = {}): PrismaStub {
+function buildPrismaStub(
+  initial: Partial<PaymentRequest> = {},
+  options: { actionType?: ActionType; telegramConnected?: boolean } = {},
+): PrismaStub {
   const audits: Array<{ event: string; metadata?: unknown }> = [];
   const control = { expireBeforeUpdate: false };
+  const events: Array<{ paymentRequestId: string; txId: string }> = [];
   const existingByTxId = new Map<string, PaymentRequest>();
+  let invoicePaidAt: Date | null = null;
+  const outbox: Array<{ dedupeKey: string }> = [];
   const request = buildPaymentRequest(initial);
 
-  const client = {
+  const tx = {
+    $queryRaw: async () => [{ pg_advisory_xact_lock: null }],
+    action: {
+      updateMany: async ({ data }: { data: { invoicePaidAt: Date } }) => {
+        invoicePaidAt = data.invoicePaidAt;
+        return { count: 1 };
+      },
+    },
     auditLog: {
       create: async ({ data }: { data: { event: string; metadata?: unknown } }) => {
         audits.push({ event: data.event, metadata: data.metadata });
       },
     },
+    paymentEvent: {
+      create: async ({ data }: { data: { paymentRequestId: string; txId: string } }) => {
+        events.push({ paymentRequestId: data.paymentRequestId, txId: data.txId });
+        return { id: `event-${events.length}`, ...data };
+      },
+    },
     paymentRequest: {
-      findUnique: async ({ where }: { where: { id?: string; txId?: string } }) => {
-        if (where.id === request.id) return request;
+      findUnique: async ({
+        include,
+        where,
+      }: {
+        include?: unknown;
+        where: { id?: string; txId?: string };
+      }) => {
+        if (where.id === request.id) {
+          if (!include) return request;
+          return {
+            ...request,
+            action: {
+              amountSompi: request.amountSompi,
+              creator: options.telegramConnected
+                ? {
+                    id: "creator-1",
+                    telegramConnection: {
+                      blockedAt: null,
+                      id: "connection-1",
+                      notificationsEnabled: true,
+                      supporterDetailsEnabled: false,
+                    },
+                  }
+                : null,
+              creatorId: options.telegramConnected ? "creator-1" : null,
+              id: request.actionId,
+              notificationRules: options.telegramConnected
+                ? [
+                    {
+                      actionId: null,
+                      completeOnInvoicePayment: false,
+                      id: "rule-1",
+                      kind: NotificationRuleKind.ALL_PAYMENTS,
+                      minimumSompi: null,
+                    },
+                  ]
+                : [],
+              type: options.actionType ?? ActionType.KASPA_TIP,
+            },
+          };
+        }
         if (where.txId && existingByTxId.has(where.txId)) {
           return existingByTxId.get(where.txId) ?? null;
         }
@@ -88,9 +155,31 @@ function buildPrismaStub(initial: Partial<PaymentRequest> = {}): PrismaStub {
         return { count: 1 };
       },
     },
+    telegramOutbox: {
+      create: async ({ data }: { data: { dedupeKey: string } }) => {
+        outbox.push({ dedupeKey: data.dedupeKey });
+        return data;
+      },
+    },
+  };
+
+  const client = {
+    ...tx,
+    $transaction: async (callback: (transaction: typeof tx) => unknown) => callback(tx),
   } as unknown as PrismaClient;
 
-  return { audits, client, control, existingByTxId, request };
+  return {
+    audits,
+    client,
+    control,
+    events,
+    existingByTxId,
+    get invoicePaidAt() {
+      return invoicePaidAt;
+    },
+    outbox,
+    request,
+  };
 }
 
 function buildIndexer(
@@ -143,6 +232,36 @@ describe("detectAndConfirmPayment", () => {
     expect(stub.request.detectionSource).toBe("rest:test-indexer");
     expect(stub.audits).toHaveLength(1);
     expect(stub.audits[0]?.event).toBe("payment_request.chain_confirmed");
+    expect(stub.events).toEqual([{ paymentRequestId: "pr-1", txId: "real-tx-id" }]);
+    expect(stub.outbox).toHaveLength(0);
+  });
+
+  it("atomically closes an invoice and creates one event and one Telegram delivery", async () => {
+    const stub = buildPrismaStub(
+      { amountSompi: 1_000_000_000n },
+      { actionType: ActionType.KASPA_INVOICE, telegramConnected: true },
+    );
+    const indexer = buildIndexer({
+      blockTime: 1_770_000_000_000,
+      matchedSompi: 1_000_000_000n,
+      outputIndex: 0,
+      transactionId: "invoice-tx-id",
+    });
+
+    const first = await detectAndConfirmPayment(stub.request, indexer, stub.client);
+    const replay = await detectAndConfirmPayment(
+      stub.request,
+      indexer,
+      stub.client,
+      {},
+      Date.now() + 2_000,
+    );
+
+    expect(first.kind).toBe("confirmed");
+    expect(replay.kind).toBe("skipped");
+    expect(stub.invoicePaidAt).toBeInstanceOf(Date);
+    expect(stub.events).toHaveLength(1);
+    expect(stub.outbox).toEqual([{ dedupeKey: "telegram:payment:pr-1" }]);
   });
 
   it("skips when the request is not PENDING", async () => {
@@ -283,7 +402,7 @@ describe("detectAndConfirmPayment", () => {
 
     const result = await detectAndConfirmPayment(stub.request, indexer, stub.client);
 
-    expect(result.kind).toBe("skipped");
+    expect(result.kind).toBe("no_match");
     expect(stub.request.status).toBe(PaymentRequestStatus.EXPIRED);
     expect(stub.request.txId).toBeNull();
   });
@@ -324,5 +443,34 @@ describe("detectAndConfirmPayment", () => {
       expect(result.reason).toContain("network down");
     }
     expect(stub.request.status).toBe(PaymentRequestStatus.PENDING);
+  });
+});
+
+describe("confirmMockPayment", () => {
+  it("uses the shared atomic lifecycle without queuing a chain notification", async () => {
+    const stub = buildPrismaStub(
+      { amountSompi: 1_000_000_000n },
+      { actionType: ActionType.KASPA_INVOICE, telegramConnected: true },
+    );
+
+    const result = await confirmMockPayment(
+      stub.client,
+      stub.request,
+      "mock-0123456789abcdef",
+      "ip-hash",
+      new Date("2026-05-13T10:01:00.000Z"),
+    );
+
+    expect(result?.status).toBe(PaymentRequestStatus.CONFIRMED);
+    expect(stub.request.fakeTxId).toBe("mock-0123456789abcdef");
+    expect(stub.invoicePaidAt).toBeInstanceOf(Date);
+    expect(stub.audits).toEqual([
+      {
+        event: "payment_request.mock_confirmed",
+        metadata: { fakeTxId: "mock-0123456789abcdef" },
+      },
+    ]);
+    expect(stub.events).toEqual([{ paymentRequestId: "pr-1", txId: "mock-0123456789abcdef" }]);
+    expect(stub.outbox).toHaveLength(0);
   });
 });

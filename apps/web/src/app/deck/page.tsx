@@ -268,7 +268,7 @@ export default function DeckPage() {
               <strong>Claimable links</strong> — One reward, first valid claim wins.
             </li>
             <li>
-              <strong>Claim Drops</strong> — Up to 10 separate rewards, funded in one batch.
+              <strong>Claim Drops</strong> — Up to 8 separate rewards, funded in one batch.
             </li>
             <li>
               <strong>Private recovery</strong> — Refund each unclaimed link after expiry.

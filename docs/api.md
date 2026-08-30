@@ -80,6 +80,7 @@ Errors:
 - `400 INVALID_BODY`
 - `403 ACTION_DISABLED`
 - `404 NOT_FOUND`
+- `409 INVOICE_PAID`
 - `410 ACTION_EXPIRED`
 - `429 RATE_LIMITED`
 
@@ -249,7 +250,44 @@ Errors:
 - `401 CREATOR_TOKEN_REQUIRED` / `CREATOR_TOKEN_INVALID`
 - `404 NOT_FOUND`
 
+### `GET, PATCH /api/creator/agent/settings`
+
+Reads or updates the authenticated Creator's Agent settings. Mutable fields are a validated mainnet
+`defaultRecipientAddress`, IANA `timezone`, AI consent, and notification preferences. Notification
+preferences require an existing Telegram connection.
+
+### `POST /api/creator/agent/waitlist`
+
+Records the authenticated Creator's closed-beta interest. It does not grant access.
+
+### `POST /api/creator/agent/connection-code`
+
+Creates one random ten-minute Telegram connection code for a beta-enabled Creator. Only the code
+hash is stored; creating another code revokes the previous one. Returns the one-time code and an
+optional Telegram deep link.
+
+### `DELETE /api/creator/agent/connection`
+
+Disconnects Telegram and revokes outstanding connection codes for the authenticated Creator.
+
+### `GET /api/creator/agent/giveaway-drafts/:id`
+
+Returns an unexpired, pending Giveaway Setup Draft owned by the authenticated Creator. The Draft
+contains only public setup fields and is used to prefill the browser Giveaway flow. It never contains
+wallet, claim, refund, or recovery material.
+
+### `POST /api/agent/telegram/webhook`
+
+Telegram's only public integration endpoint. It requires the configured
+`X-Telegram-Bot-Api-Secret-Token`, accepts private chats only, and durably deduplicates `update_id`.
+This is not a general-purpose public Agent API.
+
 ## Admin endpoints
+
+### `PATCH /api/admin/agent/creators/:username`
+
+Sets `telegramBetaEnabled` and/or `aiEnabled` for one Creator. This route uses normal admin-token
+authentication and rate limiting. New Creators default to no Agent or AI access.
 
 ### `POST /api/admin/actions`
 
@@ -333,6 +371,7 @@ Errors:
 | `NOT_FOUND`               | 404            | Resource missing.                               |
 | `ACTION_EXPIRED`          | 410            | Action `expiresAt` is in the past.              |
 | `INVALID_STATE`           | 409            | PaymentRequest cannot transition.               |
+| `INVOICE_PAID`            | 409            | Invoice is terminal and accepts no new request. |
 | `USERNAME_TAKEN`          | 409            | Creator username already exists.                |
 | `SLUG_TAKEN`              | 409            | Creator already used that Action slug.          |
 | `RATE_LIMITED`            | 429            | Per-IP-hash bucket exceeded.                    |

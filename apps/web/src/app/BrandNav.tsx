@@ -85,6 +85,7 @@ export function BrandNav() {
         { href: "/dashboard", label: "Dashboard" },
         { href: "/my-links", label: "My links" },
         { href: "/my-profile", label: "My profile" },
+        { href: "/agent", label: "Agent" },
         { href: "/stats", label: "Stats" },
       ]
     : [
@@ -122,11 +123,7 @@ export function BrandNav() {
           );
         })}
         {signedIn ? (
-          <button
-            className="brand-bar-link brand-bar-link-signout"
-            onClick={signOut}
-            type="button"
-          >
+          <button className="brand-bar-link brand-bar-link-signout" onClick={signOut} type="button">
             Sign out
           </button>
         ) : null}
@@ -166,6 +163,14 @@ export function BrandNav() {
                   onClick={() => setOpen(false)}
                 >
                   Sign in
+                </Link>
+                <Link
+                  className="nav-dropdown-item"
+                  href="/agent"
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                >
+                  Agent
                 </Link>
                 <Link
                   className="nav-dropdown-item"

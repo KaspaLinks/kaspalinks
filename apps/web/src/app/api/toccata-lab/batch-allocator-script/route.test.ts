@@ -42,4 +42,17 @@ describe("POST /api/toccata-lab/batch-allocator-script", () => {
       allocator: { outputCount: 2, refundLockTime: "123456789" },
     });
   });
+
+  it("rejects a batch that exceeds the spendable allocator limit", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_BATCH_LAB_ENABLED", "true");
+    const response = await POST(
+      request({ ...BODY, outputs: Array.from({ length: 9 }, () => BODY.outputs[0]) }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "INVALID_BODY" },
+    });
+  });
 });

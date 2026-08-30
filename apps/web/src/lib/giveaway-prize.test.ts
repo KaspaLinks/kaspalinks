@@ -25,9 +25,10 @@ function pendingGiveaway() {
     entryWindowSeconds: 900,
     id: "giveaway-1",
     openedAt: null,
+    prizeClaimTransactionId: null as null | string,
     prizeLink: {
       amountSompi: 100_200_000n,
-      claimTxId: null,
+      claimTxId: null as null | string,
       createdAt: new Date("2026-07-21T11:59:00.000Z"),
       feeSompi: 200_000n,
       fundingAddress: `kaspa:${"q".repeat(61)}`,
@@ -41,6 +42,7 @@ function pendingGiveaway() {
       status: "awaiting_funding",
     },
     status: "OPEN",
+    winnerAddress: null as null | string,
   };
 }
 
@@ -98,5 +100,36 @@ describe("giveaway prize reconciliation", () => {
 
     expect(result.openedAt).toBeNull();
     expect(mockPrisma.giveaway.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not classify a generic spend as a winner payout", async () => {
+    const input = pendingGiveaway();
+    input.prizeLink.claimTxId = "c".repeat(64);
+    input.prizeLink.status = "claimed";
+    input.winnerAddress = `kaspa:${"p".repeat(61)}`;
+
+    const result = await reconcileGiveawayPrize(input, new Date("2026-07-21T12:10:00.000Z"));
+
+    expect(result.prizeLink?.status).toBe("spent_unknown");
+    expect(mockPrisma.claimableLink.update).toHaveBeenCalledWith({
+      data: { status: "spent_unknown" },
+      where: { id: "claimable-1" },
+    });
+    expect(resolveClaimableOnChainMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a claim tied to the prepared winner transaction", async () => {
+    const claimTxId = "d".repeat(64);
+    const input = pendingGiveaway();
+    input.prizeClaimTransactionId = claimTxId;
+    input.prizeLink.claimTxId = claimTxId;
+    input.prizeLink.status = "claimed";
+    input.winnerAddress = `kaspa:${"p".repeat(61)}`;
+    resolveClaimableOnChainMock.mockResolvedValue(null);
+
+    const result = await reconcileGiveawayPrize(input, new Date("2026-07-21T12:10:00.000Z"));
+
+    expect(result.prizeLink?.status).toBe("claimed");
+    expect(mockPrisma.claimableLink.update).not.toHaveBeenCalled();
   });
 });

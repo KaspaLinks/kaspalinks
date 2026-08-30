@@ -670,10 +670,10 @@ export function NewLinkClient() {
             </span>
             <span className="quick-template-title">Claimable reward</span>
             <span className="quick-template-description">
-              Create one claimable reward or choose up to 10 separate links for a Claim Drop.
+              Create one claimable reward or choose up to 8 separate links for a Claim Drop.
               Unclaimed KAS remains privately refundable after expiry.
             </span>
-            <span className="quick-template-meta">1 to 10 links · non-custodial rewards</span>
+            <span className="quick-template-meta">1 to 8 links · non-custodial rewards</span>
           </Link>
           <button
             aria-pressed={blankTemplateActive}

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockPrisma } = vi.hoisted(() => ({
+const { mockConfirmMockPayment, mockPrisma } = vi.hoisted(() => ({
+  mockConfirmMockPayment: vi.fn(),
   mockPrisma: {
     auditLog: {
       create: vi.fn(),
@@ -10,6 +11,10 @@ const { mockPrisma } = vi.hoisted(() => ({
       update: vi.fn(),
     },
   },
+}));
+
+vi.mock("@kaspa-actions/application", () => ({
+  confirmMockPayment: mockConfirmMockPayment,
 }));
 
 vi.mock("@kaspa-actions/db", () => ({
@@ -116,27 +121,18 @@ describe("POST /api/admin/payment-requests/:id/mock-confirm", () => {
     });
 
     mockPrisma.paymentRequest.findUnique.mockResolvedValue(pending);
-    mockPrisma.paymentRequest.update.mockResolvedValue(confirmed);
+    mockConfirmMockPayment.mockResolvedValue(confirmed);
 
     const response = await POST(request(), routeContext());
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockPrisma.paymentRequest.update).toHaveBeenCalledWith({
-      data: {
-        confirmedAt: expect.any(Date),
-        detectionSource: "mock",
-        fakeTxId: expect.stringMatching(/^mock-[0-9a-f]{32}$/),
-        status: "CONFIRMED",
-      },
-      where: { id: "payment-request-1" },
-    });
-    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        event: "payment_request.mock_confirmed",
-        paymentRequestId: "payment-request-1",
-      }),
-    });
+    expect(mockConfirmMockPayment).toHaveBeenCalledWith(
+      mockPrisma,
+      pending,
+      expect.stringMatching(/^mock-[0-9a-f]{32}$/),
+      expect.any(String),
+    );
     expect(body.paymentRequest.status).toBe("CONFIRMED");
     expect(body.paymentRequest.fakeTxId).toBe("mock-confirmed");
   });

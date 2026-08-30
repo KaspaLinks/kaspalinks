@@ -56,7 +56,7 @@ export default function RoadmapPage() {
               <li>KasWare extension pay on desktop</li>
               <li>Mobile deep-links + QR for Kaspium and other wallets</li>
               <li>Single Claimable links with a private refund path if they expire unclaimed</li>
-              <li>Claim Drops with up to 10 individually shareable and refundable links</li>
+              <li>Claim Drops with up to 8 individually shareable and refundable links</li>
               <li>Embed-button package and a kaspa-actions SDK</li>
               <li>Self-hostable on a single VPS via Docker Compose</li>
             </ul>

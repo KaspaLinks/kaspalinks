@@ -2,6 +2,8 @@ import { consumeRateLimit, retryAfterSeconds, type RateLimitResult } from "./rat
 import { apiError, ErrorCodes } from "./errors";
 
 export const RateBuckets = {
+  AGENT_CONNECTION_CODE: "agent.connection-code",
+  AGENT_MUTATION: "agent.mutation",
   ADMIN_MUTATION: "admin.mutation",
   CREATOR_ACTION_CREATE: "creator.action.create",
   CREATOR_LOGIN: "creator.login",
@@ -28,6 +30,8 @@ export const RateBuckets = {
 } as const;
 
 export const RateLimits = {
+  [RateBuckets.AGENT_CONNECTION_CODE]: { limit: 5, windowMs: 60_000 },
+  [RateBuckets.AGENT_MUTATION]: { limit: 30, windowMs: 60_000 },
   [RateBuckets.ADMIN_MUTATION]: { limit: 30, windowMs: 60_000 },
   [RateBuckets.CREATOR_ACTION_CREATE]: { limit: 20, windowMs: 60_000 },
   [RateBuckets.CREATOR_LOGIN]: { limit: 10, windowMs: 60_000 },

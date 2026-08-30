@@ -2625,6 +2625,43 @@ body:has(main.overlay-page) > footer.app-footer {
   gap: 12px;
 }
 
+.my-links-type-groups {
+  display: grid;
+  gap: 30px;
+  margin-bottom: 14px;
+}
+
+.my-links-type-group {
+  min-width: 0;
+}
+
+.my-links-type-heading,
+.my-links-category-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.my-links-type-heading h2,
+.my-links-category-heading h2 {
+  margin: 3px 0 0;
+  font-size: 1.35rem;
+}
+
+.my-links-type-count {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid rgba(112, 199, 186, 0.24);
+  border-radius: 999px;
+  background: rgba(73, 234, 203, 0.06);
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .link-card {
   margin-bottom: 0;
   display: flex;
@@ -7936,6 +7973,185 @@ body:has(main.deck-main) {
   white-space: nowrap;
 }
 
+/* Giveaway category on /my-links. The outer section is the card; individual
+   giveaways stay as compact rows so the page does not become cards within cards. */
+.giveaway-mylinks .my-links-category-heading {
+  padding: 0;
+}
+
+.giveaway-mylinks-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each giveaway is its own bordered card, matching the claimable-links list
+   above it. Hairline separators alone read ambiguously here, because the
+   analytics disclosure inside an entry draws the same line as the one between
+   entries — you could not tell where one giveaway ended. */
+.giveaway-mylinks-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "copy actions"
+    "details details";
+  align-items: start;
+  gap: 14px 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.giveaway-mylinks-copy {
+  grid-area: copy;
+  min-width: 0;
+}
+
+.giveaway-mylinks-copy > p:last-child {
+  margin-bottom: 0;
+}
+
+.giveaway-mylinks-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.giveaway-mylinks-title-row > strong {
+  color: var(--fg-strong);
+  font-size: 1.08rem;
+}
+
+.giveaway-mylinks-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  margin: 7px 0 0;
+  font-size: 0.84rem;
+}
+
+.giveaway-mylinks-meta strong {
+  color: var(--accent-bright);
+}
+
+.giveaway-mylinks-winner {
+  margin: 10px 0 0;
+  color: var(--fg-muted);
+  font-size: 0.84rem;
+}
+
+.giveaway-mylinks-prize-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.giveaway-mylinks-prize-state a {
+  color: inherit;
+}
+
+.giveaway-mylinks-actions {
+  grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.giveaway-mylinks-details {
+  grid-area: details;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.giveaway-mylinks-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0 0;
+  color: var(--fg-strong);
+  cursor: pointer;
+  list-style: none;
+}
+
+.giveaway-mylinks-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.giveaway-mylinks-details > summary::after {
+  content: "+";
+  flex: 0 0 auto;
+  color: var(--accent-bright);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.giveaway-mylinks-details[open] > summary::after {
+  content: "−";
+}
+
+.giveaway-mylinks-details > summary > span:last-child {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.giveaway-mylinks-details-body {
+  padding: 16px 0 2px;
+}
+
+.giveaway-mylinks-details-body > .error-text {
+  margin: 0;
+}
+
+.giveaway-mylinks-analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--border);
+}
+
+.giveaway-mylinks-analytics-grid > div {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  padding: 14px;
+  background: var(--bg-muted);
+}
+
+.giveaway-mylinks-analytics-grid strong {
+  color: var(--fg-strong);
+  font-size: 1.35rem;
+}
+
+.giveaway-mylinks-analytics-grid small,
+.giveaway-mylinks-referrers {
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+
+.giveaway-mylinks-referrers {
+  margin: 12px 0 0;
+}
+
 /* Claimable links section on /my-links (localStorage-backed, operator beta) */
 .claimable-mylinks-heading {
   display: flex;
@@ -8556,6 +8772,56 @@ body:has(main.deck-main) {
   color: var(--accent-bright);
   font-size: 0.76rem;
   font-weight: 750;
+}
+
+.batch-funding-locked {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.batch-funding-lock-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(245, 158, 11, 0.48);
+  border-radius: 50%;
+  color: #fbbf24;
+  font-weight: 800;
+}
+
+.batch-funding-locked > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.batch-funding-locked strong {
+  color: var(--fg);
+}
+
+.batch-funding-locked p,
+.batch-activation-blocked,
+.batch-activation-ready {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.batch-activation-blocked {
+  color: #fbbf24;
+}
+
+.batch-activation-ready {
+  color: var(--accent-bright);
+  font-weight: 700;
 }
 
 .claimable-recovery-skipped {
@@ -10471,6 +10737,46 @@ body:has(main.deck-main) {
 }
 
 @media (max-width: 720px) {
+  .my-links-type-heading,
+  .my-links-category-heading {
+    align-items: flex-start;
+  }
+
+  .giveaway-mylinks .my-links-category-heading {
+    flex-direction: column;
+  }
+
+  .giveaway-mylinks .my-links-category-heading .btn {
+    width: 100%;
+  }
+
+  .giveaway-mylinks-item {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "copy"
+      "actions"
+      "details";
+    gap: 14px;
+  }
+
+  .giveaway-mylinks-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .giveaway-mylinks-actions .btn {
+    width: 100%;
+  }
+
+  .giveaway-mylinks-details > summary {
+    padding-top: 14px;
+  }
+
+  .giveaway-mylinks-analytics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .batch-recovery-safety,
   .batch-recovery-steps,
   .batch-recovery-summary-grid {
@@ -10676,5 +10982,82 @@ body:has(main.deck-main) {
 @media (max-width: 720px) {
   .claimable-intro-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* KaspaLinks Agent settings */
+.agent-page {
+  display: grid;
+  gap: 24px;
+  padding-bottom: 64px;
+}
+
+.agent-hero {
+  max-width: 920px;
+}
+
+.agent-hero h1 {
+  margin: 8px 0 12px;
+  max-width: 820px;
+}
+
+.agent-hero p {
+  color: var(--fg-muted);
+  margin: 0;
+}
+
+.agent-settings-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.agent-settings-panel {
+  align-content: start;
+  display: grid;
+  gap: 14px;
+}
+
+.agent-settings-panel h2 {
+  margin: 0 0 4px;
+}
+
+.agent-settings-panel .btn {
+  justify-self: start;
+}
+
+.agent-ai-panel {
+  grid-column: 1 / -1;
+}
+
+.agent-toggle {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.agent-toggle input {
+  height: 20px;
+  margin: 0;
+  width: 20px;
+}
+
+.agent-connect-code {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.agent-connect-code code {
+  overflow-wrap: anywhere;
+  padding: 12px;
+}
+
+@media (max-width: 760px) {
+  .agent-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-ai-panel {
+    grid-column: auto;
   }
 }

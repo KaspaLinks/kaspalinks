@@ -1,0 +1,14 @@
+{
+  "name": "@kaspa-actions/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@kaspa-actions/application": "workspace:*",
+    "@kaspa-actions/kaspa": "workspace:*",
+    "zod": "3.25.51"
+  }
+}

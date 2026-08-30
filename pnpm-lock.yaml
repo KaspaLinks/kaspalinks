@@ -60,8 +60,35 @@ importers:
         specifier: 0.33.0
         version: 0.33.0
 
+  apps/agent-worker:
+    dependencies:
+      '@kaspa-actions/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
+      '@kaspa-actions/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@kaspa-actions/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@kaspa-actions/kaspa':
+        specifier: workspace:*
+        version: link:../../packages/kaspa
+      '@kaspa-actions/kaspa-indexer':
+        specifier: workspace:*
+        version: link:../../packages/kaspa-indexer
+      zod:
+        specifier: 3.25.51
+        version: 3.25.51
+
   apps/web:
     dependencies:
+      '@kaspa-actions/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
+      '@kaspa-actions/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@kaspa-actions/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -99,6 +126,33 @@ importers:
       '@types/qrcode':
         specifier: 1.5.5
         version: 1.5.5
+
+  packages/agent:
+    dependencies:
+      '@kaspa-actions/application':
+        specifier: workspace:*
+        version: link:../application
+      '@kaspa-actions/kaspa':
+        specifier: workspace:*
+        version: link:../kaspa
+      zod:
+        specifier: 3.25.51
+        version: 3.25.51
+
+  packages/application:
+    dependencies:
+      '@kaspa-actions/db':
+        specifier: workspace:*
+        version: link:../db
+      '@kaspa-actions/kaspa':
+        specifier: workspace:*
+        version: link:../kaspa
+      '@kaspa-actions/kaspa-indexer':
+        specifier: workspace:*
+        version: link:../kaspa-indexer
+      zod:
+        specifier: 3.25.51
+        version: 3.25.51
 
   packages/db:
     dependencies:

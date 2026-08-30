@@ -9,6 +9,7 @@ import {
 } from "./action-serializer";
 
 const BASE_ACTION = {
+  agentCommandKey: null,
   amountSompi: 1_000_000_000n,
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   creatorId: null,
@@ -20,6 +21,7 @@ const BASE_ACTION = {
   goalSompi: null,
   hiddenFromProfile: false,
   id: "action-1",
+  invoicePaidAt: null,
   message: "Thanks",
   network: Network.TESTNET,
   noteRequired: false,
@@ -46,6 +48,8 @@ describe("serializePublicAction", () => {
       goalAutoClose: false,
       goalKas: null,
       goalSompi: null,
+      invoicePaid: false,
+      invoicePaidAt: null,
       message: "Thanks",
       network: "testnet",
       noteRequired: false,
@@ -68,6 +72,18 @@ describe("serializePublicAction", () => {
     const serialized = serializePublicAction(variableAction);
     expect(serialized.amountKas).toBeNull();
     expect(serialized.amountSompi).toBeNull();
+  });
+
+  it("surfaces terminal invoice payment state as additive metadata", () => {
+    const paidAt = new Date("2026-01-01T12:00:00.000Z");
+    const serialized = serializePublicAction({
+      ...BASE_ACTION,
+      invoicePaidAt: paidAt,
+      type: ActionType.KASPA_INVOICE,
+    });
+
+    expect(serialized.invoicePaid).toBe(true);
+    expect(serialized.invoicePaidAt).toBe(paidAt.toISOString());
   });
 
   it("surfaces the goal target for goal links and null for other types", () => {

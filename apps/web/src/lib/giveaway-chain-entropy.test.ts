@@ -65,4 +65,50 @@ describe("giveaway chain entropy", () => {
       ready: true,
     });
   });
+
+  it("continues after a blue score that contains only non-chain blocks", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ blueScore: 1_250 }), {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              header: { blueScore: "1102" },
+              verboseData: { hash: "a".repeat(64), isChainBlock: false },
+            },
+          ]),
+          { headers: { "Content-Type": "application/json" }, status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              header: { blueScore: "1104" },
+              verboseData: { hash: "b".repeat(64), isChainBlock: true },
+            },
+          ]),
+          { headers: { "Content-Type": "application/json" }, status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(readConfirmedGiveawayChainEntropy(1_100n)).resolves.toEqual({
+      blockBlueScore: 1_104n,
+      blockHash: "b".repeat(64),
+      currentBlueScore: 1_250n,
+      ready: true,
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining("blueScoreGte=1103"),
+      expect.any(Object),
+    );
+  });
 });

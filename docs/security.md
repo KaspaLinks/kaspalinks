@@ -87,6 +87,25 @@ own profile where `creatorId` matches the authenticated creator. Profile deletio
 creator row, owned Actions, and related PaymentRequests; security AuditLog rows remain with
 database foreign keys cleared so abuse investigations still have an event trail.
 
+## Telegram Agent authentication
+
+Agent access is deny-by-default and enabled per Creator. Connection codes are random, expire after
+ten minutes, are single-use, and are stored only as hashes. A new code revokes the previous code.
+Connections are one Creator to one numeric Telegram user and one private chat; Telegram usernames
+are never authentication material. The webhook requires Telegram's secret header, ignores non-private
+chats, durably deduplicates `update_id`, and verifies callback ownership before executing an
+Application Tool.
+
+All Application Tools receive a server-derived `ActorContext`. Creator IDs are not accepted from
+Telegram commands, callback payloads, or AI output. Giveaway Agent commands store only public setup
+fields and hand control to the authenticated browser; wallet funding and recovery material never
+enter Telegram or the Agent database.
+
+AI receives no executable tools. Strict structured output is validated before use, and mutating
+intents require an expiring, idempotent confirmation Draft. Prompts and raw provider responses are
+not stored by KaspaLinks. `store:false` does not eliminate possible provider abuse-monitoring
+retention, which is disclosed before consent.
+
 ## Rate limiting
 
 `apps/web/src/lib/rate-limit.ts` is an in-memory token-bucket limiter. Public/IP-facing routes use

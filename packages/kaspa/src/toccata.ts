@@ -1,5 +1,11 @@
 import { createRequire } from "node:module";
 
+import {
+  TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
+  TOCCATA_BATCH_MIN_OUTPUTS,
+  TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES,
+} from "./toccata-constants";
+
 import { validateKaspaAddress } from "./address";
 
 type KaspaWasmModule = typeof import("kaspa-wasm");
@@ -625,6 +631,12 @@ export function buildToccataBatchAllocatorLabScript(
   builder.addOp(wasmModule.Opcodes.OpEndIf);
 
   const redeemScriptHex = builder.toString();
+  const redeemScriptBytes = redeemScriptHex.length / 2;
+  if (redeemScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES) {
+    throw new Error(
+      `Batch allocator script is ${redeemScriptBytes} bytes and exceeds Kaspa's ${TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES}-byte P2SH spend limit. Create fewer links.`,
+    );
+  }
   const scriptPublicKey = wasmModule.payToScriptHashScript(redeemScriptHex);
   const scriptPublicKeyJson = scriptPublicKey.toJSON() as ScriptPublicKeyJson;
   const fundingAddress = wasmModule.addressFromScriptPublicKey(scriptPublicKey, "mainnet");
@@ -848,8 +860,14 @@ function normalizeXOnlyPublicKey(value: string, label: string): string {
 function normalizeBatchAllocatorOutputs(
   value: ToccataBatchAllocatorLabOutput[],
 ): Array<{ amountSompi: bigint; scriptPublicKeyHex: string }> {
-  if (!Array.isArray(value) || value.length < 2 || value.length > 10) {
-    throw new Error("Batch allocator requires between 2 and 10 committed outputs.");
+  if (
+    !Array.isArray(value) ||
+    value.length < TOCCATA_BATCH_MIN_OUTPUTS ||
+    value.length > TOCCATA_BATCH_MAX_SAFE_OUTPUTS
+  ) {
+    throw new Error(
+      `Batch allocator requires between ${TOCCATA_BATCH_MIN_OUTPUTS} and ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} committed outputs.`,
+    );
   }
 
   return value.map((output, index) => ({

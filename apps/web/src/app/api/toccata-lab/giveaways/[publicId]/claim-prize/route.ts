@@ -55,6 +55,9 @@ export async function POST(request: Request, context: { params: Promise<{ public
       409,
     );
   }
+  if (["refunded", "spent_unknown"].includes(reconciled.prizeLink?.status ?? "")) {
+    return apiError(ErrorCodes.INVALID_STATE, "The giveaway prize is no longer available.", 409);
+  }
   if (
     !reconciled.prizeLink ||
     !reconciled.prizeClaimTransactionId ||
@@ -66,10 +69,6 @@ export async function POST(request: Request, context: { params: Promise<{ public
       409,
     );
   }
-  if (["refunded", "spent_unknown"].includes(reconciled.prizeLink.status)) {
-    return apiError(ErrorCodes.INVALID_STATE, "The giveaway prize is no longer available.", 409);
-  }
-
   try {
     verifyPreparedGiveawayPrizeClaim({
       expectedTransactionId: reconciled.prizeClaimTransactionId,

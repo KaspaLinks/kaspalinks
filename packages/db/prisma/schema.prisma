@@ -39,6 +39,36 @@ enum AuditActorType {
   DEMO
 }
 
+enum TelegramOutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  DEAD
+}
+
+enum AgentIntentStatus {
+  PENDING_CONFIRMATION
+  NEEDS_CLARIFICATION
+  EXECUTING
+  CONFIRMED
+  FAILED
+  EXPIRED
+  CANCELLED
+}
+
+enum NotificationRuleStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum NotificationRuleKind {
+  ALL_PAYMENTS
+  ACTION
+  MINIMUM_AMOUNT
+  ACTION_MINIMUM_AMOUNT
+}
+
 enum GiveawayStatus {
   OPEN
   DRAWN
@@ -47,14 +77,20 @@ enum GiveawayStatus {
 }
 
 model Creator {
-  id               String           @id @default(cuid())
-  username         String           @unique
-  displayName      String?
+  id                      String                @id @default(cuid())
+  username                String                @unique
+  displayName             String?
   // Short public-facing description shown on /u/<username>. Optional.
-  bio              String?
+  bio                     String?
   // Whitelisted public social links shown on /u/<username>. JSON keeps
   // platform additions additive while validation stays in app code.
-  socialLinks      Json?
+  socialLinks             Json?
+  defaultRecipientAddress String?
+  timezone                String                @default("UTC")
+  telegramBetaEnabled     Boolean               @default(false)
+  agentAiEnabled          Boolean               @default(false)
+  agentAiConsentAt        DateTime?
+  agentWaitlistAt         DateTime?
   // FK into Action that this creator wants surfaced as the canonical
   // "quick tip" target on their profile page. Auto-set to the first
   // visible active Action a creator creates (so a fresh profile starts
@@ -64,27 +100,33 @@ model Creator {
   //   (b) onDelete: SetNull means deleting the chosen Action leaves the
   //       profile in a "no quick-tip card" state instead of FK-cascading
   //       the whole profile away.
-  tipActionId      String?
-  tipAction        Action?          @relation("CreatorTipAction", fields: [tipActionId], references: [id], onDelete: SetNull)
-  tokenHash        String
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  actions          Action[]
-  auditLogs        AuditLog[]
-  claimableBatches ClaimableBatch[]
-  claimableLinks   ClaimableLink[]
-  giveaways        Giveaway[]
+  tipActionId             String?
+  tipAction               Action?               @relation("CreatorTipAction", fields: [tipActionId], references: [id], onDelete: SetNull)
+  tokenHash               String
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+  actions                 Action[]
+  auditLogs               AuditLog[]
+  claimableBatches        ClaimableBatch[]
+  claimableLinks          ClaimableLink[]
+  giveaways               Giveaway[]
+  telegramConnection      TelegramConnection?
+  telegramConnectCodes    TelegramConnectCode[]
+  paymentEvents           PaymentEvent[]
+  agentIntentDrafts       AgentIntentDraft[]
+  aiUsageEvents           AiUsageEvent[]
+  notificationRules       NotificationRule[]
 
   @@index([createdAt])
 }
 
 model Action {
-  id                String           @id @default(cuid())
-  publicId          String           @unique @default(cuid())
+  id                String             @id @default(cuid())
+  publicId          String             @unique @default(cuid())
   creatorId         String?
-  creator           Creator?         @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  creator           Creator?           @relation(fields: [creatorId], references: [id], onDelete: SetNull)
   slug              String?
-  version           String           @default("v1")
+  version           String             @default("v1")
   type              ActionType
   title             String
   description       String?
@@ -100,7 +142,7 @@ model Action {
   // new PaymentRequests once confirmed contributions meet or exceed
   // goalSompi. Existing pending requests are left alone until they
   // confirm or expire.
-  goalAutoClose     Boolean          @default(false)
+  goalAutoClose     Boolean            @default(false)
   message           String?
   // When true, the public pay page enforces that the supporter enters a
   // note before the Pay button enables. Used for commission / custom-
@@ -108,27 +150,31 @@ model Action {
   // (e.g. "what should I draw", "which feature to prioritise", shout-out
   // text). Server-side guard in /api/actions/[publicId]/payment-requests
   // rejects requests that violate this on existing actions.
-  noteRequired      Boolean          @default(false)
+  noteRequired      Boolean            @default(false)
   // When true, this Action is excluded from the creator's public profile
   // page (/u/<username>). Default depends on type — tip + donation are
   // public by default (point of those is broad reach), invoice + transfer
   // hide by default (usually 1-recipient-specific and should not leak
   // names/amounts on a public profile). The /new-link form exposes a
   // checkbox so the creator can override.
-  hiddenFromProfile Boolean          @default(false)
-  network           Network          @default(MAINNET)
+  hiddenFromProfile Boolean            @default(false)
+  network           Network            @default(MAINNET)
   expiresAt         DateTime?
   disabledAt        DateTime?
   deletedAt         DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  invoicePaidAt     DateTime?
+  agentCommandKey   String?            @unique
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
   paymentRequests   PaymentRequest[]
   auditLogs         AuditLog[]
   // Inverse side of Creator.tipAction — lets the schema be consistent
   // when a single Action is picked as the canonical tip target of one
   // or more creators (in practice always at most one, but Prisma needs
   // the relation declared on both sides).
-  tipForCreators    Creator[]        @relation("CreatorTipAction")
+  tipForCreators    Creator[]          @relation("CreatorTipAction")
+  paymentEvents     PaymentEvent[]
+  notificationRules NotificationRule[]
 
   @@unique([creatorId, slug])
   @@index([type])
@@ -137,6 +183,7 @@ model Action {
   @@index([recipientAddress])
   @@index([expiresAt])
   @@index([deletedAt])
+  @@index([invoicePaidAt])
 }
 
 model PaymentRequest {
@@ -164,9 +211,12 @@ model PaymentRequest {
   expiresAt         DateTime
   confirmedAt       DateTime?
   failedAt          DateTime?
+  detectionAttempts Int                  @default(0)
+  nextDetectionAt   DateTime?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   auditLogs         AuditLog[]
+  paymentEvent      PaymentEvent?
 
   @@index([actionId])
   @@index([status])
@@ -174,6 +224,7 @@ model PaymentRequest {
   @@index([supporterPublic])
   @@index([supporterHiddenAt])
   @@index([confirmedAt])
+  @@index([status, nextDetectionAt])
 }
 
 model AuditLog {
@@ -195,6 +246,170 @@ model AuditLog {
   @@index([paymentRequestId])
   @@index([event])
   @@index([createdAt])
+}
+
+model TelegramConnection {
+  id                      String           @id @default(cuid())
+  creatorId               String           @unique
+  creator                 Creator          @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  telegramUserId          String           @unique
+  telegramChatId          String           @unique
+  notificationsEnabled    Boolean          @default(false)
+  supporterDetailsEnabled Boolean          @default(false)
+  blockedAt               DateTime?
+  disabledReason          String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  outboxDeliveries        TelegramOutbox[]
+
+  @@index([blockedAt])
+}
+
+model TelegramConnectCode {
+  id         String    @id @default(cuid())
+  creatorId  String
+  creator    Creator   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  codeHash   String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([creatorId, expiresAt])
+}
+
+model TelegramConnectAttempt {
+  id              String    @id @default(cuid())
+  telegramUserId  String    @unique
+  windowStartedAt DateTime
+  attempts        Int       @default(0)
+  blockedUntil    DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  @@index([blockedUntil])
+}
+
+model TelegramUpdate {
+  id           String    @id @default(cuid())
+  updateId     String    @unique
+  receivedAt   DateTime  @default(now())
+  processingAt DateTime?
+  attempts     Int       @default(0)
+  processedAt  DateTime?
+  errorCode    String?
+
+  @@index([receivedAt])
+  @@index([processingAt])
+}
+
+model PaymentEvent {
+  id               String           @id @default(cuid())
+  paymentRequestId String           @unique
+  paymentRequest   PaymentRequest   @relation(fields: [paymentRequestId], references: [id], onDelete: Restrict)
+  actionId         String
+  action           Action           @relation(fields: [actionId], references: [id], onDelete: Restrict)
+  creatorId        String?
+  creator          Creator?         @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  amountSompi      BigInt
+  txId             String
+  occurredAt       DateTime
+  createdAt        DateTime         @default(now())
+  telegramOutbox   TelegramOutbox[]
+
+  @@index([creatorId, occurredAt])
+  @@index([actionId, occurredAt])
+  @@index([txId])
+}
+
+model TelegramOutbox {
+  id             String               @id @default(cuid())
+  creatorId      String?
+  connectionId   String?
+  connection     TelegramConnection?  @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  paymentEventId String?
+  paymentEvent   PaymentEvent?        @relation(fields: [paymentEventId], references: [id], onDelete: SetNull)
+  dedupeKey      String               @unique
+  kind           String
+  payload        Json
+  matchedRuleIds Json?
+  status         TelegramOutboxStatus @default(PENDING)
+  attempts       Int                  @default(0)
+  availableAt    DateTime             @default(now())
+  lockedAt       DateTime?
+  sentAt         DateTime?
+  lastErrorCode  String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([status, availableAt])
+  @@index([creatorId, createdAt])
+  @@index([connectionId])
+}
+
+model AgentIntentDraft {
+  id             String            @id @default(cuid())
+  creatorId      String
+  creator        Creator           @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  telegramUserId String
+  intent         String
+  payload        Json
+  status         AgentIntentStatus @default(PENDING_CONFIRMATION)
+  expiresAt      DateTime
+  confirmedAt    DateTime?
+  resultRef      String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([creatorId, status])
+  @@index([telegramUserId, expiresAt])
+}
+
+model AiUsageEvent {
+  id                  String   @id @default(cuid())
+  creatorId           String
+  creator             Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  model               String
+  intent              String?
+  status              String
+  inputTokens         Int?
+  outputTokens        Int?
+  estimatedCostMicros BigInt   @default(0)
+  errorCode           String?
+  createdAt           DateTime @default(now())
+
+  @@index([creatorId, createdAt])
+  @@index([createdAt])
+}
+
+model AgentQuotaBucket {
+  id                  String   @id @default(cuid())
+  scope               String
+  scopeKey            String
+  periodKey           String
+  requestCount        Int      @default(0)
+  estimatedCostMicros BigInt   @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([scope, scopeKey, periodKey])
+  @@index([scope, periodKey])
+}
+
+model NotificationRule {
+  id                       String                 @id @default(cuid())
+  creatorId                String
+  creator                  Creator                @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  actionId                 String?
+  action                   Action?                @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  kind                     NotificationRuleKind
+  minimumSompi             BigInt?
+  status                   NotificationRuleStatus @default(ACTIVE)
+  completeOnInvoicePayment Boolean                @default(false)
+  completedAt              DateTime?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  @@index([creatorId, status])
+  @@index([actionId])
 }
 
 model OperatorPageView {

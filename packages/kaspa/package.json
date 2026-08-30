@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./toccata-constants": "./src/toccata-constants.ts"
   },
   "dependencies": {
     "kaspa-wasm": "file:../../vendor/kaspa-wasm-v2.0.1"

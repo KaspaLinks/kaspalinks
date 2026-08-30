@@ -5,6 +5,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
+  TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
+  TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES,
+} from "@kaspa-actions/kaspa/toccata-constants";
+import {
   getKaswareProvider,
   readKaswareBalance,
   readKaswareNetwork,
@@ -85,7 +89,7 @@ type ScriptResponse = {
 };
 
 const STORAGE_KEY = BATCH_CLAIMABLE_STORAGE_KEY;
-const MAX_BATCH_SIZE = 10;
+const MAX_BATCH_SIZE = TOCCATA_BATCH_MAX_SAFE_OUTPUTS;
 const BATCH_ACTIVATION_FEE_SOMPI = 1_000_000n;
 const FUNDING_SAFE_CHANGE_SOMPI = 20_000_000n;
 const FUNDING_AUTO_CHECK_MS = 5_000;
@@ -268,7 +272,8 @@ export function BatchClaimableLabClient({
   // Funding detection is only needed until the exact allocator output exists.
   // Later state changes are read from the registered batch endpoint below.
   useEffect(() => {
-    if (!batch || batch.activation.status !== "awaiting_funding") return;
+    if (!batch || !batch.recoveryExportedAt || batch.activation.status !== "awaiting_funding")
+      return;
 
     const tick = (quiet = true) => void checkFunding({ quiet });
     const initial = window.setTimeout(() => tick(), 1_500);
@@ -286,7 +291,7 @@ export function BatchClaimableLabClient({
       window.removeEventListener("focus", checkWhenVisible);
       document.removeEventListener("visibilitychange", checkWhenVisible);
     };
-  }, [batch?.id, batch?.activation.status]);
+  }, [batch?.id, batch?.activation.status, batch?.recoveryExportedAt]);
 
   // Reconcile public server state after load/import/status changes. A funded
   // allocator is checked without rewriting unchanged browser-held recovery data.
@@ -399,6 +404,29 @@ export function BatchClaimableLabClient({
       refundLockTime: batch.links[0].refundLockTime,
     });
   }, [batch, currentDaaScore, currentDaaLoadedAtMs, timerNowMs]);
+  const allocatorScriptBytes = batch ? batch.activation.redeemScriptHex.length / 2 : 0;
+  const legacyOversizedBatch = Boolean(
+    batch &&
+    (batch.links.length > MAX_BATCH_SIZE ||
+      allocatorScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES),
+  );
+  const activationBlockedReason = !batch
+    ? "Create a Claim Drop first."
+    : legacyOversizedBatch
+      ? "This legacy batch exceeds Kaspa's P2SH spend limit and cannot create claim outputs."
+      : !batch.recoveryExportedAt
+        ? "Download the recovery bundle before funding or creating outputs."
+        : batch.activation.status === "awaiting_funding"
+          ? "Waiting for the exact funding payment."
+          : batch.activation.status !== "funded"
+            ? null
+            : batchExpiry?.expired
+              ? "The claim window closed before activation."
+              : batchExpiry?.expired !== false
+                ? "Checking Kaspa network readiness."
+                : !activationConfirmed
+                  ? "Confirm the fixed outputs below to continue."
+                  : null;
 
   const batchFundingAmountKas = useMemo(
     () => (batch ? formatSompiForToccataLab(BigInt(batch.activation.fundingAmountSompi)) : ""),
@@ -995,6 +1023,20 @@ export function BatchClaimableLabClient({
       batchActionInFlight.current
     )
       return;
+    if (!currentBatch.recoveryExportedAt) {
+      setError("Download the private recovery bundle before creating claim outputs.");
+      return;
+    }
+    const currentAllocatorBytes = currentBatch.activation.redeemScriptHex.length / 2;
+    if (
+      currentBatch.links.length > MAX_BATCH_SIZE ||
+      currentAllocatorBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES
+    ) {
+      setError(
+        `This legacy ${currentBatch.links.length}-link batch uses a ${currentAllocatorBytes}-byte allocator script, above Kaspa's ${TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES}-byte P2SH spend limit. It cannot create claim outputs.`,
+      );
+      return;
+    }
     if (batchExpiry?.expired !== false) {
       setError(
         batchExpiry?.expired
@@ -1084,6 +1126,16 @@ export function BatchClaimableLabClient({
       batchActionInFlight.current
     )
       return;
+    const currentAllocatorScriptBytes = currentBatch.activation.redeemScriptHex.length / 2;
+    if (
+      currentBatch.links.length > MAX_BATCH_SIZE ||
+      currentAllocatorScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES
+    ) {
+      setError(
+        "This legacy batch cannot be refunded because its allocator contract exceeds Kaspa's P2SH spend limit.",
+      );
+      return;
+    }
     const creatorHeaders = readCreatorAuthHeaders();
     if (!creatorHeaders) {
       setError("Sign in again before refunding this batch.");
@@ -1141,7 +1193,18 @@ export function BatchClaimableLabClient({
   }
 
   async function recoverUnexpectedBatchFunding(output: UnmatchedFundingOutput) {
-    if (!batch || batchExpiry?.expired !== true) return;
+    const currentBatch = batchRef.current;
+    if (!currentBatch || batchExpiry?.expired !== true) return;
+    const currentAllocatorScriptBytes = currentBatch.activation.redeemScriptHex.length / 2;
+    if (
+      currentBatch.links.length > MAX_BATCH_SIZE ||
+      currentAllocatorScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES
+    ) {
+      setError(
+        "This legacy batch payment cannot be recovered because its allocator contract exceeds Kaspa's P2SH spend limit.",
+      );
+      return;
+    }
     const creatorHeaders = readCreatorAuthHeaders();
     if (!creatorHeaders) {
       setError("Sign in again before recovering this payment.");
@@ -1157,23 +1220,23 @@ export function BatchClaimableLabClient({
     setRecoveryTxId("");
     setError("");
     try {
-      const refundLockTime = batch.links[0]?.refundLockTime;
+      const refundLockTime = currentBatch.links[0]?.refundLockTime;
       if (!refundLockTime) throw new Error("Batch refund lock time is unavailable.");
       const spend = await buildClaimableSpendInBrowser({
         destinationAddress: refundAddress,
-        expectedFundingAddress: batch.activation.fundingAddress,
-        feeSompi: batch.activation.activationFeeSompi,
+        expectedFundingAddress: currentBatch.activation.fundingAddress,
+        feeSompi: currentBatch.activation.activationFeeSompi,
         fundingAmountSompi: output.amountSompi,
         fundingOutputIndex: output.outputIndex,
         fundingTransactionId: output.transactionId,
         lockTime: refundLockTime,
         mode: "refund",
-        privateKey: batch.activation.refundCode,
-        redeemScriptHex: batch.activation.redeemScriptHex,
+        privateKey: currentBatch.activation.refundCode,
+        redeemScriptHex: currentBatch.activation.redeemScriptHex,
       });
       const response = await fetch("/api/toccata-lab/batch-refund", {
         body: JSON.stringify({
-          batchKey: batch.id,
+          batchKey: currentBatch.id,
           expectedTransactionId: spend.transactionId,
           refundLockTime,
           transactionSafeJson: spend.transactionSafeJson,
@@ -2214,7 +2277,9 @@ export function BatchClaimableLabClient({
                 <p className="batch-lab-expiry">
                   {batchExpiry.expired ? (
                     <strong className="batch-lab-expired">
-                      Claim window expired — refund path available
+                      {legacyOversizedBatch
+                        ? "Claim window expired — legacy contract cannot be spent"
+                        : "Claim window expired — refund path available"}
                     </strong>
                   ) : batchExpiry.remainingLabel ? (
                     <>
@@ -2245,213 +2310,243 @@ export function BatchClaimableLabClient({
                 ) : null}
               </div>
 
-              <div className="batch-lab-funding-callout">
-                <span className="label">One-time batch address</span>
-                <code className="batch-lab-address">{batch.activation.fundingAddress}</code>
-                <div className="batch-lab-funding-amount">
-                  <span>Exact total</span>
-                  <strong>
-                    {formatSompiForToccataLab(BigInt(batch.activation.fundingAmountSompi))} KAS
-                  </strong>
-                </div>
-                <p className="muted">
-                  Includes {formatSompiForToccataLab(BigInt(batch.activation.activationFeeSompi))}{" "}
-                  KAS activation fee. {batchActivationStatusText(batch.activation.status)}
-                </p>
-                {batch.activation.status === "awaiting_funding" ? (
-                  <div className="batch-funding-watch" aria-live="polite">
-                    <span className="claimable-spinner" aria-hidden="true" />
-                    <div>
-                      <strong>Watching for funding</strong>
-                      <p>Checking automatically.</p>
-                    </div>
+              {!batch.recoveryExportedAt ? (
+                <div className="batch-funding-locked" role="status">
+                  <span className="batch-funding-lock-icon" aria-hidden="true">
+                    1
+                  </span>
+                  <div>
+                    <span className="label">Funding locked</span>
+                    <strong>Download recovery before the payment details appear</strong>
+                    <p>
+                      The funding address and wallet buttons unlock only after the private recovery
+                      bundle has been saved on this device.
+                    </p>
                   </div>
-                ) : null}
-                <div className="batch-lab-wallet-options">
-                  {isTouchOnly === null ? (
-                    <button className="btn btn-primary" disabled type="button">
-                      Preparing wallet…
-                    </button>
-                  ) : isTouchOnly ? (
-                    <button
-                      className="btn btn-primary"
-                      disabled={
-                        generating ||
-                        !batch.batchManifestRegisteredAt ||
-                        !batch.recoveryExportedAt ||
-                        batch.activation.status !== "awaiting_funding"
-                      }
-                      onClick={openBatchFundingWallet}
-                      type="button"
-                    >
-                      Open in Kaspium
-                    </button>
-                  ) : (
-                    <button
-                      className="btn btn-primary"
-                      disabled={
-                        generating ||
-                        !batch.batchManifestRegisteredAt ||
-                        !batch.recoveryExportedAt ||
-                        fundingWithKasware ||
-                        batch.activation.status !== "awaiting_funding"
-                      }
-                      onClick={() => void fundBatchWithKasware()}
-                      type="button"
-                    >
-                      {fundingWithKasware ? "Opening KasWare…" : "Fund with KasWare"}
-                    </button>
-                  )}
-                  <button
-                    className="btn"
-                    disabled={!batch.batchManifestRegisteredAt || !batch.recoveryExportedAt}
-                    onClick={() => void copyBatchFundingAddress()}
-                    type="button"
-                  >
-                    Copy address
-                  </button>
-                  <button
-                    aria-expanded={showFundingQr}
-                    className="btn"
-                    disabled={!batch.batchManifestRegisteredAt || !batch.recoveryExportedAt}
-                    onClick={() => setShowFundingQr((current) => !current)}
-                    type="button"
-                  >
-                    {showFundingQr ? "Hide QR code" : "Show QR code"}
-                  </button>
                 </div>
-                {!batch.batchManifestRegisteredAt ? (
-                  <div className="notice notice-warn">
-                    <strong>Registration incomplete.</strong> Do not fund yet. Your private codes
-                    are already encrypted locally; retry the idempotent public-metadata
-                    registration.
+              ) : (
+                <div className="batch-lab-funding-callout">
+                  <span className="label">One-time batch address</span>
+                  <code className="batch-lab-address">{batch.activation.fundingAddress}</code>
+                  <div className="batch-lab-funding-amount">
+                    <span>Exact total</span>
+                    <strong>
+                      {formatSompiForToccataLab(BigInt(batch.activation.fundingAmountSompi))} KAS
+                    </strong>
+                  </div>
+                  <p className="muted">
+                    Includes {formatSompiForToccataLab(BigInt(batch.activation.activationFeeSompi))}{" "}
+                    KAS activation fee. {batchActivationStatusText(batch.activation.status)}
+                  </p>
+                  {batch.activation.status === "awaiting_funding" ? (
+                    <div className="batch-funding-watch" aria-live="polite">
+                      <span className="claimable-spinner" aria-hidden="true" />
+                      <div>
+                        <strong>Watching for funding</strong>
+                        <p>Checking automatically.</p>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="batch-lab-wallet-options">
+                    {isTouchOnly === null ? (
+                      <button className="btn btn-primary" disabled type="button">
+                        Preparing wallet…
+                      </button>
+                    ) : isTouchOnly ? (
+                      <button
+                        className="btn btn-primary"
+                        disabled={
+                          generating ||
+                          !batch.batchManifestRegisteredAt ||
+                          !batch.recoveryExportedAt ||
+                          batch.activation.status !== "awaiting_funding"
+                        }
+                        onClick={openBatchFundingWallet}
+                        type="button"
+                      >
+                        Open in Kaspium
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-primary"
+                        disabled={
+                          generating ||
+                          !batch.batchManifestRegisteredAt ||
+                          !batch.recoveryExportedAt ||
+                          fundingWithKasware ||
+                          batch.activation.status !== "awaiting_funding"
+                        }
+                        onClick={() => void fundBatchWithKasware()}
+                        type="button"
+                      >
+                        {fundingWithKasware ? "Opening KasWare…" : "Fund with KasWare"}
+                      </button>
+                    )}
                     <button
                       className="btn"
-                      disabled={registering}
-                      onClick={() => void completeBatchRegistration()}
+                      disabled={!batch.batchManifestRegisteredAt || !batch.recoveryExportedAt}
+                      onClick={() => void copyBatchFundingAddress()}
                       type="button"
                     >
-                      {registering ? "Registering links…" : "Finish link registration"}
+                      Copy address
+                    </button>
+                    <button
+                      aria-expanded={showFundingQr}
+                      className="btn"
+                      disabled={!batch.batchManifestRegisteredAt || !batch.recoveryExportedAt}
+                      onClick={() => setShowFundingQr((current) => !current)}
+                      type="button"
+                    >
+                      {showFundingQr ? "Hide QR code" : "Show QR code"}
                     </button>
                   </div>
-                ) : null}
-                {showFundingQr ? (
-                  <div className="batch-lab-funding-qr">
-                    <FundingQrCode
-                      ariaLabel={`Funding QR code for ${batchFundingAmountKas} KAS`}
-                      paymentUri={batchFundingWalletUri}
-                    />
-                    <div>
-                      <strong>Scan with Kaspium</strong>
-                      <p>Exact address and total included.</p>
+                  {!batch.batchManifestRegisteredAt ? (
+                    <div className="notice notice-warn">
+                      <strong>Registration incomplete.</strong> Do not fund yet. Your private codes
+                      are already encrypted locally; retry the idempotent public-metadata
+                      registration.
+                      <button
+                        className="btn"
+                        disabled={registering}
+                        onClick={() => void completeBatchRegistration()}
+                        type="button"
+                      >
+                        {registering ? "Registering links…" : "Finish link registration"}
+                      </button>
                     </div>
-                  </div>
-                ) : null}
-                {unmatchedFundingOutputs.length > 0 ? (
-                  <div className="claimable-unmatched-funding notice notice-critical">
-                    <span className="label">Batch total does not match</span>
-                    <strong>
-                      {unmatchedFundingOutputs.length} separate unexpected payment
-                      {unmatchedFundingOutputs.length === 1 ? "" : "s"} detected
-                    </strong>
-                    <p>
-                      This batch still expects exactly {batchFundingAmountKas} KAS. Do not send the
-                      difference: separate UTXOs are not combined and cannot activate the batch.
-                    </p>
-                    {batchExpiry?.expired ? (
-                      <>
-                        <label className="label" htmlFor="unexpected-batch-refund-address">
-                          Your Kaspa refund address
-                        </label>
-                        <input
-                          id="unexpected-batch-refund-address"
-                          onChange={(event) => setRefundAddress(event.target.value.trim())}
-                          placeholder="kaspa:your-own-wallet-address"
-                          value={refundAddress}
-                        />
-                        <label className="batch-lab-confirm">
-                          <input
-                            checked={refundConfirmed}
-                            onChange={(event) => setRefundConfirmed(event.target.checked)}
-                            type="checkbox"
-                          />
-                          I verified this destination. Recovery is signed locally with the private
-                          batch refund code.
-                        </label>
-                      </>
-                    ) : (
+                  ) : null}
+                  {showFundingQr ? (
+                    <div className="batch-lab-funding-qr">
+                      <FundingQrCode
+                        ariaLabel={`Funding QR code for ${batchFundingAmountKas} KAS`}
+                        paymentUri={batchFundingWalletUri}
+                      />
+                      <div>
+                        <strong>Scan with Kaspium</strong>
+                        <p>Exact address and total included.</p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {unmatchedFundingOutputs.length > 0 ? (
+                    <div className="claimable-unmatched-funding notice notice-critical">
+                      <span className="label">Batch total does not match</span>
+                      <strong>
+                        {unmatchedFundingOutputs.length} separate unexpected payment
+                        {unmatchedFundingOutputs.length === 1 ? "" : "s"} detected
+                      </strong>
                       <p>
-                        Each unexpected payment can be recovered after expiry
-                        {batchExpiry?.remainingLabel
-                          ? ` in about ${batchExpiry.remainingLabel}`
-                          : ""}
-                        . Keep the private recovery bundle safe.
+                        This batch still expects exactly {batchFundingAmountKas} KAS. Do not send
+                        the difference: separate UTXOs are not combined and cannot activate the
+                        batch.
                       </p>
-                    )}
-                    <div className="claimable-unmatched-list">
-                      {unmatchedFundingOutputs.map((output) => {
-                        const outputId = `${output.transactionId}:${output.outputIndex}`;
-                        const recoverable =
-                          BigInt(output.amountSompi) -
-                            BigInt(batch.activation.activationFeeSompi) >=
-                          TOCCATA_CANARY_MIN_OUTPUT_SOMPI;
-                        return (
-                          <div className="claimable-unmatched-row" key={outputId}>
-                            <div>
-                              <strong>
-                                {formatSompiForToccataLab(BigInt(output.amountSompi))} KAS
-                              </strong>
-                              <p className="value-mono">
-                                {compactTransactionId(output.transactionId)}:{output.outputIndex}
-                              </p>
+                      {batchExpiry?.expired ? (
+                        <>
+                          <label className="label" htmlFor="unexpected-batch-refund-address">
+                            Your Kaspa refund address
+                          </label>
+                          <input
+                            id="unexpected-batch-refund-address"
+                            onChange={(event) => setRefundAddress(event.target.value.trim())}
+                            placeholder="kaspa:your-own-wallet-address"
+                            value={refundAddress}
+                          />
+                          <label className="batch-lab-confirm">
+                            <input
+                              checked={refundConfirmed}
+                              onChange={(event) => setRefundConfirmed(event.target.checked)}
+                              type="checkbox"
+                            />
+                            I verified this destination. Recovery is signed locally with the private
+                            batch refund code.
+                          </label>
+                        </>
+                      ) : (
+                        <p>
+                          Each unexpected payment can be recovered after expiry
+                          {batchExpiry?.remainingLabel
+                            ? ` in about ${batchExpiry.remainingLabel}`
+                            : ""}
+                          . Keep the private recovery bundle safe.
+                        </p>
+                      )}
+                      <div className="claimable-unmatched-list">
+                        {unmatchedFundingOutputs.map((output) => {
+                          const outputId = `${output.transactionId}:${output.outputIndex}`;
+                          const recoverable =
+                            BigInt(output.amountSompi) -
+                              BigInt(batch.activation.activationFeeSompi) >=
+                            TOCCATA_CANARY_MIN_OUTPUT_SOMPI;
+                          return (
+                            <div className="claimable-unmatched-row" key={outputId}>
+                              <div>
+                                <strong>
+                                  {formatSompiForToccataLab(BigInt(output.amountSompi))} KAS
+                                </strong>
+                                <p className="value-mono">
+                                  {compactTransactionId(output.transactionId)}:{output.outputIndex}
+                                </p>
+                              </div>
+                              <a
+                                href={kaspaStreamTransactionUrl(output.transactionId)}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                View transaction
+                              </a>
+                              <button
+                                className="btn"
+                                disabled={
+                                  legacyOversizedBatch ||
+                                  !batchExpiry?.expired ||
+                                  !recoverable ||
+                                  !refundConfirmed ||
+                                  refundAddress.trim().length === 0 ||
+                                  recoveringOutputId !== ""
+                                }
+                                onClick={() => void recoverUnexpectedBatchFunding(output)}
+                                type="button"
+                              >
+                                {recoveringOutputId === outputId
+                                  ? "Recovering..."
+                                  : batchExpiry?.expired
+                                    ? "Recover payment"
+                                    : "Recover after expiry"}
+                              </button>
                             </div>
-                            <a
-                              href={kaspaStreamTransactionUrl(output.transactionId)}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              View transaction
-                            </a>
-                            <button
-                              className="btn"
-                              disabled={
-                                !batchExpiry?.expired ||
-                                !recoverable ||
-                                !refundConfirmed ||
-                                refundAddress.trim().length === 0 ||
-                                recoveringOutputId !== ""
-                              }
-                              onClick={() => void recoverUnexpectedBatchFunding(output)}
-                              type="button"
-                            >
-                              {recoveringOutputId === outputId
-                                ? "Recovering..."
-                                : batchExpiry?.expired
-                                  ? "Recover payment"
-                                  : "Recover after expiry"}
-                            </button>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
+                      {recoveryTxId ? (
+                        <p className="success-text">
+                          Recovery sent:{" "}
+                          <a
+                            href={kaspaStreamTransactionUrl(recoveryTxId)}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {compactTransactionId(recoveryTxId)}
+                          </a>
+                        </p>
+                      ) : null}
                     </div>
-                    {recoveryTxId ? (
-                      <p className="success-text">
-                        Recovery sent:{" "}
-                        <a
-                          href={kaspaStreamTransactionUrl(recoveryTxId)}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          {compactTransactionId(recoveryTxId)}
-                        </a>
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
+                  ) : null}
+                </div>
+              )}
 
               <div className="batch-lab-action-group">
                 <span className="batch-lab-section-title">Create claim outputs</span>
+
+                {legacyOversizedBatch ? (
+                  <div className="notice notice-critical" role="alert">
+                    <strong>
+                      This legacy {batch.links.length}-link batch cannot be activated.
+                    </strong>{" "}
+                    Its {allocatorScriptBytes}-byte allocator script exceeds Kaspa&apos;s{" "}
+                    {TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES}-byte P2SH spend limit. New Claim Drops
+                    are capped at {MAX_BATCH_SIZE} links and checked before a funding address is
+                    shown.
+                  </div>
+                ) : null}
 
                 {batch.activation.status === "funded" ? (
                   <div className="batch-activation-review" role="note">
@@ -2496,12 +2591,17 @@ export function BatchClaimableLabClient({
                 ) : null}
 
                 <div className="batch-lab-actions">
-                  <button className="btn" onClick={downloadFundingPlan} type="button">
+                  <button
+                    className="btn"
+                    disabled={!batch.recoveryExportedAt}
+                    onClick={downloadFundingPlan}
+                    type="button"
+                  >
                     Funding plan
                   </button>
                   <button
                     className="btn"
-                    disabled={checking}
+                    disabled={checking || !batch.recoveryExportedAt || legacyOversizedBatch}
                     onClick={() => {
                       setShowKaswareHelp(false);
                       void checkFunding();
@@ -2514,6 +2614,8 @@ export function BatchClaimableLabClient({
                     className="btn btn-primary"
                     disabled={
                       checking ||
+                      legacyOversizedBatch ||
+                      !batch.recoveryExportedAt ||
                       batch.activation.status !== "funded" ||
                       !activationConfirmed ||
                       batchExpiry?.expired !== false
@@ -2526,6 +2628,15 @@ export function BatchClaimableLabClient({
                       : "Create claim outputs"}
                   </button>
                 </div>
+                {activationBlockedReason ? (
+                  <p className="batch-activation-blocked" aria-live="polite">
+                    {activationBlockedReason}
+                  </p>
+                ) : (
+                  <p className="batch-activation-ready" aria-live="polite">
+                    Ready to create {batch.links.length} fixed on-chain claim outputs.
+                  </p>
+                )}
               </div>
 
               <div className="batch-lab-action-group">
@@ -2611,6 +2722,7 @@ export function BatchClaimableLabClient({
                   <button
                     className="btn btn-danger"
                     disabled={
+                      legacyOversizedBatch ||
                       checking ||
                       refundAddress.trim().length === 0 ||
                       !refundConfirmed ||

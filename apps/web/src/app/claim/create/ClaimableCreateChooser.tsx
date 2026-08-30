@@ -2,12 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { TOCCATA_BATCH_MAX_SAFE_OUTPUTS } from "@kaspa-actions/kaspa/toccata-constants";
 
 import { SESSION_EVENT } from "../../BrandNav";
 import { CreatorSignInGate } from "../../CreatorSignInGate";
 
 const MIN_LINK_COUNT = 1;
-const MAX_LINK_COUNT = 10;
+const MAX_LINK_COUNT = TOCCATA_BATCH_MAX_SAFE_OUTPUTS;
 
 function clampCount(value: number): number {
   return Math.min(MAX_LINK_COUNT, Math.max(MIN_LINK_COUNT, Math.trunc(value)));

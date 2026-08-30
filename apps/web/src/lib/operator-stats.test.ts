@@ -65,6 +65,29 @@ describe("operator stats", () => {
     expect(stats.source.linesParsed).toBe(4);
   });
 
+  it("ignores scanner probes and redirect hops so one sweep cannot look like traffic", () => {
+    const stats = buildOperatorStatsFromText(
+      [
+        line({ country: "DE", uri: "/" }),
+        // Scanner probes: paths that do not exist here, answered with 404.
+        line({ country: "NL", status: 404, uri: "/stripe.env" }),
+        line({ country: "NL", status: 404, uri: "/s3/bucket" }),
+        line({ country: "NL", status: 404, uri: "/wp-admin/install.php" }),
+        // The http→https hop of a real visit; the 200 above already counted it.
+        line({ country: "DE", status: 308, uri: "/" }),
+        // A cached revisit is still a visit.
+        line({ country: "DE", status: 304, uri: "/faq" }),
+      ].join("\n"),
+      { filesRead: 1, now: NOW },
+    );
+
+    expect(stats.pageViews.human).toBe(2);
+    expect(stats.pages).toEqual([
+      { count: 1, label: "/" },
+      { count: 1, label: "/faq" },
+    ]);
+  });
+
   it("normalizes referrers, UTM sources, devices, browsers, and countries", () => {
     const stats = buildOperatorStatsFromText(
       [
@@ -137,6 +160,55 @@ describe("operator stats", () => {
     expect(stats.pageViews.human).toBe(3);
     expect(stats.source.earliestSeenAt).toBe("2026-05-09T12:00:00.000Z");
     expect(stats.source.latestSeenAt).toBe("2026-05-19T11:00:00.000Z");
+  });
+
+  it("discounts stored scanner probes and redirect hops recorded before they were filtered", () => {
+    const stats = buildOperatorStatsFromStoredPageViews(
+      [
+        {
+          browser: "Chrome",
+          countryCode: "DE",
+          device: "Desktop",
+          isBot: false,
+          path: "/",
+          referrer: "Direct / unknown",
+          seenAt: new Date("2026-05-19T11:00:00.000Z"),
+          status: 200,
+          utmSource: null,
+          visitorDayHash: "visitor-2026-05-19",
+        },
+        {
+          browser: "Firefox",
+          countryCode: "NL",
+          device: "Desktop",
+          isBot: false,
+          path: "/stripe.env",
+          referrer: "Direct / unknown",
+          seenAt: new Date("2026-05-19T11:00:00.000Z"),
+          status: 404,
+          utmSource: null,
+          visitorDayHash: "scanner-2026-05-19",
+        },
+        {
+          browser: "Chrome",
+          countryCode: "DE",
+          device: "Desktop",
+          isBot: false,
+          path: "/",
+          referrer: "Direct / unknown",
+          seenAt: new Date("2026-05-19T11:00:00.000Z"),
+          status: 308,
+          utmSource: null,
+          visitorDayHash: "visitor-2026-05-19",
+        },
+      ],
+      { filesRead: 1, now: NOW },
+    );
+
+    expect(stats.pageViews.human).toBe(1);
+    expect(stats.uniqueVisitors.approximate).toBe(1);
+    // The raw rows stay available for the status breakdown.
+    expect(stats.source.linesParsed).toBe(3);
   });
 
   it("builds stable totals from persisted page views instead of only readable log tails", () => {

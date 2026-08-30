@@ -87,6 +87,9 @@ export async function POST(request: Request) {
     }
 
     const link = await prisma.claimableLink.findUnique({
+      include: {
+        prizeForGiveaway: { select: { publicId: true } },
+      },
       where: { linkKey: parsed.data.linkKey },
     });
     if (!link) {
@@ -125,6 +128,13 @@ export async function POST(request: Request) {
       safeJsonSummary.signatureScriptHex,
       canonicalLink.redeemScriptHex,
     );
+    if (mode === "claim" && link.prizeForGiveaway) {
+      return apiError(
+        ErrorCodes.INVALID_STATE,
+        "This output backs a giveaway and can only be paid through its fixed winner claim.",
+        409,
+      );
+    }
     const actualFundingSompi = BigInt(safeJsonSummary.fundingAmountSompi);
     const matchesRegisteredOutpoint =
       (link.fundingTxId === null ||

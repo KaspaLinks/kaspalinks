@@ -1,3 +1,8 @@
+import {
+  TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
+  TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES,
+} from "@kaspa-actions/kaspa/toccata-constants";
+
 type BrowserClaimableSpendMode = "claim" | "refund";
 
 export type BrowserClaimableSpendInput = {
@@ -135,10 +140,7 @@ export async function buildClaimableSpendInBrowser(
   const redeemScriptHex = normalizeHex(input.redeemScriptHex, "redeemScriptHex");
   const fundingTransactionId = normalizeTransactionId(input.fundingTransactionId);
   const fundingOutputIndex = normalizeOutputIndex(input.fundingOutputIndex);
-  const fundingAmountSompi = parsePositiveBigInt(
-    input.fundingAmountSompi,
-    "fundingAmountSompi",
-  );
+  const fundingAmountSompi = parsePositiveBigInt(input.fundingAmountSompi, "fundingAmountSompi");
   const feeSompi = parsePositiveBigInt(input.feeSompi, "feeSompi");
   const lockTime = parseNonNegativeBigInt(input.lockTime ?? "0", "lockTime");
   const computeBudget = normalizeComputeBudget(input.computeBudget ?? CLAIMABLE_LAB_COMPUTE_BUDGET);
@@ -248,10 +250,25 @@ export async function buildBatchActivationSpendInBrowser(
   const fundingOutputIndex = normalizeOutputIndex(input.fundingOutputIndex);
   const fundingAmountSompi = parsePositiveBigInt(input.fundingAmountSompi, "fundingAmountSompi");
   const feeSompi = parsePositiveBigInt(input.feeSompi, "feeSompi");
-  const computeBudget = normalizeComputeBudget(input.computeBudget ?? BATCH_ALLOCATOR_COMPUTE_BUDGET);
+  const computeBudget = normalizeComputeBudget(
+    input.computeBudget ?? BATCH_ALLOCATOR_COMPUTE_BUDGET,
+  );
 
-  if (!Array.isArray(input.outputs) || input.outputs.length < 2 || input.outputs.length > 10) {
-    throw new Error("Batch activation requires between 2 and 10 child outputs.");
+  if (
+    !Array.isArray(input.outputs) ||
+    input.outputs.length < 2 ||
+    input.outputs.length > TOCCATA_BATCH_MAX_SAFE_OUTPUTS
+  ) {
+    throw new Error(
+      `Batch activation requires between 2 and ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} child outputs.`,
+    );
+  }
+
+  const redeemScriptBytes = redeemScriptHex.length / 2;
+  if (redeemScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES) {
+    throw new Error(
+      `This legacy batch uses a ${redeemScriptBytes}-byte allocator script, above Kaspa's ${TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES}-byte P2SH spend limit. It cannot create claim outputs.`,
+    );
   }
 
   const outputSpecs = input.outputs.map((output, index) => ({
@@ -265,7 +282,8 @@ export async function buildBatchActivationSpendInBrowser(
 
   const scriptPublicKey = kaspa.payToScriptHashScript(redeemScriptHex);
   const fundingAddress = kaspa.addressFromScriptPublicKey(scriptPublicKey, "mainnet");
-  if (!fundingAddress) throw new Error("Could not derive batch funding address from redeem script.");
+  if (!fundingAddress)
+    throw new Error("Could not derive batch funding address from redeem script.");
   if (input.expectedFundingAddress.trim() !== fundingAddress.toString()) {
     throw new Error("Batch redeem script does not match the expected funding address.");
   }
@@ -273,20 +291,22 @@ export async function buildBatchActivationSpendInBrowser(
   const unsignedSafeJson = JSON.stringify({
     gas: "0",
     id: "0".repeat(64),
-    inputs: [{
-      computeBudget,
-      index: fundingOutputIndex,
-      sequence: "0",
-      sigOpCount: 0,
-      signatureScript: "",
-      transactionId: fundingTransactionId,
-      utxo: {
-        amount: fundingAmountSompi.toString(),
-        blockDaaScore: "0",
-        isCoinbase: false,
-        scriptPublicKey: scriptPublicKey.toJSON(),
+    inputs: [
+      {
+        computeBudget,
+        index: fundingOutputIndex,
+        sequence: "0",
+        sigOpCount: 0,
+        signatureScript: "",
+        transactionId: fundingTransactionId,
+        utxo: {
+          amount: fundingAmountSompi.toString(),
+          blockDaaScore: "0",
+          isCoinbase: false,
+          scriptPublicKey: scriptPublicKey.toJSON(),
+        },
       },
-    }],
+    ],
     lockTime: "0",
     outputs: outputSpecs.map((output) => ({
       scriptPublicKey: kaspa.payToScriptHashScript(output.redeemScriptHex).toJSON(),
@@ -306,7 +326,10 @@ export async function buildBatchActivationSpendInBrowser(
   const innerScript = new kaspa.ScriptBuilder({ flags: { covenantsEnabled: true } });
   innerScript.addOps(signature);
   innerScript.addOp(kaspa.Opcodes.OpTrue);
-  const signatureScriptHex = kaspa.payToScriptHashSignatureScript(redeemScriptHex, innerScript.drain());
+  const signatureScriptHex = kaspa.payToScriptHashSignatureScript(
+    redeemScriptHex,
+    innerScript.drain(),
+  );
   const transactionInput = transaction.inputs[0];
   if (!transactionInput) throw new Error("Could not build batch activation input.");
   transactionInput.signatureScript = signatureScriptHex;
@@ -333,13 +356,13 @@ export async function preloadClaimableBrowserSigner(): Promise<void> {
 }
 
 async function loadKaspaBrowserModule(): Promise<KaspaBrowserModule> {
-  cachedKaspaBrowserModule ??= import(
-    /* webpackIgnore: true */ KASPA_WEB_MODULE_URL
-  ).then(async (module) => {
-    const kaspa = module as KaspaBrowserModule;
-    await kaspa.default(KASPA_WEB_WASM_URL);
-    return kaspa;
-  });
+  cachedKaspaBrowserModule ??= import(/* webpackIgnore: true */ KASPA_WEB_MODULE_URL).then(
+    async (module) => {
+      const kaspa = module as KaspaBrowserModule;
+      await kaspa.default(KASPA_WEB_WASM_URL);
+      return kaspa;
+    },
+  );
 
   return cachedKaspaBrowserModule;
 }

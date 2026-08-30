@@ -17,6 +17,7 @@ import {
   giveawayPublicIdSchema,
   isGiveawayLabEnabled,
 } from "@/lib/giveaway-lab";
+import { reconcileGiveawayPrize } from "@/lib/giveaway-prize";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 
 export async function POST(request: Request, context: { params: Promise<{ publicId: string }> }) {
@@ -32,8 +33,31 @@ export async function POST(request: Request, context: { params: Promise<{ public
   const parsedId = giveawayPublicIdSchema.safeParse(params.publicId);
   if (!parsedId.success) return apiError(ErrorCodes.NOT_FOUND, "Giveaway not found.", 404);
 
-  const candidate = await prisma.giveaway.findUnique({ where: { publicId: parsedId.data } });
+  const candidate = await prisma.giveaway.findUnique({
+    include: { prizeLink: true },
+    where: { publicId: parsedId.data },
+  });
   if (!candidate) return apiError(ErrorCodes.NOT_FOUND, "Giveaway not found.", 404);
+
+  if (candidate.prizeLink) {
+    let reconciled: typeof candidate;
+    try {
+      reconciled = await reconcileGiveawayPrize(candidate, new Date(), { force: true });
+    } catch {
+      return apiError(
+        ErrorCodes.SERVER_ERROR,
+        "The parked prize could not be verified on-chain. Try again shortly.",
+        503,
+      );
+    }
+    if (["claimed", "refunded", "spent_unknown"].includes(reconciled.prizeLink?.status ?? "")) {
+      return apiError(
+        ErrorCodes.INVALID_STATE,
+        "The giveaway cannot draw a winner because its parked prize is no longer available.",
+        409,
+      );
+    }
+  }
 
   if (candidate.drawProtocolVersion >= 2) {
     return drawVerifiableGiveaway(parsedId.data, ipHash);

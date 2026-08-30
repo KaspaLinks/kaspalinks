@@ -71,7 +71,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     answer:
-      "Tips (pay-what-you-want), Donations, fixed-amount Invoices, generic Transfers, Goals, Claimable links, and Claim Drops. Normal payment links send directly to the creator's address. Claimable links hold a fixed reward in a one-time on-chain output so the first person with the link can claim it. A Claim Drop creates 2 to 10 separate rewards in one flow.",
+      "Tips (pay-what-you-want), Donations, fixed-amount Invoices, generic Transfers, Goals, Claimable links, and Claim Drops. Normal payment links send directly to the creator's address. Claimable links hold a fixed reward in a one-time on-chain output so the first person with the link can claim it. A Claim Drop creates 2 to 8 separate rewards in one flow.",
     link: { href: "/try-it-out", label: "Pick a starting point" },
     question: "What kinds of links can I create?",
   },
@@ -83,7 +83,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     answer:
-      "A Claim Drop creates 2 to 10 independent Claimable links with the same amount and expiry. You fund one batch address once, then your browser signs the activation transaction that creates a separate on-chain output for every link. Each link can be shared, claimed, tracked, and refunded individually. Save the private recovery bundle before funding — Kaspa Links cannot recreate it for you.",
+      "A Claim Drop creates 2 to 8 independent Claimable links with the same amount and expiry. First save the private recovery bundle, then fund one batch address once. Your browser signs the activation transaction that creates a separate on-chain output for every link. Each link can be shared, claimed, tracked, and refunded individually. Kaspa Links cannot recreate the private recovery bundle for you.",
     link: { href: "/claim/create?count=2", label: "Create a claim drop" },
     question: "Can I create several claimable links at once?",
   },

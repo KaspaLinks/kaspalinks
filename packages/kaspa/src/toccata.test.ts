@@ -117,7 +117,27 @@ describe("Toccata SDK capabilities", () => {
     expect(first.fundingAddress).not.toBe(changed.fundingAddress);
     expect(() =>
       buildToccataBatchAllocatorLabScript({ ...base, outputs: [first.outputs[0]!] }),
-    ).toThrow("between 2 and 10 committed outputs");
+    ).toThrow("between 2 and 8 committed outputs");
+
+    const eightOutputs = Array.from({ length: 8 }, (_, index) => ({
+      amountSompi: "100000000",
+      scriptPublicKeyHex: `0000aa20${String(index + 1)
+        .padStart(2, "0")
+        .repeat(32)}87`,
+    }));
+    const largestSafe = buildToccataBatchAllocatorLabScript({
+      ...base,
+      outputs: eightOutputs,
+    });
+
+    expect(largestSafe.outputCount).toBe(8);
+    expect(largestSafe.redeemScriptHex.length / 2).toBeLessThanOrEqual(520);
+    expect(() =>
+      buildToccataBatchAllocatorLabScript({
+        ...base,
+        outputs: [...eightOutputs, eightOutputs[0]!],
+      }),
+    ).toThrow("between 2 and 8 committed outputs");
   });
 
   it("builds a signed claimable lab claim spend as SafeJSON", () => {
@@ -132,8 +152,7 @@ describe("Toccata SDK capabilities", () => {
       feeSompi: "200000",
       fundingAmountSompi: "25000000",
       fundingOutputIndex: 0,
-      fundingTransactionId:
-        "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+      fundingTransactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
       mode: "claim",
       privateKey: "1".repeat(64),
       redeemScriptHex: script.redeemScriptHex,
@@ -175,8 +194,7 @@ describe("Toccata SDK capabilities", () => {
         feeSompi: "200000",
         fundingAmountSompi: "20100000",
         fundingOutputIndex: 0,
-        fundingTransactionId:
-          "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+        fundingTransactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
         mode: "claim",
         privateKey: "1".repeat(64),
         redeemScriptHex: script.redeemScriptHex,

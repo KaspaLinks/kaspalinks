@@ -193,7 +193,7 @@ describe("creator claimable link API", () => {
     expect(mockPrisma.claimableLink.findMany).toHaveBeenCalledWith({
       orderBy: { createdAt: "desc" },
       take: 200,
-      where: { creatorId: "creator-1", deletedAt: null },
+      where: { creatorId: "creator-1", deletedAt: null, prizeForGiveaway: null },
     });
     expect(mockPrisma.claimableLink.findMany).toHaveBeenNthCalledWith(2, {
       orderBy: { deletedAt: "desc" },

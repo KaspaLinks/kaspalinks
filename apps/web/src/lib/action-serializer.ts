@@ -31,6 +31,8 @@ export type PublicActionMetadata = {
   goalKas: null | string;
   goalSompi: null | string;
   message: null | string;
+  invoicePaid: boolean;
+  invoicePaidAt: null | string;
   network: "mainnet" | "testnet";
   noteRequired: boolean;
   publicId: string;
@@ -58,6 +60,8 @@ export function serializePublicAction(action: Action): PublicActionMetadata {
     goalKas: goal !== null && goal !== undefined ? formatSompiToKaspa(goal) : null,
     goalSompi: goal !== null && goal !== undefined ? goal.toString() : null,
     message: action.message,
+    invoicePaid: action.type === ActionType.KASPA_INVOICE && action.invoicePaidAt !== null,
+    invoicePaidAt: action.invoicePaidAt?.toISOString() ?? null,
     network: action.network === "TESTNET" ? "testnet" : "mainnet",
     noteRequired: action.noteRequired,
     publicId: action.publicId,

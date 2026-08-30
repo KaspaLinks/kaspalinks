@@ -42,3 +42,8 @@ export {
   type ToccataSmokeStep,
   type ToccataSmokeStepStatus,
 } from "./toccata";
+export {
+  TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
+  TOCCATA_BATCH_MIN_OUTPUTS,
+  TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES,
+} from "./toccata-constants";

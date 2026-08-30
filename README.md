@@ -13,6 +13,7 @@ move wallet-to-wallet without custody.
 
 - Mobile-first public payment pages with QR, copy, Kaspium handoff, and KasWare support
 - Tips, donations, invoices, transfers, and fundraising goals
+- Closed-beta Telegram Agent for creator commands and payment notifications
 - Public creator profiles with human-readable `/u/:username/:slug` links
 - Creator dashboard, link management, receipts, conversion analytics, and supporter wall
 - Claimable Kaspa links with one-time funding addresses, browser-side claim/refund signing, expiry,
@@ -105,6 +106,7 @@ See [Local development](./docs/local-development.md) for environment and databas
 | Creator tools               | [docs/creator-dashboard.md](./docs/creator-dashboard.md)       |
 | Wallet compatibility        | [docs/wallet-compatibility.md](./docs/wallet-compatibility.md) |
 | On-chain detection          | [docs/chain-detection.md](./docs/chain-detection.md)           |
+| Telegram Agent              | [docs/agent.md](./docs/agent.md)                               |
 | Operator analytics          | [docs/operator-analytics.md](./docs/operator-analytics.md)     |
 | Deployment                  | [docs/deployment.md](./docs/deployment.md)                     |
 | Local development           | [docs/local-development.md](./docs/local-development.md)       |

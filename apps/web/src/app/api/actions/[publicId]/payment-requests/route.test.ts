@@ -4,6 +4,7 @@ import { resetRateLimits } from "@/lib/rate-limit";
 
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
+    $transaction: vi.fn(),
     auditLog: {
       create: vi.fn(),
     },
@@ -15,6 +16,10 @@ const { mockPrisma } = vi.hoisted(() => ({
       create: vi.fn(),
     },
   },
+}));
+
+vi.mock("@kaspa-actions/application", () => ({
+  lockActionPaymentLifecycle: vi.fn(),
 }));
 
 vi.mock("@kaspa-actions/db", () => ({
@@ -73,6 +78,7 @@ function action(
     goalAutoClose: false,
     goalSompi: null,
     id: "action-1",
+    invoicePaidAt: null,
     message: null,
     network: "MAINNET",
     noteRequired: false,
@@ -115,6 +121,9 @@ describe("POST /api/actions/:publicId/payment-requests", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     resetRateLimits();
+    mockPrisma.$transaction.mockImplementation(
+      async (callback: (tx: typeof mockPrisma) => unknown) => callback(mockPrisma),
+    );
   });
 
   it("stores optional supporter messages separately from wallet URI messages", async () => {
@@ -282,6 +291,19 @@ describe("POST /api/actions/:publicId/payment-requests", () => {
 
     expect(response.status).toBe(201);
     expect(mockPrisma.paymentRequest.create).toHaveBeenCalled();
+  });
+
+  it("rejects terminal invoices before and during the locked create transaction", async () => {
+    mockPrisma.action.findUnique
+      .mockResolvedValueOnce(action({ type: "KASPA_INVOICE" }))
+      .mockResolvedValueOnce({ invoicePaidAt: new Date("2026-08-30T10:00:00.000Z") });
+
+    const response = await POST(request({}), routeContext());
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("INVOICE_PAID");
+    expect(mockPrisma.paymentRequest.create).not.toHaveBeenCalled();
   });
 
   it("returns JSON for unsupported methods", async () => {

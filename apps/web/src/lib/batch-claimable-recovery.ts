@@ -60,6 +60,8 @@ export const batchRecordSchema = z.object({
   createdAt: z.string().datetime(),
   createdAtMs: z.number().int().positive(),
   id: z.string().min(1).max(120),
+  // Legacy 9/10-link bundles remain readable so creators can inspect their
+  // browser-held recovery data. New creation is capped separately.
   links: z.array(batchLinkSchema).min(2).max(10),
   batchManifestRegisteredAt: z.string().datetime().optional(),
   recoveryExportedAt: z.string().datetime().optional(),
@@ -104,7 +106,12 @@ export function readBatchRecoveryTarget(search: string): BatchRecoveryTarget | n
 }
 
 export function shortBatchReference(batchKey: string): string {
-  return batchKey.replace(/^batch-/, "").split("-")[0]?.slice(0, 12) || batchKey.slice(0, 12);
+  return (
+    batchKey
+      .replace(/^batch-/, "")
+      .split("-")[0]
+      ?.slice(0, 12) || batchKey.slice(0, 12)
+  );
 }
 
 export function assertBatchMatchesRecoveryTarget(

@@ -10,13 +10,13 @@ When enabled, the public `GET /api/payment-requests/:id/status` endpoint additio
 2. When no wallet transaction id is available, looks up recent transactions for the PaymentRequest's `recipientAddress` via the same indexer.
 3. Filters for **accepted** transactions whose outputs match `(recipientAddress, amountSompi)` exactly and whose `block_time` is at or after the PaymentRequest was created (with a small clock-skew tolerance). For **variable-amount Actions** (`PaymentRequest.amountSompi === null`) any positive-value output to the recipient counts; the matched value is stored on the PaymentRequest at confirmation time.
 4. If one matching transaction is already claimed by another PaymentRequest, continues scanning the remaining candidate outputs instead of stopping at the first hit. This matters when several same-amount tips reach the same creator address close together.
-5. On a match, atomically writes `status = CONFIRMED`, `txId = <on-chain id>`, `confirmedAt = now()`, and `detectionSource = <provider id>` only while the row is still `PENDING`, plus an `AuditLog` entry `payment_request.chain_confirmed`. Lazy expiry uses the same conditional transition, so concurrent polls cannot overwrite each other.
+5. On a match, atomically writes `status = CONFIRMED`, `txId = <on-chain id>`, `confirmedAt = now()`, and `detectionSource = <provider id>` only while the row is still `PENDING`, plus an `AuditLog`, unique Payment Event, Invoice closure when applicable, and optional Telegram Outbox row. Lazy expiry uses the same conditional transition, so concurrent polls cannot overwrite each other.
 6. Returns the now-confirmed PaymentRequest in the same response.
 
-The indexer is queried **only on demand** (during a status read), with a per-request cooldown of
-1.5 seconds. There is no background worker. Payment status checks use a fresh indexer read so a
-just-broadcast transaction is not hidden behind stale dashboard caches; creator receipt views keep
-their separate 30-second shared cache.
+When `AGENT_WORKER_ENABLED=true`, the private Agent Worker also scans due Pending Payment Requests.
+It starts near a three-second interval and applies bounded backoff. Public status reads retain a
+per-request 1.5-second cooldown and can still confirm independently through the same atomic service.
+Creator receipt views keep their separate 30-second shared cache.
 
 The flow does **not**:
 

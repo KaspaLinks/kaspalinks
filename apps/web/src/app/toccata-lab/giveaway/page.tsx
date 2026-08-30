@@ -11,6 +11,12 @@ export const metadata: Metadata = {
   title: "Private Giveaway Lab",
 };
 
-export default function GiveawayLabPage() {
-  return <GiveawayLabClient enabled={isGiveawayLabEnabled()} />;
+export default async function GiveawayLabPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ draft?: string | string[] }>;
+}) {
+  const query = await searchParams;
+  const draftId = typeof query.draft === "string" ? query.draft : undefined;
+  return <GiveawayLabClient draftId={draftId} enabled={isGiveawayLabEnabled()} />;
 }

@@ -352,7 +352,7 @@ export default function Home() {
             <span className="use-case-tag">Gifts, giveaways &amp; rewards</span>
             <h3 className="use-case-title">Claimable links &amp; drops</h3>
             <p className="use-case-body">
-              Create one reward or a drop of up to 10 separate claim links. Fund a drop once, share
+              Create one reward or a drop of up to 8 separate claim links. Fund a drop once, share
               every link individually, and privately recover any KAS left unclaimed after expiry.
             </p>
           </Link>

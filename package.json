@@ -15,7 +15,7 @@
     "format:write": "prettier --write .",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
-    "typecheck": "pnpm db:generate && tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/kaspa/tsconfig.json --noEmit && tsc -p packages/kaspa-indexer/tsconfig.json --noEmit && tsc -p packages/embed-button/tsconfig.json --noEmit && tsc -p packages/sdk/tsconfig.json --noEmit && tsc -p packages/wallet-adapter/tsconfig.json --noEmit && tsc -p packages/db/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit"
+    "typecheck": "pnpm db:generate && tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/kaspa/tsconfig.json --noEmit && tsc -p packages/kaspa-indexer/tsconfig.json --noEmit && tsc -p packages/embed-button/tsconfig.json --noEmit && tsc -p packages/sdk/tsconfig.json --noEmit && tsc -p packages/wallet-adapter/tsconfig.json --noEmit && tsc -p packages/db/tsconfig.json --noEmit && tsc -p packages/application/tsconfig.json --noEmit && tsc -p packages/agent/tsconfig.json --noEmit && tsc -p apps/agent-worker/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit"
   },
   "prisma": {
     "seed": "tsx packages/db/src/seed.ts"

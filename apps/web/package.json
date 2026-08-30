@@ -8,6 +8,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@kaspa-actions/agent": "workspace:*",
+    "@kaspa-actions/application": "workspace:*",
     "@kaspa-actions/db": "workspace:*",
     "@kaspa-actions/kaspa": "workspace:*",
     "@kaspa-actions/kaspa-indexer": "workspace:*",

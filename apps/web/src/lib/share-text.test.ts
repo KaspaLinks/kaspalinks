@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCreatorProfilePath,
+  buildGiveawayXPostText,
+  buildGiveawayWinnerXPostText,
   buildProfileXPostText,
   buildXBioText,
   buildXIntentUrl,
@@ -67,5 +69,27 @@ describe("share text helpers", () => {
     expect(text).toContain("Support me directly with KAS.");
     expect(text).toContain("No extension. No custody. Wallet-to-wallet.");
     expect(text).toContain("https://kaspalinks.com/u/peter");
+  });
+
+  it("uses the $KAS ticker in giveaway X posts", () => {
+    expect(buildGiveawayXPostText({ amountKas: "25", title: "Weekend giveaway" })).toBe(
+      "Weekend giveaway — enter for a chance to win 25 $KAS.",
+    );
+  });
+
+  it("builds a compact giveaway winner announcement with the result URL", () => {
+    const text = buildGiveawayWinnerXPostText({
+      amountKas: "25",
+      shareUrl: "https://kaspalinks.com/toccata-lab/giveaway/example",
+      title: "Weekend giveaway",
+      winnerAddress: "kaspa:qpy6l7q6apd79nqw00drvjtr83hrj95ma582r0g24ttlpuh57hmecd09de4en",
+    });
+
+    expect(text).toContain("🎉 We have a winner!");
+    expect(text).toContain("kaspa:qpy6l7q6…ecd09de4en won 25 $KAS");
+    expect(text).toContain("https://kaspalinks.com/toccata-lab/giveaway/example");
+    expect(text).not.toContain(
+      "kaspa:qpy6l7q6apd79nqw00drvjtr83hrj95ma582r0g24ttlpuh57hmecd09de4en",
+    );
   });
 });

@@ -28,8 +28,10 @@ export type GiveawayWithPrizeState = {
   entryWindowSeconds: null | number;
   id: string;
   openedAt: Date | null;
+  prizeClaimTransactionId: null | string;
   prizeLink: GiveawayPrizeLinkState | null;
   status: string;
+  winnerAddress: null | string;
 };
 
 export async function reconcileGiveawayPrize<T extends GiveawayWithPrizeState>(
@@ -40,6 +42,24 @@ export async function reconcileGiveawayPrize<T extends GiveawayWithPrizeState>(
   if (!giveaway.prizeLink) return giveaway;
 
   let prizeLink = { ...giveaway.prizeLink };
+
+  // A giveaway payout is valid only when the creator first prepared a signed
+  // transaction fixed to the selected winner. A generic claim of the same
+  // output must never be presented as "claimed by winner".
+  if (
+    prizeLink.claimTxId &&
+    prizeLink.claimTxId.toLowerCase() !== giveaway.prizeClaimTransactionId?.toLowerCase()
+  ) {
+    if (prizeLink.status !== "spent_unknown") {
+      await prisma.claimableLink.update({
+        data: { status: "spent_unknown" },
+        where: { id: prizeLink.id },
+      });
+      prizeLink = { ...prizeLink, status: "spent_unknown" };
+    }
+    return { ...giveaway, prizeLink };
+  }
+
   const lastRefresh = lastRefreshByLink.get(prizeLink.id) ?? 0;
   if (options.force || now.getTime() - lastRefresh >= REFRESH_THROTTLE_MS) {
     lastRefreshByLink.set(prizeLink.id, now.getTime());

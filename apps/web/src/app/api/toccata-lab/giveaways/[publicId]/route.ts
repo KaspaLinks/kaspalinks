@@ -163,6 +163,13 @@ export async function GET(_request: Request, context: { params: Promise<{ public
     }
   }
 
+  const verifiedWinnerPayout = Boolean(
+    reconciled.prizeLink?.status === "claimed" &&
+    reconciled.prizeLink.claimTxId &&
+    reconciled.prizeLink.claimTxId.toLowerCase() ===
+      reconciled.prizeClaimTransactionId?.toLowerCase(),
+  );
+
   return apiJson({
     giveaway: {
       amountKas: formatSompiToKaspa(reconciled.amountSompi),
@@ -203,16 +210,16 @@ export async function GET(_request: Request, context: { params: Promise<{ public
       prize:
         reconciled.prizeLink && reconciled.prizeLink.fundingTxId
           ? {
-              claimTxId: reconciled.prizeLink.claimTxId,
+              claimTxId: verifiedWinnerPayout ? reconciled.prizeLink.claimTxId : null,
               fundingAddress: reconciled.prizeLink.fundingAddress,
               fundingTxId: reconciled.prizeLink.fundingTxId,
-              paidOut: reconciled.prizeLink.status === "claimed",
+              paidOut: verifiedWinnerPayout,
             }
           : null,
       winnerClaim: {
         expiresAt: reconciled.winnerClaimExpiresAt?.toISOString() ?? null,
         prepared: reconciled.prizeClaimTransactionSafeJson !== null,
-        transactionId: reconciled.prizeLink?.claimTxId ?? null,
+        transactionId: verifiedWinnerPayout ? (reconciled.prizeLink?.claimTxId ?? null) : null,
       },
       publicId: reconciled.publicId,
       status: effectiveGiveawayStatus(

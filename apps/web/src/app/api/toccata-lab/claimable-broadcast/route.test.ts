@@ -135,6 +135,7 @@ function registeredLink(overrides: Record<string, unknown> = {}) {
     fundingOutputIndex: 0,
     fundingTxId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
     id: "claimable-1",
+    prizeForGiveaway: null,
     redeemScriptHex: REDEEM_SCRIPT_HEX,
     refundLockTime: REFUND_LOCK_TIME,
     refundPublicKey: REFUND_PUBLIC_KEY,
@@ -240,6 +241,33 @@ describe("POST /api/toccata-lab/claimable-broadcast", () => {
         code: "INVALID_STATE",
         message:
           "Claim window has expired. This link can no longer be claimed through Kaspa Links.",
+      },
+    });
+  });
+
+  it("rejects the generic claim path for a giveaway prize", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubGlobal("fetch", fetchMock);
+    mockPrisma.claimableLink.findUnique.mockResolvedValue(
+      registeredLink({ prizeForGiveaway: { publicId: "giveaway-1" } }),
+    );
+
+    const response = await POST(
+      broadcastRequest({
+        expectedTransactionId: SIGNED_TRANSACTION_ID,
+        linkKey: LINK_KEY,
+        transactionSafeJson: SIGNED_TRANSACTION_SAFE_JSON,
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(mockIndexer.findTransactionPayment).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INVALID_STATE",
+        message:
+          "This output backs a giveaway and can only be paid through its fixed winner claim.",
       },
     });
   });

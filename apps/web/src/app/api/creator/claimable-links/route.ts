@@ -147,7 +147,11 @@ export async function GET(request: Request) {
   if (!guard.ok) return guard.response;
 
   const links = await prisma.claimableLink.findMany({
-    where: { creatorId: guard.creator.id, deletedAt: null },
+    where: {
+      creatorId: guard.creator.id,
+      deletedAt: null,
+      prizeForGiveaway: null,
+    },
     orderBy: { createdAt: "desc" },
     take: 200,
   });

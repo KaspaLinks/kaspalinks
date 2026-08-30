@@ -325,10 +325,10 @@ export default function TryItOutPage() {
           <span className="label">Gifts, giveaways &amp; rewards</span>
           <h2>A claimable link or claim drop</h2>
           <p>
-            Create one claimable reward, or prepare 2 to 10 separate links as a Claim Drop. A drop
-            is funded once, but every recipient gets an individual link and on-chain output. The
-            first person with each link can claim it; after expiry, your private recovery data lets
-            you refund any link that was not claimed.
+            Create one claimable reward, or prepare 2 to 8 separate links as a Claim Drop. A drop is
+            funded once, but every recipient gets an individual link and on-chain output. The first
+            person with each link can claim it; after expiry, your private recovery data lets you
+            refund any link that was not claimed.
           </p>
           <div className="row use-case-guide-actions">
             <Link className="btn btn-primary" href="/claim/create">

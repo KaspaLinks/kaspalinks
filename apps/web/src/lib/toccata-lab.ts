@@ -7,6 +7,7 @@ import {
   createToccataSafeJsonSmokePrototype,
   formatSompiToKaspa,
   parseKaspaAmountToSompi,
+  TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
   TOCCATA_REQUIRED_CAPABILITIES,
   validateKaspaAddress,
   type ToccataPsktSmokePrototype,
@@ -147,7 +148,10 @@ export const toccataBatchClaimableScriptInputSchema = z.object({
   links: z
     .array(toccataClaimableScriptKeysSchema)
     .min(2, "A batch needs at least two links.")
-    .max(10, "The batch claim flow is limited to ten links."),
+    .max(
+      TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
+      `The batch claim flow is limited to ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} links.`,
+    ),
   refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
 });
 
@@ -158,7 +162,10 @@ export const toccataBatchAllocatorScriptInputSchema = z.object({
   outputs: z
     .array(toccataBatchAllocatorOutputSchema)
     .min(2, "A batch allocator needs at least two outputs.")
-    .max(10, "The batch allocator lab is limited to ten outputs."),
+    .max(
+      TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
+      `The batch allocator is limited to ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} outputs.`,
+    ),
   refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
   refundPublicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, "Refund public key must be 32-byte hex."),
 });
@@ -188,7 +195,7 @@ export const registeredClaimableBatchInputSchema = z
       message: "Funding address must be a valid mainnet kaspa: address.",
     }),
     fundingAmountSompi: z.string().regex(/^[0-9]+$/, "Funding amount must be whole sompi."),
-    outputs: z.array(registeredBatchOutputSchema).min(2).max(10),
+    outputs: z.array(registeredBatchOutputSchema).min(2).max(TOCCATA_BATCH_MAX_SAFE_OUTPUTS),
     redeemScriptHex: z
       .string()
       .regex(/^[0-9a-fA-F]+$/, "Batch redeem script must be hex.")
@@ -789,8 +796,14 @@ export function readBatchActivationBroadcastSafeJsonSummary(
   if (!Array.isArray(parsed.inputs) || parsed.inputs.length !== 1) {
     throw new Error("Batch activation accepts exactly one signed batch input.");
   }
-  if (!Array.isArray(parsed.outputs) || parsed.outputs.length < 2 || parsed.outputs.length > 10) {
-    throw new Error("Batch activation must create between 2 and 10 outputs.");
+  if (
+    !Array.isArray(parsed.outputs) ||
+    parsed.outputs.length < 2 ||
+    parsed.outputs.length > TOCCATA_BATCH_MAX_SAFE_OUTPUTS
+  ) {
+    throw new Error(
+      `Batch activation must create between 2 and ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} outputs.`,
+    );
   }
   if (!isHexString(parsed.subnetworkId, 40)) {
     throw new Error("Signed batch activation JSON is missing a valid subnetwork id.");

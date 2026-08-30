@@ -24,12 +24,16 @@ import { estimateClaimableExpiry } from "@/lib/claimable-expiry";
 import { MIN_RELIABLE_MAINNET_OUTPUT_KAS } from "@/lib/mainnet-amount-policy";
 import {
   buildCreatorProfilePath,
+  buildGiveawayXPostText,
+  buildGiveawayWinnerXPostText,
   buildXBioText,
   buildXIntentUrl,
   buildXPostText,
 } from "@/lib/share-text";
 
 import { SESSION_EVENT } from "../BrandNav";
+import { giveawayDisplayState } from "./giveaway-status";
+import { groupRegularLinks } from "./grouping";
 
 const TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
 const USERNAME_STORAGE_KEY = "kaspa-actions:creator-username";
@@ -59,6 +63,47 @@ type CreatorLink = {
   type: string;
 };
 
+type CreatorGiveaway = {
+  amountKas: string;
+  closesAt: string;
+  createdAt: string;
+  description: null | string;
+  entryCount: number;
+  prize: null | {
+    claimTxId: null | string;
+    funded: boolean;
+    fundingTxId: null | string;
+    linkKey: string;
+    status: string;
+  };
+  publicId: string;
+  publicUrl: string;
+  status: "CANCELLED" | "CLOSED" | "DRAWN" | "NO_ENTRIES" | "OPEN" | "PENDING_FUNDING";
+  title: string;
+  winnerClaim: {
+    expiresAt: null | string;
+    preparedTransactionId: null | string;
+  };
+  winnerAddress: null | string;
+};
+
+type GiveawayAnalytics = {
+  error: null | string;
+  loading: boolean;
+  referrers: Array<{
+    count: number;
+    label: string;
+  }>;
+  uniqueVisitors: {
+    last7d: number;
+    total: number;
+  };
+  views: {
+    last7d: number;
+    total: number;
+  };
+};
+
 type LinkTypeFilter =
   | "all"
   | "kaspa.tip"
@@ -66,16 +111,18 @@ type LinkTypeFilter =
   | "kaspa.invoice"
   | "kaspa.transfer"
   | "kaspa.goal"
-  | "kaspa.claimable";
+  | "kaspa.claimable"
+  | "kaspa.giveaway";
 
 const LINK_TYPE_FILTERS: Array<{ label: string; value: LinkTypeFilter }> = [
   { label: "All", value: "all" },
+  { label: "Goal", value: "kaspa.goal" },
   { label: "Tip", value: "kaspa.tip" },
   { label: "Donation", value: "kaspa.donation" },
   { label: "Invoice", value: "kaspa.invoice" },
   { label: "Transfer", value: "kaspa.transfer" },
-  { label: "Goal", value: "kaspa.goal" },
   { label: "Claimable", value: "kaspa.claimable" },
+  { label: "Giveaway", value: "kaspa.giveaway" },
 ];
 
 type EditForm = {
@@ -183,6 +230,16 @@ const TYPE_LABELS: Record<string, string> = {
 
 function typeLabel(type: string): string {
   return TYPE_LABELS[type] ?? type.replace(/^kaspa\./, "");
+}
+
+function isGiveawayFinished(status: CreatorGiveaway["status"]): boolean {
+  return status === "DRAWN" || status === "NO_ENTRIES" || status === "CANCELLED";
+}
+
+function giveawayHasUnresolvedPrize(giveaway: CreatorGiveaway): boolean {
+  return Boolean(
+    giveaway.prize?.funded && !["claimed", "refunded"].includes(giveaway.prize.status),
+  );
 }
 
 function formatAnalyticsRate(rate: number): string {
@@ -324,6 +381,73 @@ function LinkAnalyticsMetrics({ analyticsState }: { analyticsState: LinkAnalytic
         </p>
       ) : null}
     </>
+  );
+}
+
+function GiveawayAnalyticsDetails({
+  analyticsState,
+  entryCount,
+}: {
+  analyticsState: GiveawayAnalytics | undefined;
+  entryCount: number;
+}) {
+  const views = analyticsState?.views.total ?? 0;
+  const entryRate = views > 0 ? entryCount / views : 0;
+  const summary = analyticsState?.loading
+    ? "Loading views…"
+    : analyticsState?.error
+      ? "Views unavailable"
+      : `${formatAnalyticsCount(views)} ${views === 1 ? "view" : "views"}`;
+
+  return (
+    <details className="giveaway-mylinks-details">
+      <summary>
+        <span>Analytics</span>
+        <span>{summary}</span>
+      </summary>
+      <div className="giveaway-mylinks-details-body">
+        {analyticsState?.error ? (
+          <p className="error-text">{analyticsState.error}</p>
+        ) : (
+          <>
+            <div className="giveaway-mylinks-analytics-grid">
+              <div>
+                <span className="label">Views</span>
+                <strong>{formatAnalyticsCount(views)}</strong>
+                <small>
+                  {ANALYTICS_WINDOW_LABEL} · +{analyticsState?.views.last7d ?? 0} last 7d
+                </small>
+              </div>
+              <div>
+                <span className="label">Visitors</span>
+                <strong>{formatAnalyticsCount(analyticsState?.uniqueVisitors.total ?? 0)}</strong>
+                <small>
+                  daily estimate · +{analyticsState?.uniqueVisitors.last7d ?? 0} last 7d
+                </small>
+              </div>
+              <div>
+                <span className="label">Entries</span>
+                <strong>{formatAnalyticsCount(entryCount)}</strong>
+                <small>valid addresses entered</small>
+              </div>
+              <div>
+                <span className="label">Entry rate</span>
+                <strong>{formatAnalyticsRate(entryRate)}</strong>
+                <small>entries from views</small>
+              </div>
+            </div>
+            {analyticsState?.referrers.length ? (
+              <p className="giveaway-mylinks-referrers">
+                Top referrers:{" "}
+                {analyticsState.referrers
+                  .map((referrer) => `${referrer.label} (${referrer.count})`)
+                  .join(", ")}
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -673,6 +797,12 @@ export function MyLinksClient() {
 
   const [links, setLinks] = useState<CreatorLink[]>([]);
   const [loadingList, setLoadingList] = useState(false);
+  const [giveaways, setGiveaways] = useState<CreatorGiveaway[]>([]);
+  const [giveawayAnalytics, setGiveawayAnalytics] = useState<Record<string, GiveawayAnalytics>>({});
+  const [loadingGiveaways, setLoadingGiveaways] = useState(false);
+  const [giveawayDeleteTarget, setGiveawayDeleteTarget] = useState<CreatorGiveaway | null>(null);
+  const [deletingGiveaway, setDeletingGiveaway] = useState(false);
+  const [giveawayDeleteError, setGiveawayDeleteError] = useState<null | string>(null);
   const [listError, setListError] = useState<null | string>(null);
   const [status, setStatus] = useState<null | string>(null);
   const [payments, setPayments] = useState<Record<string, PaymentState>>({});
@@ -738,6 +868,7 @@ export function MyLinksClient() {
   }>(null);
   const [claimableQrLoadingId, setClaimableQrLoadingId] = useState("");
   const claimableLoadInFlightRef = useRef<Promise<void> | null>(null);
+  const giveawayLoadInFlightRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -825,6 +956,98 @@ export function MyLinksClient() {
     [authHeaders, signedIn],
   );
 
+  const loadGiveaways = useCallback(
+    (showLoading = true): Promise<void> => {
+      if (!signedIn) return Promise.resolve();
+      if (giveawayLoadInFlightRef.current) return giveawayLoadInFlightRef.current;
+
+      if (showLoading) setLoadingGiveaways(true);
+      const request = fetch("/api/toccata-lab/giveaways", {
+        cache: "no-store",
+        headers: authHeaders,
+      })
+        .then(async (response) => {
+          const body = await response.json().catch(() => null);
+          if (!response.ok || !body || !Array.isArray(body.giveaways)) return;
+          const loadedGiveaways = body.giveaways as CreatorGiveaway[];
+          setGiveaways(loadedGiveaways);
+          setGiveawayAnalytics(
+            Object.fromEntries(
+              loadedGiveaways.map((giveaway) => [
+                giveaway.publicId,
+                {
+                  error: null,
+                  loading: true,
+                  referrers: [],
+                  uniqueVisitors: { last7d: 0, total: 0 },
+                  views: { last7d: 0, total: 0 },
+                },
+              ]),
+            ),
+          );
+
+          try {
+            const analyticsResponse = await fetch("/api/creator/giveaway-analytics", {
+              cache: "no-store",
+              headers: authHeaders,
+            });
+            const analyticsBody = await analyticsResponse.json().catch(() => null);
+            if (!analyticsResponse.ok) {
+              throw new Error(
+                analyticsBody?.error?.message ?? "Could not load giveaway analytics.",
+              );
+            }
+            const analyticsStates = analyticsBody?.analytics ?? {};
+            setGiveawayAnalytics(
+              Object.fromEntries(
+                loadedGiveaways.map((giveaway) => {
+                  const state = analyticsStates[giveaway.publicId];
+                  return [
+                    giveaway.publicId,
+                    {
+                      error: null,
+                      loading: false,
+                      referrers: state?.referrers ?? [],
+                      uniqueVisitors: state?.uniqueVisitors ?? { last7d: 0, total: 0 },
+                      views: state?.views ?? { last7d: 0, total: 0 },
+                    },
+                  ];
+                }),
+              ),
+            );
+          } catch (caught) {
+            const message =
+              caught instanceof Error ? caught.message : "Could not load giveaway analytics.";
+            setGiveawayAnalytics(
+              Object.fromEntries(
+                loadedGiveaways.map((giveaway) => [
+                  giveaway.publicId,
+                  {
+                    error: message,
+                    loading: false,
+                    referrers: [],
+                    uniqueVisitors: { last7d: 0, total: 0 },
+                    views: { last7d: 0, total: 0 },
+                  },
+                ]),
+              ),
+            );
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (giveawayLoadInFlightRef.current === request) {
+            giveawayLoadInFlightRef.current = null;
+          }
+          if (showLoading) setLoadingGiveaways(false);
+        });
+
+      giveawayLoadInFlightRef.current = request;
+      return request;
+    },
+    [authHeaders, signedIn],
+  );
+
   useEffect(() => {
     if (!signedIn) return;
     const refresh = () => {
@@ -840,16 +1063,32 @@ export function MyLinksClient() {
     };
   }, [loadClaimableLinks, signedIn]);
 
-  const mergedClaimable = useMemo(
-    () =>
-      mergeClaimable(
-        dbClaimableBatches,
-        dbClaimableLinks,
-        claimableRecords,
-        deletedClaimableLinkKeys,
-      ),
-    [claimableRecords, dbClaimableBatches, dbClaimableLinks, deletedClaimableLinkKeys],
-  );
+  useEffect(() => {
+    if (!signedIn) return;
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadGiveaways(false);
+    };
+
+    void loadGiveaways(true);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [loadGiveaways, signedIn]);
+
+  const mergedClaimable = useMemo(() => {
+    const giveawayPrizeKeys = new Set(
+      giveaways.flatMap((giveaway) => (giveaway.prize ? [giveaway.prize.linkKey] : [])),
+    );
+    return mergeClaimable(
+      dbClaimableBatches,
+      dbClaimableLinks,
+      claimableRecords,
+      deletedClaimableLinkKeys,
+    ).filter((record) => !giveawayPrizeKeys.has(record.linkKey));
+  }, [claimableRecords, dbClaimableBatches, dbClaimableLinks, deletedClaimableLinkKeys, giveaways]);
   const claimableStats = useMemo(
     () =>
       computeClaimableStats(mergedClaimable, {
@@ -1071,9 +1310,7 @@ export function MyLinksClient() {
           )
         : [];
       const deletedKeySet = new Set(deletedLinkKeys);
-      setDbClaimableLinks((current) =>
-        current.filter((link) => !deletedKeySet.has(link.linkKey)),
-      );
+      setDbClaimableLinks((current) => current.filter((link) => !deletedKeySet.has(link.linkKey)));
       setDbClaimableBatches((current) =>
         current.filter((batch) => batch.batchKey !== claimableBatchDeleteTarget.batchKey),
       );
@@ -1105,12 +1342,7 @@ export function MyLinksClient() {
     } finally {
       setDeletingClaimableBatch(false);
     }
-  }, [
-    authHeaders,
-    claimableBatchDeleteTarget,
-    claimableRecords,
-    deletingClaimableBatch,
-  ]);
+  }, [authHeaders, claimableBatchDeleteTarget, claimableRecords, deletingClaimableBatch]);
 
   const deleteSelectedClaimableLinks = useCallback(async () => {
     if (selectedDeletableClaimables.length === 0) return;
@@ -1402,6 +1634,39 @@ export function MyLinksClient() {
     }
   }, []);
 
+  const deleteGiveaway = useCallback(async () => {
+    if (!giveawayDeleteTarget || deletingGiveaway) return;
+
+    setDeletingGiveaway(true);
+    setGiveawayDeleteError(null);
+    setListError(null);
+    setStatus(null);
+    try {
+      const response = await fetch(
+        `/api/toccata-lab/giveaways/${encodeURIComponent(giveawayDeleteTarget.publicId)}`,
+        { headers: authHeaders, method: "DELETE" },
+      );
+      const body = (await response.json().catch(() => null)) as null | {
+        deleted?: boolean;
+        error?: { message?: string };
+      };
+      if (!response.ok || !body?.deleted) {
+        setGiveawayDeleteError(body?.error?.message ?? "Giveaway could not be deleted.");
+        return;
+      }
+
+      setGiveaways((current) =>
+        current.filter((giveaway) => giveaway.publicId !== giveawayDeleteTarget.publicId),
+      );
+      setGiveawayDeleteTarget(null);
+      setStatus("Giveaway deleted. No funds or on-chain records were moved.");
+    } catch {
+      setGiveawayDeleteError("Network error while deleting the giveaway.");
+    } finally {
+      setDeletingGiveaway(false);
+    }
+  }, [authHeaders, deletingGiveaway, giveawayDeleteTarget]);
+
   async function toggleClaimableQr(record: MergedClaimable, claimUrl: string) {
     if (claimableQr?.linkKey === record.linkKey) {
       setClaimableQr(null);
@@ -1577,7 +1842,7 @@ export function MyLinksClient() {
   const filteredLinks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return links.filter((link) => {
-      if (typeFilter === "kaspa.claimable") return false;
+      if (typeFilter === "kaspa.claimable" || typeFilter === "kaspa.giveaway") return false;
       if (typeFilter !== "all" && link.type !== typeFilter) return false;
 
       const matchesStatus =
@@ -1600,6 +1865,10 @@ export function MyLinksClient() {
         .includes(normalizedQuery);
     });
   }, [links, profileFilter, query, statusFilter, typeFilter]);
+  const groupedRegularLinks = useMemo(() => groupRegularLinks(filteredLinks), [filteredLinks]);
+  const regularLinkFilterSelected =
+    typeFilter !== "kaspa.claimable" && typeFilter !== "kaspa.giveaway";
+  const totalOwnedLinks = links.length + mergedClaimable.length + giveaways.length;
 
   // The link the creator just made, resolved against the loaded list. Null
   // until the list arrives (or after the banner is dismissed).
@@ -1687,11 +1956,13 @@ export function MyLinksClient() {
           </Link>
           <button
             className="btn"
-            disabled={loadingList || loadingClaimables}
-            onClick={() => void Promise.all([loadLinks(), loadClaimableLinks(true)])}
+            disabled={loadingList || loadingClaimables || loadingGiveaways}
+            onClick={() =>
+              void Promise.all([loadLinks(), loadClaimableLinks(true), loadGiveaways(true)])
+            }
             type="button"
           >
-            {loadingList || loadingClaimables ? "Refreshing..." : "Refresh"}
+            {loadingList || loadingClaimables || loadingGiveaways ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </section>
@@ -1803,50 +2074,47 @@ export function MyLinksClient() {
       {listError ? <p className="error-text">{listError}</p> : null}
       {status ? <p className="muted">{status}</p> : null}
 
-      {(loadingList || loadingClaimables) && links.length === 0 && mergedClaimable.length === 0 ? (
+      {(loadingList || loadingClaimables || loadingGiveaways) && totalOwnedLinks === 0 ? (
         <section className="card">
           <p className="muted" style={{ margin: 0 }}>
             Loading your links...
           </p>
         </section>
-      ) : links.length === 0 && mergedClaimable.length === 0 ? (
+      ) : totalOwnedLinks === 0 ? (
         <section className="card">
           <p className="muted" style={{ margin: 0 }}>
             You don&apos;t have any links yet. <Link href="/new-link">Create your first link</Link>.
           </p>
         </section>
-      ) : links.length === 0 ? (
-        <section className="card">
-          <p className="muted" style={{ margin: 0 }}>
-            You don&apos;t have any regular payment links yet. Your claimable links are listed
-            below.
-          </p>
-        </section>
       ) : (
         <>
           <section className="card link-filters">
-            <div>
-              <label className="label" htmlFor="link-search">
-                Search links
-              </label>
-              <input
-                id="link-search"
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Title, slug, address, or type"
-                type="search"
-                value={query}
-              />
-            </div>
+            {regularLinkFilterSelected ? (
+              <div>
+                <label className="label" htmlFor="link-search">
+                  Search payment links
+                </label>
+                <input
+                  id="link-search"
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Title, slug, address, or type"
+                  type="search"
+                  value={query}
+                />
+              </div>
+            ) : null}
             <div>
               <span className="label">Type</span>
               <div className="segmented-control" role="group" aria-label="Filter links by type">
                 {LINK_TYPE_FILTERS.map((option) => {
                   const count =
                     option.value === "all"
-                      ? links.length + mergedClaimable.length
+                      ? totalOwnedLinks
                       : option.value === "kaspa.claimable"
                         ? mergedClaimable.length
-                        : links.filter((link) => link.type === option.value).length;
+                        : option.value === "kaspa.giveaway"
+                          ? giveaways.length
+                          : links.filter((link) => link.type === option.value).length;
                   return (
                     <button
                       className={typeFilter === option.value ? "is-active" : ""}
@@ -1860,613 +2128,671 @@ export function MyLinksClient() {
                 })}
               </div>
             </div>
-            <div>
-              <span className="label">Status</span>
-              <div className="segmented-control" role="group" aria-label="Filter links by status">
-                {(["all", "active", "disabled"] as const).map((value) => (
-                  <button
-                    className={statusFilter === value ? "is-active" : ""}
-                    key={value}
-                    onClick={() => setStatusFilter(value)}
-                    type="button"
-                  >
-                    {value === "all"
-                      ? `All (${links.length})`
-                      : value === "active"
-                        ? `Active (${links.filter((link) => link.disabledAt === null).length})`
-                        : `Disabled (${links.filter((link) => link.disabledAt !== null).length})`}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <span className="label">Profile</span>
-              <div
-                className="segmented-control"
-                role="group"
-                aria-label="Filter links by profile visibility"
-              >
-                {(["all", "visible", "hidden"] as const).map((value) => (
-                  <button
-                    className={profileFilter === value ? "is-active" : ""}
-                    key={value}
-                    onClick={() => setProfileFilter(value)}
-                    type="button"
-                  >
-                    {value === "all"
-                      ? `All (${links.length})`
-                      : value === "visible"
-                        ? `On profile (${profileVisibleCount})`
-                        : `Not on profile (${profileHiddenCount})`}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {filteredLinks.length === 0 &&
-          !(typeFilter === "kaspa.claimable" && mergedClaimable.length > 0) ? (
-            <section className="card">
-              <p className="muted" style={{ margin: 0 }}>
-                No links match this filter.
-              </p>
-            </section>
-          ) : (
-            <ul className="link-list">
-              {filteredLinks.map((link) => {
-                const paymentState = payments[link.publicId];
-                const analyticsState = analytics[link.publicId];
-                const absoluteUrl =
-                  typeof window !== "undefined"
-                    ? `${window.location.origin}${link.sharePath}`
-                    : link.sharePath;
-                const qrBase = `/api/actions/${encodeURIComponent(link.publicId)}/qr`;
-                const qrPreviewSrc = `${qrBase}?format=svg&size=512`;
-                const qrSvgUrl = `${qrBase}?format=svg&size=1024`;
-                const qrPngUrl = `${qrBase}?format=png&size=1024`;
-                const qrPngPrintUrl = `${qrBase}?format=png&size=2048`;
-                const disabled = link.disabledAt !== null;
-                const shownOnProfile = isShownOnProfile(link);
-                const justCreated = link.publicId === createdId;
-                const isExpanded =
-                  justCreated ||
-                  expandedLinks.has(link.publicId) ||
-                  editingId === link.publicId ||
-                  qrOpenId === link.publicId;
-                const xBioText = buildXBioText(absoluteUrl);
-                const xPostText = buildXPostText({ shareUrl: absoluteUrl, title: link.title });
-                const xIntentUrl = buildXIntentUrl({
-                  hashtags: ["Kaspa"],
-                  text: buildXPostText({ includeUrl: false, title: link.title }),
-                  url: absoluteUrl,
-                });
-                return (
-                  <li
-                    className={`card link-card${justCreated ? " link-card-just-created" : ""}`}
-                    id={`link-card-${link.publicId}`}
-                    key={link.publicId}
-                  >
-                    <header className="link-card-header">
-                      <div className="link-card-titles">
-                        <h2 style={{ margin: 0 }}>{link.title}</h2>
-                        <p className="muted" style={{ margin: "4px 0 0" }}>
-                          {typeLabel(link.type)} ·{" "}
-                          {link.goalKas
-                            ? `${link.goalKas} KAS goal`
-                            : link.amountKas
-                              ? `${link.amountKas} KAS`
-                              : "Any amount"}
-                        </p>
-                        {link.description ? (
-                          <p className="muted" style={{ margin: "6px 0 0" }}>
-                            {link.description}
-                          </p>
-                        ) : null}
-                        {link.message ? (
-                          <p className="muted" style={{ margin: "6px 0 0" }}>
-                            Wallet message: &ldquo;{link.message}&rdquo;
-                          </p>
-                        ) : null}
-                        {link.type === "kaspa.goal" && link.goalAutoClose ? (
-                          <p className="muted" style={{ margin: "6px 0 0" }}>
-                            Auto-closes when the goal target is reached.
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="link-card-statuses" aria-label="Link status">
-                        <span
-                          className={`status-pill ${
-                            disabled ? "status-failed" : "status-confirmed"
-                          }`}
-                          title={disabled ? "Disabled" : "Active"}
-                        >
-                          {disabled ? "Disabled" : "Active"}
-                        </span>
-                        <span
-                          className={`status-pill ${
-                            shownOnProfile ? "status-profile-visible" : "status-profile-hidden"
-                          }`}
-                          title={
-                            shownOnProfile
-                              ? "This active link is visible on your public profile."
-                              : disabled
-                                ? "Disabled links are not shown on your public profile."
-                                : "This link is hidden from your public profile."
-                          }
-                        >
-                          {shownOnProfile ? "On profile" : "Not on profile"}
-                        </span>
-                      </div>
-                    </header>
-
+            {regularLinkFilterSelected ? (
+              <div>
+                <span className="label">Payment link status</span>
+                <div
+                  className="segmented-control"
+                  role="group"
+                  aria-label="Filter payment links by status"
+                >
+                  {(["all", "active", "disabled"] as const).map((value) => (
                     <button
-                      aria-controls={`link-card-details-${link.publicId}`}
-                      aria-expanded={isExpanded}
-                      className="link-card-toggle"
-                      onClick={() => toggleLinkExpanded(link.publicId)}
+                      className={statusFilter === value ? "is-active" : ""}
+                      key={value}
+                      onClick={() => setStatusFilter(value)}
                       type="button"
                     >
-                      <span>{isExpanded ? "Hide details" : "Show details"}</span>
-                      <span aria-hidden="true">{isExpanded ? "▴" : "▾"}</span>
+                      {value === "all"
+                        ? `All (${links.length})`
+                        : value === "active"
+                          ? `Active (${links.filter((link) => link.disabledAt === null).length})`
+                          : `Disabled (${links.filter((link) => link.disabledAt !== null).length})`}
                     </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {regularLinkFilterSelected ? (
+              <div>
+                <span className="label">Profile</span>
+                <div
+                  className="segmented-control"
+                  role="group"
+                  aria-label="Filter links by profile visibility"
+                >
+                  {(["all", "visible", "hidden"] as const).map((value) => (
+                    <button
+                      className={profileFilter === value ? "is-active" : ""}
+                      key={value}
+                      onClick={() => setProfileFilter(value)}
+                      type="button"
+                    >
+                      {value === "all"
+                        ? `All (${links.length})`
+                        : value === "visible"
+                          ? `On profile (${profileVisibleCount})`
+                          : `Not on profile (${profileHiddenCount})`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
 
-                    {isExpanded ? (
-                      <div className="link-card-details" id={`link-card-details-${link.publicId}`}>
-                        <div className="link-card-grid">
-                          <div>
-                            <span className="label">Total received</span>
-                            {paymentState?.loading && !paymentState.summary ? (
-                              <p className="muted" style={{ margin: "4px 0 0" }}>
-                                Loading…
-                              </p>
-                            ) : paymentState?.summary ? (
-                              <p style={{ margin: "4px 0 0" }}>
-                                <strong>{paymentState.summary.totalKas} KAS</strong>{" "}
-                                <span className="muted">
-                                  · {paymentState.summary.count}{" "}
-                                  {paymentState.summary.count === 1 ? "payment" : "payments"} on the
-                                  recipient address
-                                </span>
-                              </p>
-                            ) : paymentState?.error ? (
-                              <p
-                                className="error-text"
-                                style={{ margin: "4px 0 0", fontSize: "0.85rem" }}
-                              >
-                                {paymentState.error}
-                              </p>
-                            ) : (
-                              <p className="muted" style={{ margin: "4px 0 0" }}>
-                                —
-                              </p>
-                            )}
-                          </div>
-                          <div>
-                            <span className="label">Recipient address</span>
-                            <p className="value-mono" style={{ margin: "4px 0 0" }}>
-                              {compactAddress(link.recipientAddress)}
-                            </p>
-                            <button
-                              className="link-card-inline-btn"
-                              onClick={() =>
-                                void copy(`addr-${link.publicId}`, link.recipientAddress)
-                              }
-                              type="button"
-                            >
-                              {copied === `addr-${link.publicId}`
-                                ? "Address copied"
-                                : "Copy address"}
-                            </button>
-                          </div>
-                          <div>
-                            <span className="label">Public URL</span>
-                            <p className="value-mono" style={{ margin: "4px 0 0" }}>
-                              {link.sharePath}
-                            </p>
-                            <button
-                              className="link-card-inline-btn"
-                              onClick={() => void copy(`url-${link.publicId}`, absoluteUrl)}
-                              type="button"
-                            >
-                              {copied === `url-${link.publicId}` ? "URL copied" : "Copy URL"}
-                            </button>
-                          </div>
-                        </div>
-
-                        <details className="link-card-analytics link-card-analytics-mobile">
-                          <summary className="link-card-analytics-summary">
-                            <span className="label">Analytics</span>
-                            <span className="link-card-analytics-summary-text">
-                              {analyticsCompactSummary(analyticsState)}
-                            </span>
-                          </summary>
-                          <div className="link-card-analytics-mobile-body">
-                            <LinkAnalyticsMetrics analyticsState={analyticsState} />
-                          </div>
-                        </details>
-
-                        <section
-                          className="link-card-analytics link-card-analytics-desktop"
-                          aria-label="Link analytics"
+          {regularLinkFilterSelected && filteredLinks.length === 0 ? (
+            <section className="card">
+              <p className="muted" style={{ margin: 0 }}>
+                {links.length === 0
+                  ? "You don't have any regular payment links yet."
+                  : "No payment links match this filter."}
+              </p>
+            </section>
+          ) : regularLinkFilterSelected ? (
+            <div className="my-links-type-groups">
+              {groupedRegularLinks.map((group) => (
+                <section className="my-links-type-group" key={group.type}>
+                  <header className="my-links-type-heading">
+                    <div>
+                      <span className="label">Payment links</span>
+                      <h2>{group.label}</h2>
+                    </div>
+                    <span className="my-links-type-count">
+                      {group.links.length} {group.links.length === 1 ? "link" : "links"}
+                    </span>
+                  </header>
+                  <ul className="link-list">
+                    {group.links.map((link) => {
+                      const paymentState = payments[link.publicId];
+                      const analyticsState = analytics[link.publicId];
+                      const absoluteUrl =
+                        typeof window !== "undefined"
+                          ? `${window.location.origin}${link.sharePath}`
+                          : link.sharePath;
+                      const qrBase = `/api/actions/${encodeURIComponent(link.publicId)}/qr`;
+                      const qrPreviewSrc = `${qrBase}?format=svg&size=512`;
+                      const qrSvgUrl = `${qrBase}?format=svg&size=1024`;
+                      const qrPngUrl = `${qrBase}?format=png&size=1024`;
+                      const qrPngPrintUrl = `${qrBase}?format=png&size=2048`;
+                      const disabled = link.disabledAt !== null;
+                      const shownOnProfile = isShownOnProfile(link);
+                      const justCreated = link.publicId === createdId;
+                      const isExpanded =
+                        justCreated ||
+                        expandedLinks.has(link.publicId) ||
+                        editingId === link.publicId ||
+                        qrOpenId === link.publicId;
+                      const xBioText = buildXBioText(absoluteUrl);
+                      const xPostText = buildXPostText({
+                        shareUrl: absoluteUrl,
+                        title: link.title,
+                      });
+                      const xIntentUrl = buildXIntentUrl({
+                        hashtags: ["Kaspa"],
+                        text: buildXPostText({ includeUrl: false, title: link.title }),
+                        url: absoluteUrl,
+                      });
+                      return (
+                        <li
+                          className={`card link-card${justCreated ? " link-card-just-created" : ""}`}
+                          id={`link-card-${link.publicId}`}
+                          key={link.publicId}
                         >
-                          <div className="link-card-analytics-head">
-                            <span className="label">Link analytics</span>
-                            <span className="muted">Privacy-friendly estimates</span>
-                          </div>
-                          <LinkAnalyticsMetrics analyticsState={analyticsState} />
-                        </section>
-
-                        {qrOpenId === link.publicId ? (
-                          <div className="qr-download-panel">
-                            <div className="qr-download-preview">
-                              <Image
-                                alt={`QR code for ${link.title}`}
-                                height={196}
-                                src={qrPreviewSrc}
-                                unoptimized
-                                width={196}
-                              />
-                            </div>
-                            <div className="qr-download-copy">
-                              <span className="label">QR code target</span>
-                              <p className="value-mono">{absoluteUrl}</p>
-                              <p className="muted">
-                                This QR opens the Kaspa Links payment page first, so supporters can
-                                verify the title, amount, recipient, and wallet options before
-                                paying.
+                          <header className="link-card-header">
+                            <div className="link-card-titles">
+                              <h2 style={{ margin: 0 }}>{link.title}</h2>
+                              <p className="muted" style={{ margin: "4px 0 0" }}>
+                                {typeLabel(link.type)} ·{" "}
+                                {link.goalKas
+                                  ? `${link.goalKas} KAS goal`
+                                  : link.amountKas
+                                    ? `${link.amountKas} KAS`
+                                    : "Any amount"}
                               </p>
-                              <div className="row">
-                                <a
-                                  className="btn"
-                                  download={`kaspalinks-${link.slug ?? link.publicId}.svg`}
-                                  href={qrSvgUrl}
-                                >
-                                  SVG
-                                </a>
-                                <a
-                                  className="btn"
-                                  download={`kaspalinks-${link.slug ?? link.publicId}-1024.png`}
-                                  href={qrPngUrl}
-                                >
-                                  PNG 1024
-                                </a>
-                                <a
-                                  className="btn"
-                                  download={`kaspalinks-${link.slug ?? link.publicId}-print.png`}
-                                  href={qrPngPrintUrl}
-                                >
-                                  PNG print
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {editingId === link.publicId ? (
-                          <form
-                            className="link-edit-form"
-                            onSubmit={(event) => saveEdit(event, link)}
-                          >
-                            <div className="form-field">
-                              <label className="label" htmlFor={`edit-title-${link.publicId}`}>
-                                Title
-                              </label>
-                              <input
-                                id={`edit-title-${link.publicId}`}
-                                maxLength={80}
-                                onChange={(event) => updateEditForm("title", event.target.value)}
-                                required
-                                type="text"
-                                value={editForm.title}
-                              />
-                            </div>
-                            <div className="form-field">
-                              <label
-                                className="label"
-                                htmlFor={`edit-description-${link.publicId}`}
-                              >
-                                Description
-                              </label>
-                              <textarea
-                                id={`edit-description-${link.publicId}`}
-                                maxLength={280}
-                                onChange={(event) =>
-                                  updateEditForm("description", event.target.value)
-                                }
-                                placeholder="Optional public description"
-                                value={editForm.description}
-                              />
-                            </div>
-                            <div className="link-edit-form-grid">
-                              <div className="form-field">
-                                <label className="label" htmlFor={`edit-amount-${link.publicId}`}>
-                                  {link.type === "kaspa.goal" ? "Goal target" : "Amount in KAS"}
-                                </label>
-                                <input
-                                  id={`edit-amount-${link.publicId}`}
-                                  inputMode="decimal"
-                                  onChange={(event) =>
-                                    updateEditForm("amountKas", event.target.value)
-                                  }
-                                  placeholder={
-                                    link.type === "kaspa.goal"
-                                      ? "Goal target"
-                                      : link.type === "kaspa.invoice" ||
-                                          link.type === "kaspa.transfer"
-                                        ? "Required for this link type"
-                                        : "Blank means any amount"
-                                  }
-                                  type="text"
-                                  value={editForm.amountKas}
-                                />
-                                <p className="form-field-help">
-                                  {link.type === "kaspa.goal"
-                                    ? "Changing the target recalculates the progress bar. Confirmed payments stay attached to this link."
-                                    : `Leave blank for any amount on tip and donation links. Fixed amounts should be at least ${MIN_RELIABLE_MAINNET_OUTPUT_KAS} KAS.`}
+                              {link.description ? (
+                                <p className="muted" style={{ margin: "6px 0 0" }}>
+                                  {link.description}
                                 </p>
-                              </div>
-                              <div className="form-field">
-                                <label className="label" htmlFor={`edit-message-${link.publicId}`}>
-                                  Wallet message
-                                </label>
-                                <input
-                                  id={`edit-message-${link.publicId}`}
-                                  maxLength={280}
-                                  onChange={(event) =>
-                                    updateEditForm("message", event.target.value)
-                                  }
-                                  placeholder="Optional wallet note"
-                                  type="text"
-                                  value={editForm.message}
-                                />
-                              </div>
+                              ) : null}
+                              {link.message ? (
+                                <p className="muted" style={{ margin: "6px 0 0" }}>
+                                  Wallet message: &ldquo;{link.message}&rdquo;
+                                </p>
+                              ) : null}
+                              {link.type === "kaspa.goal" && link.goalAutoClose ? (
+                                <p className="muted" style={{ margin: "6px 0 0" }}>
+                                  Auto-closes when the goal target is reached.
+                                </p>
+                              ) : null}
                             </div>
-                            <div className="form-field link-edit-toggle-field">
-                              <label
-                                className="form-toggle"
-                                htmlFor={`edit-note-required-${link.publicId}`}
+                            <div className="link-card-statuses" aria-label="Link status">
+                              <span
+                                className={`status-pill ${
+                                  disabled ? "status-failed" : "status-confirmed"
+                                }`}
+                                title={disabled ? "Disabled" : "Active"}
                               >
-                                <input
-                                  checked={editForm.noteRequired}
-                                  id={`edit-note-required-${link.publicId}`}
-                                  onChange={(event) =>
-                                    updateEditForm("noteRequired", event.target.checked)
-                                  }
-                                  type="checkbox"
-                                />
-                                <span className="form-toggle-body">
-                                  <span className="form-toggle-title">
-                                    Require a note from the supporter
-                                  </span>
-                                  <span className="form-toggle-help">
-                                    Pay button stays disabled until the supporter writes at least 10
-                                    characters. Off-chain only, visible to you after confirmation.
-                                  </span>
-                                </span>
-                              </label>
-                            </div>
-                            {link.type === "kaspa.goal" ? (
-                              <div className="form-field link-edit-toggle-field">
-                                <label
-                                  className="form-toggle"
-                                  htmlFor={`edit-goal-auto-close-${link.publicId}`}
-                                >
-                                  <input
-                                    checked={editForm.goalAutoClose}
-                                    id={`edit-goal-auto-close-${link.publicId}`}
-                                    onChange={(event) =>
-                                      updateEditForm("goalAutoClose", event.target.checked)
-                                    }
-                                    type="checkbox"
-                                  />
-                                  <span className="form-toggle-body">
-                                    <span className="form-toggle-title">
-                                      Auto-close when the goal is reached
-                                    </span>
-                                    <span className="form-toggle-help">
-                                      Stops new payment requests after confirmed contributions meet
-                                      the target. Use a dedicated recipient address for the cleanest
-                                      goal tracking.
-                                    </span>
-                                  </span>
-                                </label>
-                              </div>
-                            ) : null}
-                            <p className="muted link-edit-note">
-                              Recipient address and public URL stay unchanged in this quick edit.
-                            </p>
-                            <div className="row link-card-actions">
-                              <button
-                                className="btn btn-primary"
-                                disabled={savingEdit}
-                                type="submit"
-                              >
-                                {savingEdit ? "Saving..." : "Save changes"}
-                              </button>
-                              <button
-                                className="btn"
-                                disabled={savingEdit}
-                                onClick={cancelEditing}
-                                type="button"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </form>
-                        ) : null}
-
-                        {paymentState?.payments && paymentState.payments.length > 0 ? (
-                          // Receipts collapsed by default so a long list of links
-                          // stays scannable. Native <details>/<summary> instead of
-                          // a custom toggle: free keyboard support, free aria
-                          // expanded state, and the browser handles the disclosure
-                          // triangle / focus ring without us writing any of it.
-                          // The summary line gives the count up-front so the
-                          // creator knows whether it's worth opening at all.
-                          <details className="link-card-payments">
-                            <summary className="link-card-payments-summary">
-                              <span className="label">Recent receipts</span>
-                              <span className="muted link-card-payments-count">
-                                {paymentState.payments.length === 1
-                                  ? "1 receipt"
-                                  : `${Math.min(paymentState.payments.length, 5)} of ${paymentState.payments.length} receipts`}
+                                {disabled ? "Disabled" : "Active"}
                               </span>
-                            </summary>
-                            <ul className="action-payment-list">
-                              {paymentState.payments.slice(0, 5).map((payment) => {
-                                const explorerUrl = kaspaStreamTransactionUrl(
-                                  payment.transactionId,
-                                  link.network,
-                                );
-                                return (
-                                  <li
-                                    className="action-payment-row"
-                                    key={`${payment.transactionId}:${payment.outputIndex}`}
-                                  >
-                                    <strong>{payment.amountKas} KAS</strong>
-                                    <span className="muted">
-                                      {payment.blockTime
-                                        ? new Date(payment.blockTime).toLocaleString()
-                                        : "Time unavailable"}
-                                    </span>
-                                    <span className="value-mono">
-                                      {explorerUrl ? (
-                                        <a href={explorerUrl} rel="noreferrer" target="_blank">
-                                          {compactTxId(payment.transactionId)}
-                                        </a>
-                                      ) : (
-                                        compactTxId(payment.transactionId)
-                                      )}
-                                    </span>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </details>
-                        ) : null}
+                              <span
+                                className={`status-pill ${
+                                  shownOnProfile
+                                    ? "status-profile-visible"
+                                    : "status-profile-hidden"
+                                }`}
+                                title={
+                                  shownOnProfile
+                                    ? "This active link is visible on your public profile."
+                                    : disabled
+                                      ? "Disabled links are not shown on your public profile."
+                                      : "This link is hidden from your public profile."
+                                }
+                              >
+                                {shownOnProfile ? "On profile" : "Not on profile"}
+                              </span>
+                            </div>
+                          </header>
 
-                        <div className="row link-card-actions">
-                          <Link className="btn" href={link.sharePath}>
-                            Open
-                          </Link>
                           <button
-                            className="btn"
-                            onClick={() =>
-                              setQrOpenId((current) =>
-                                current === link.publicId ? null : link.publicId,
-                              )
-                            }
+                            aria-controls={`link-card-details-${link.publicId}`}
+                            aria-expanded={isExpanded}
+                            className="link-card-toggle"
+                            onClick={() => toggleLinkExpanded(link.publicId)}
                             type="button"
                           >
-                            {qrOpenId === link.publicId ? "Hide QR" : "QR Code"}
+                            <span>{isExpanded ? "Hide details" : "Show details"}</span>
+                            <span aria-hidden="true">{isExpanded ? "▴" : "▾"}</span>
                           </button>
-                          <a className="btn" href={xIntentUrl} rel="noreferrer" target="_blank">
-                            Post on X
-                          </a>
-                          <div className="link-card-more">
-                            <button
-                              aria-expanded={menuOpenId === link.publicId}
-                              aria-haspopup="true"
-                              className="btn link-card-more-toggle"
-                              onClick={() =>
-                                setMenuOpenId((current) =>
-                                  current === link.publicId ? null : link.publicId,
-                                )
-                              }
-                              type="button"
+
+                          {isExpanded ? (
+                            <div
+                              className="link-card-details"
+                              id={`link-card-details-${link.publicId}`}
                             >
-                              More ▾
-                            </button>
-                            {menuOpenId === link.publicId ? (
-                              <div className="link-card-more-menu" role="menu">
+                              <div className="link-card-grid">
+                                <div>
+                                  <span className="label">Total received</span>
+                                  {paymentState?.loading && !paymentState.summary ? (
+                                    <p className="muted" style={{ margin: "4px 0 0" }}>
+                                      Loading…
+                                    </p>
+                                  ) : paymentState?.summary ? (
+                                    <p style={{ margin: "4px 0 0" }}>
+                                      <strong>{paymentState.summary.totalKas} KAS</strong>{" "}
+                                      <span className="muted">
+                                        · {paymentState.summary.count}{" "}
+                                        {paymentState.summary.count === 1 ? "payment" : "payments"}{" "}
+                                        on the recipient address
+                                      </span>
+                                    </p>
+                                  ) : paymentState?.error ? (
+                                    <p
+                                      className="error-text"
+                                      style={{ margin: "4px 0 0", fontSize: "0.85rem" }}
+                                    >
+                                      {paymentState.error}
+                                    </p>
+                                  ) : (
+                                    <p className="muted" style={{ margin: "4px 0 0" }}>
+                                      —
+                                    </p>
+                                  )}
+                                </div>
+                                <div>
+                                  <span className="label">Recipient address</span>
+                                  <p className="value-mono" style={{ margin: "4px 0 0" }}>
+                                    {compactAddress(link.recipientAddress)}
+                                  </p>
+                                  <button
+                                    className="link-card-inline-btn"
+                                    onClick={() =>
+                                      void copy(`addr-${link.publicId}`, link.recipientAddress)
+                                    }
+                                    type="button"
+                                  >
+                                    {copied === `addr-${link.publicId}`
+                                      ? "Address copied"
+                                      : "Copy address"}
+                                  </button>
+                                </div>
+                                <div>
+                                  <span className="label">Public URL</span>
+                                  <p className="value-mono" style={{ margin: "4px 0 0" }}>
+                                    {link.sharePath}
+                                  </p>
+                                  <button
+                                    className="link-card-inline-btn"
+                                    onClick={() => void copy(`url-${link.publicId}`, absoluteUrl)}
+                                    type="button"
+                                  >
+                                    {copied === `url-${link.publicId}` ? "URL copied" : "Copy URL"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              <details className="link-card-analytics link-card-analytics-mobile">
+                                <summary className="link-card-analytics-summary">
+                                  <span className="label">Analytics</span>
+                                  <span className="link-card-analytics-summary-text">
+                                    {analyticsCompactSummary(analyticsState)}
+                                  </span>
+                                </summary>
+                                <div className="link-card-analytics-mobile-body">
+                                  <LinkAnalyticsMetrics analyticsState={analyticsState} />
+                                </div>
+                              </details>
+
+                              <section
+                                className="link-card-analytics link-card-analytics-desktop"
+                                aria-label="Link analytics"
+                              >
+                                <div className="link-card-analytics-head">
+                                  <span className="label">Link analytics</span>
+                                  <span className="muted">Privacy-friendly estimates</span>
+                                </div>
+                                <LinkAnalyticsMetrics analyticsState={analyticsState} />
+                              </section>
+
+                              {qrOpenId === link.publicId ? (
+                                <div className="qr-download-panel">
+                                  <div className="qr-download-preview">
+                                    <Image
+                                      alt={`QR code for ${link.title}`}
+                                      height={196}
+                                      src={qrPreviewSrc}
+                                      unoptimized
+                                      width={196}
+                                    />
+                                  </div>
+                                  <div className="qr-download-copy">
+                                    <span className="label">QR code target</span>
+                                    <p className="value-mono">{absoluteUrl}</p>
+                                    <p className="muted">
+                                      This QR opens the Kaspa Links payment page first, so
+                                      supporters can verify the title, amount, recipient, and wallet
+                                      options before paying.
+                                    </p>
+                                    <div className="row">
+                                      <a
+                                        className="btn"
+                                        download={`kaspalinks-${link.slug ?? link.publicId}.svg`}
+                                        href={qrSvgUrl}
+                                      >
+                                        SVG
+                                      </a>
+                                      <a
+                                        className="btn"
+                                        download={`kaspalinks-${link.slug ?? link.publicId}-1024.png`}
+                                        href={qrPngUrl}
+                                      >
+                                        PNG 1024
+                                      </a>
+                                      <a
+                                        className="btn"
+                                        download={`kaspalinks-${link.slug ?? link.publicId}-print.png`}
+                                        href={qrPngPrintUrl}
+                                      >
+                                        PNG print
+                                      </a>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {editingId === link.publicId ? (
+                                <form
+                                  className="link-edit-form"
+                                  onSubmit={(event) => saveEdit(event, link)}
+                                >
+                                  <div className="form-field">
+                                    <label
+                                      className="label"
+                                      htmlFor={`edit-title-${link.publicId}`}
+                                    >
+                                      Title
+                                    </label>
+                                    <input
+                                      id={`edit-title-${link.publicId}`}
+                                      maxLength={80}
+                                      onChange={(event) =>
+                                        updateEditForm("title", event.target.value)
+                                      }
+                                      required
+                                      type="text"
+                                      value={editForm.title}
+                                    />
+                                  </div>
+                                  <div className="form-field">
+                                    <label
+                                      className="label"
+                                      htmlFor={`edit-description-${link.publicId}`}
+                                    >
+                                      Description
+                                    </label>
+                                    <textarea
+                                      id={`edit-description-${link.publicId}`}
+                                      maxLength={280}
+                                      onChange={(event) =>
+                                        updateEditForm("description", event.target.value)
+                                      }
+                                      placeholder="Optional public description"
+                                      value={editForm.description}
+                                    />
+                                  </div>
+                                  <div className="link-edit-form-grid">
+                                    <div className="form-field">
+                                      <label
+                                        className="label"
+                                        htmlFor={`edit-amount-${link.publicId}`}
+                                      >
+                                        {link.type === "kaspa.goal"
+                                          ? "Goal target"
+                                          : "Amount in KAS"}
+                                      </label>
+                                      <input
+                                        id={`edit-amount-${link.publicId}`}
+                                        inputMode="decimal"
+                                        onChange={(event) =>
+                                          updateEditForm("amountKas", event.target.value)
+                                        }
+                                        placeholder={
+                                          link.type === "kaspa.goal"
+                                            ? "Goal target"
+                                            : link.type === "kaspa.invoice" ||
+                                                link.type === "kaspa.transfer"
+                                              ? "Required for this link type"
+                                              : "Blank means any amount"
+                                        }
+                                        type="text"
+                                        value={editForm.amountKas}
+                                      />
+                                      <p className="form-field-help">
+                                        {link.type === "kaspa.goal"
+                                          ? "Changing the target recalculates the progress bar. Confirmed payments stay attached to this link."
+                                          : `Leave blank for any amount on tip and donation links. Fixed amounts should be at least ${MIN_RELIABLE_MAINNET_OUTPUT_KAS} KAS.`}
+                                      </p>
+                                    </div>
+                                    <div className="form-field">
+                                      <label
+                                        className="label"
+                                        htmlFor={`edit-message-${link.publicId}`}
+                                      >
+                                        Wallet message
+                                      </label>
+                                      <input
+                                        id={`edit-message-${link.publicId}`}
+                                        maxLength={280}
+                                        onChange={(event) =>
+                                          updateEditForm("message", event.target.value)
+                                        }
+                                        placeholder="Optional wallet note"
+                                        type="text"
+                                        value={editForm.message}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="form-field link-edit-toggle-field">
+                                    <label
+                                      className="form-toggle"
+                                      htmlFor={`edit-note-required-${link.publicId}`}
+                                    >
+                                      <input
+                                        checked={editForm.noteRequired}
+                                        id={`edit-note-required-${link.publicId}`}
+                                        onChange={(event) =>
+                                          updateEditForm("noteRequired", event.target.checked)
+                                        }
+                                        type="checkbox"
+                                      />
+                                      <span className="form-toggle-body">
+                                        <span className="form-toggle-title">
+                                          Require a note from the supporter
+                                        </span>
+                                        <span className="form-toggle-help">
+                                          Pay button stays disabled until the supporter writes at
+                                          least 10 characters. Off-chain only, visible to you after
+                                          confirmation.
+                                        </span>
+                                      </span>
+                                    </label>
+                                  </div>
+                                  {link.type === "kaspa.goal" ? (
+                                    <div className="form-field link-edit-toggle-field">
+                                      <label
+                                        className="form-toggle"
+                                        htmlFor={`edit-goal-auto-close-${link.publicId}`}
+                                      >
+                                        <input
+                                          checked={editForm.goalAutoClose}
+                                          id={`edit-goal-auto-close-${link.publicId}`}
+                                          onChange={(event) =>
+                                            updateEditForm("goalAutoClose", event.target.checked)
+                                          }
+                                          type="checkbox"
+                                        />
+                                        <span className="form-toggle-body">
+                                          <span className="form-toggle-title">
+                                            Auto-close when the goal is reached
+                                          </span>
+                                          <span className="form-toggle-help">
+                                            Stops new payment requests after confirmed contributions
+                                            meet the target. Use a dedicated recipient address for
+                                            the cleanest goal tracking.
+                                          </span>
+                                        </span>
+                                      </label>
+                                    </div>
+                                  ) : null}
+                                  <p className="muted link-edit-note">
+                                    Recipient address and public URL stay unchanged in this quick
+                                    edit.
+                                  </p>
+                                  <div className="row link-card-actions">
+                                    <button
+                                      className="btn btn-primary"
+                                      disabled={savingEdit}
+                                      type="submit"
+                                    >
+                                      {savingEdit ? "Saving..." : "Save changes"}
+                                    </button>
+                                    <button
+                                      className="btn"
+                                      disabled={savingEdit}
+                                      onClick={cancelEditing}
+                                      type="button"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : null}
+
+                              {paymentState?.payments && paymentState.payments.length > 0 ? (
+                                // Receipts collapsed by default so a long list of links
+                                // stays scannable. Native <details>/<summary> instead of
+                                // a custom toggle: free keyboard support, free aria
+                                // expanded state, and the browser handles the disclosure
+                                // triangle / focus ring without us writing any of it.
+                                // The summary line gives the count up-front so the
+                                // creator knows whether it's worth opening at all.
+                                <details className="link-card-payments">
+                                  <summary className="link-card-payments-summary">
+                                    <span className="label">Recent receipts</span>
+                                    <span className="muted link-card-payments-count">
+                                      {paymentState.payments.length === 1
+                                        ? "1 receipt"
+                                        : `${Math.min(paymentState.payments.length, 5)} of ${paymentState.payments.length} receipts`}
+                                    </span>
+                                  </summary>
+                                  <ul className="action-payment-list">
+                                    {paymentState.payments.slice(0, 5).map((payment) => {
+                                      const explorerUrl = kaspaStreamTransactionUrl(
+                                        payment.transactionId,
+                                        link.network,
+                                      );
+                                      return (
+                                        <li
+                                          className="action-payment-row"
+                                          key={`${payment.transactionId}:${payment.outputIndex}`}
+                                        >
+                                          <strong>{payment.amountKas} KAS</strong>
+                                          <span className="muted">
+                                            {payment.blockTime
+                                              ? new Date(payment.blockTime).toLocaleString()
+                                              : "Time unavailable"}
+                                          </span>
+                                          <span className="value-mono">
+                                            {explorerUrl ? (
+                                              <a
+                                                href={explorerUrl}
+                                                rel="noreferrer"
+                                                target="_blank"
+                                              >
+                                                {compactTxId(payment.transactionId)}
+                                              </a>
+                                            ) : (
+                                              compactTxId(payment.transactionId)
+                                            )}
+                                          </span>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </details>
+                              ) : null}
+
+                              <div className="row link-card-actions">
+                                <Link className="btn" href={link.sharePath}>
+                                  Open
+                                </Link>
                                 <button
-                                  className="link-card-more-item"
-                                  onClick={() => {
-                                    void copy(`x-post-${link.publicId}`, xPostText);
-                                  }}
-                                  role="menuitem"
+                                  className="btn"
+                                  onClick={() =>
+                                    setQrOpenId((current) =>
+                                      current === link.publicId ? null : link.publicId,
+                                    )
+                                  }
                                   type="button"
                                 >
-                                  {copied === `x-post-${link.publicId}`
-                                    ? "X post copied"
-                                    : "Copy X post text"}
-                                </button>
-                                <button
-                                  className="link-card-more-item"
-                                  onClick={() => {
-                                    void copy(`x-bio-${link.publicId}`, xBioText);
-                                  }}
-                                  role="menuitem"
-                                  type="button"
-                                >
-                                  {copied === `x-bio-${link.publicId}`
-                                    ? "Bio text copied"
-                                    : "Copy bio text"}
+                                  {qrOpenId === link.publicId ? "Hide QR" : "QR Code"}
                                 </button>
                                 <a
-                                  className="link-card-more-item"
-                                  download={`kaspalinks-${link.slug ?? link.publicId}-1024.png`}
-                                  href={qrPngUrl}
-                                  role="menuitem"
+                                  className="btn"
+                                  href={xIntentUrl}
+                                  rel="noreferrer"
+                                  target="_blank"
                                 >
-                                  Download QR PNG
+                                  Post on X
                                 </a>
-                                <button
-                                  className="link-card-more-item"
-                                  onClick={() => {
-                                    startEditing(link);
-                                    setMenuOpenId(null);
-                                  }}
-                                  role="menuitem"
-                                  type="button"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  className="link-card-more-item"
-                                  onClick={() => {
-                                    void toggleDisabled(link);
-                                    setMenuOpenId(null);
-                                  }}
-                                  role="menuitem"
-                                  type="button"
-                                >
-                                  {disabled ? "Enable" : "Disable"}
-                                </button>
-                                <button
-                                  className="link-card-more-item"
-                                  onClick={() => {
-                                    void toggleProfileVisibility(link);
-                                    setMenuOpenId(null);
-                                  }}
-                                  role="menuitem"
-                                  type="button"
-                                >
-                                  {link.hiddenFromProfile ? "Show on profile" : "Hide from profile"}
-                                </button>
-                                <div className="link-card-more-divider" role="separator" />
-                                <button
-                                  className="link-card-more-item link-card-more-item-danger"
-                                  onClick={() => {
-                                    void deleteLink(link);
-                                    setMenuOpenId(null);
-                                  }}
-                                  role="menuitem"
-                                  type="button"
-                                >
-                                  Delete
-                                </button>
+                                <div className="link-card-more">
+                                  <button
+                                    aria-expanded={menuOpenId === link.publicId}
+                                    aria-haspopup="true"
+                                    className="btn link-card-more-toggle"
+                                    onClick={() =>
+                                      setMenuOpenId((current) =>
+                                        current === link.publicId ? null : link.publicId,
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    More ▾
+                                  </button>
+                                  {menuOpenId === link.publicId ? (
+                                    <div className="link-card-more-menu" role="menu">
+                                      <button
+                                        className="link-card-more-item"
+                                        onClick={() => {
+                                          void copy(`x-post-${link.publicId}`, xPostText);
+                                        }}
+                                        role="menuitem"
+                                        type="button"
+                                      >
+                                        {copied === `x-post-${link.publicId}`
+                                          ? "X post copied"
+                                          : "Copy X post text"}
+                                      </button>
+                                      <button
+                                        className="link-card-more-item"
+                                        onClick={() => {
+                                          void copy(`x-bio-${link.publicId}`, xBioText);
+                                        }}
+                                        role="menuitem"
+                                        type="button"
+                                      >
+                                        {copied === `x-bio-${link.publicId}`
+                                          ? "Bio text copied"
+                                          : "Copy bio text"}
+                                      </button>
+                                      <a
+                                        className="link-card-more-item"
+                                        download={`kaspalinks-${link.slug ?? link.publicId}-1024.png`}
+                                        href={qrPngUrl}
+                                        role="menuitem"
+                                      >
+                                        Download QR PNG
+                                      </a>
+                                      <button
+                                        className="link-card-more-item"
+                                        onClick={() => {
+                                          startEditing(link);
+                                          setMenuOpenId(null);
+                                        }}
+                                        role="menuitem"
+                                        type="button"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        className="link-card-more-item"
+                                        onClick={() => {
+                                          void toggleDisabled(link);
+                                          setMenuOpenId(null);
+                                        }}
+                                        role="menuitem"
+                                        type="button"
+                                      >
+                                        {disabled ? "Enable" : "Disable"}
+                                      </button>
+                                      <button
+                                        className="link-card-more-item"
+                                        onClick={() => {
+                                          void toggleProfileVisibility(link);
+                                          setMenuOpenId(null);
+                                        }}
+                                        role="menuitem"
+                                        type="button"
+                                      >
+                                        {link.hiddenFromProfile
+                                          ? "Show on profile"
+                                          : "Hide from profile"}
+                                      </button>
+                                      <div className="link-card-more-divider" role="separator" />
+                                      <button
+                                        className="link-card-more-item link-card-more-item-danger"
+                                        onClick={() => {
+                                          void deleteLink(link);
+                                          setMenuOpenId(null);
+                                        }}
+                                        role="menuitem"
+                                        type="button"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
                               </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          ) : null}
         </>
       )}
 
@@ -2686,6 +3012,241 @@ export function MyLinksClient() {
         </div>
       ) : null}
 
+      {giveawayDeleteTarget ? (
+        <div
+          className="batch-wallet-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target && !deletingGiveaway) {
+              setGiveawayDeleteTarget(null);
+            }
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="giveaway-delete-dialog-title"
+            aria-modal="true"
+            className="batch-wallet-modal claimable-delete-dialog"
+            role="dialog"
+          >
+            <button
+              aria-label="Cancel deleting giveaway"
+              className="batch-wallet-modal-close"
+              disabled={deletingGiveaway}
+              onClick={() => setGiveawayDeleteTarget(null)}
+              type="button"
+            >
+              ×
+            </button>
+            <span className="label">Delete giveaway</span>
+            <h2 id="giveaway-delete-dialog-title">
+              Delete &ldquo;{giveawayDeleteTarget.title}&rdquo;?
+            </h2>
+            <p>
+              The public giveaway page and its participant list will be removed from Kaspa Links.
+            </p>
+            <p className="notice notice-critical">
+              This does not move KAS, sign a transaction, or delete preserved on-chain records.
+            </p>
+            {giveawayDeleteError ? (
+              <p className="notice notice-critical" role="alert">
+                {giveawayDeleteError}
+              </p>
+            ) : null}
+            <div className="batch-wallet-modal-actions">
+              <button
+                className="btn"
+                disabled={deletingGiveaway}
+                onClick={() => setGiveawayDeleteTarget(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                disabled={deletingGiveaway}
+                onClick={() => void deleteGiveaway()}
+                type="button"
+              >
+                {deletingGiveaway ? "Deleting…" : "Delete giveaway"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {giveaways.length > 0 && (typeFilter === "all" || typeFilter === "kaspa.giveaway") ? (
+        <section className="card giveaway-mylinks">
+          <div className="my-links-category-heading">
+            <div>
+              <span className="label">Giveaways</span>
+              <h2>Your giveaways</h2>
+            </div>
+            <Link className="btn" href="/toccata-lab/giveaway">
+              Manage giveaways
+            </Link>
+          </div>
+          <ul className="giveaway-mylinks-list">
+            {giveaways.map((giveaway) => {
+              const absoluteUrl =
+                typeof window !== "undefined"
+                  ? `${window.location.origin}${giveaway.publicUrl}`
+                  : giveaway.publicUrl;
+              const xIntentUrl = buildXIntentUrl({
+                hashtags: ["Kaspa", "Giveaway"],
+                text: buildGiveawayXPostText(giveaway),
+                url: absoluteUrl,
+              });
+              const winnerPostText = giveaway.winnerAddress
+                ? buildGiveawayWinnerXPostText({
+                    amountKas: giveaway.amountKas,
+                    shareUrl: absoluteUrl,
+                    title: giveaway.title,
+                    winnerAddress: giveaway.winnerAddress,
+                  })
+                : null;
+              const winnerXIntentUrl = giveaway.winnerAddress
+                ? buildXIntentUrl({
+                    hashtags: ["Kaspa", "Giveaway"],
+                    text: buildGiveawayWinnerXPostText({
+                      amountKas: giveaway.amountKas,
+                      includeUrl: false,
+                      title: giveaway.title,
+                      winnerAddress: giveaway.winnerAddress,
+                    }),
+                    url: absoluteUrl,
+                  })
+                : null;
+              const displayState = giveawayDisplayState(giveaway);
+              const giveawayAnalyticsState = giveawayAnalytics[giveaway.publicId];
+              const claimTransactionUrl =
+                giveaway.prize?.status === "claimed" && giveaway.prize.claimTxId
+                  ? kaspaStreamTransactionUrl(giveaway.prize.claimTxId, "mainnet")
+                  : null;
+              return (
+                <li className="giveaway-mylinks-item" key={giveaway.publicId}>
+                  <div className="giveaway-mylinks-copy">
+                    <div className="giveaway-mylinks-title-row">
+                      <strong>{giveaway.title}</strong>
+                      <span className={`status-pill ${displayState.toneClass}`}>
+                        {displayState.label}
+                      </span>
+                    </div>
+                    <p className="muted giveaway-mylinks-meta">
+                      <strong>{giveaway.amountKas} KAS prize</strong>
+                      <span>
+                        {giveaway.entryCount} {giveaway.entryCount === 1 ? "entry" : "entries"}
+                      </span>
+                      <span>
+                        {giveawayAnalyticsState?.loading
+                          ? "Loading views…"
+                          : giveawayAnalyticsState?.error
+                            ? "Views unavailable"
+                            : `${formatAnalyticsCount(giveawayAnalyticsState?.views.total ?? 0)} ${
+                                (giveawayAnalyticsState?.views.total ?? 0) === 1 ? "view" : "views"
+                              }`}
+                      </span>
+                      {!giveawayAnalyticsState?.loading && !giveawayAnalyticsState?.error ? (
+                        <span>
+                          {formatAnalyticsCount(giveawayAnalyticsState?.uniqueVisitors.total ?? 0)}{" "}
+                          {(giveawayAnalyticsState?.uniqueVisitors.total ?? 0) === 1
+                            ? "visitor"
+                            : "visitors"}
+                        </span>
+                      ) : null}
+                      <span>
+                        {giveaway.status === "OPEN" ? "Closes" : "Scheduled close"}{" "}
+                        {new Date(giveaway.closesAt).toLocaleString()}
+                      </span>
+                    </p>
+                    {giveaway.description ? <p className="muted">{giveaway.description}</p> : null}
+                    {giveaway.winnerAddress ? (
+                      <p className="giveaway-mylinks-winner">
+                        Winner{" "}
+                        <span className="value-mono">{compactAddress(giveaway.winnerAddress)}</span>
+                      </p>
+                    ) : null}
+                    {displayState.detail ? (
+                      <p className={`giveaway-mylinks-prize-state ${displayState.toneClass}`}>
+                        <span>{displayState.detail}</span>
+                        {claimTransactionUrl ? (
+                          <a href={claimTransactionUrl} rel="noreferrer" target="_blank">
+                            View transaction
+                          </a>
+                        ) : null}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="giveaway-mylinks-actions">
+                    <Link className="btn btn-primary" href={giveaway.publicUrl}>
+                      Open
+                    </Link>
+                    <button
+                      className="btn"
+                      onClick={() => void copy(`giveaway-${giveaway.publicId}`, absoluteUrl)}
+                      type="button"
+                    >
+                      {copied === `giveaway-${giveaway.publicId}` ? "Copied!" : "Copy link"}
+                    </button>
+                    {giveaway.status === "OPEN" ? (
+                      <a className="btn" href={xIntentUrl} rel="noreferrer" target="_blank">
+                        Post on X
+                      </a>
+                    ) : null}
+                    {giveaway.status === "DRAWN" && winnerXIntentUrl && winnerPostText ? (
+                      <>
+                        <a className="btn" href={winnerXIntentUrl} rel="noreferrer" target="_blank">
+                          Share winner on X
+                        </a>
+                        <button
+                          className="btn"
+                          onClick={() =>
+                            void copy(`giveaway-winner-${giveaway.publicId}`, winnerPostText)
+                          }
+                          type="button"
+                        >
+                          {copied === `giveaway-winner-${giveaway.publicId}`
+                            ? "Winner post copied!"
+                            : "Copy winner post"}
+                        </button>
+                      </>
+                    ) : null}
+                    {isGiveawayFinished(giveaway.status) ? (
+                      <button
+                        className="btn btn-danger"
+                        disabled={giveawayHasUnresolvedPrize(giveaway)}
+                        onClick={() => {
+                          setGiveawayDeleteError(null);
+                          setGiveawayDeleteTarget(giveaway);
+                        }}
+                        title={
+                          giveawayHasUnresolvedPrize(giveaway)
+                            ? "Pay the winner or refund the parked prize before deleting"
+                            : undefined
+                        }
+                        type="button"
+                      >
+                        {giveawayHasUnresolvedPrize(giveaway) ? "Resolve prize first" : "Delete"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <GiveawayAnalyticsDetails
+                    analyticsState={giveawayAnalyticsState}
+                    entryCount={giveaway.entryCount}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : typeFilter === "kaspa.giveaway" ? (
+        <section className="card">
+          <p className="muted" style={{ margin: 0 }}>
+            You don&apos;t have any giveaways yet.{" "}
+            <Link href="/toccata-lab/giveaway">Create your first giveaway</Link>.
+          </p>
+        </section>
+      ) : null}
+
       {mergedClaimable.length > 0 && (typeFilter === "all" || typeFilter === "kaspa.claimable") ? (
         <section className="card claimable-mylinks">
           <div className="claimable-mylinks-heading">
@@ -2802,265 +3363,153 @@ export function MyLinksClient() {
             {(() => {
               const renderClaimableRecord = (record: MergedClaimable) =>
                 (() => {
-                const expiry = estimateClaimableExpiry({
-                  currentDaaScore: claimableDaaScore,
-                  daaLoadedAtMs: claimableDaaLoadedAtMs,
-                  nowMs: claimableNowMs,
-                  refundLockTime: record.refundLockTime,
-                });
-                // A completed on-chain outcome always wins over the clock. A
-                // link may be opened long after it was claimed, but it must
-                // still read "Claimed", never "Expired".
-                const terminal = isClaimableTerminal(record.status);
-                const expired =
-                  !terminal && (record.status === "refundable" || expiry?.expired === true);
-                const versionedClaimUrl = record.claimUrl
-                  ? buildCompactClaimUrl(record.claimUrl)
-                  : "";
-                const privateRecoveryMissing =
-                  !record.manageUrl && record.status !== "awaiting_funding" && !terminal;
-                const batchRecoveryMissing =
-                  privateRecoveryMissing && record.linkKey.startsWith("batch-");
-                const deletable = canRequestClaimableDeletion(record);
-                const selected = selectedClaimableKeys.has(record.linkKey);
+                  const expiry = estimateClaimableExpiry({
+                    currentDaaScore: claimableDaaScore,
+                    daaLoadedAtMs: claimableDaaLoadedAtMs,
+                    nowMs: claimableNowMs,
+                    refundLockTime: record.refundLockTime,
+                  });
+                  // A completed on-chain outcome always wins over the clock. A
+                  // link may be opened long after it was claimed, but it must
+                  // still read "Claimed", never "Expired".
+                  const terminal = isClaimableTerminal(record.status);
+                  const expired =
+                    !terminal && (record.status === "refundable" || expiry?.expired === true);
+                  const versionedClaimUrl = record.claimUrl
+                    ? buildCompactClaimUrl(record.claimUrl)
+                    : "";
+                  const privateRecoveryMissing =
+                    !record.manageUrl && record.status !== "awaiting_funding" && !terminal;
+                  const batchRecoveryMissing =
+                    privateRecoveryMissing && record.linkKey.startsWith("batch-");
+                  const deletable = canRequestClaimableDeletion(record);
+                  const selected = selectedClaimableKeys.has(record.linkKey);
 
-                return (
-                  <li
-                    className={`claimable-mylinks-item${expired ? " is-expired" : ""}${selected ? " is-selected" : ""}`}
-                    key={record.linkKey}
-                  >
-                    {claimableSelectionMode ? (
-                      <label className="claimable-select-control">
-                        <input
-                          checked={selected}
-                          disabled={!deletable || bulkDeletingClaimables}
-                          onChange={(event) => {
-                            setSelectedClaimableKeys((current) => {
-                              const next = new Set(current);
-                              if (event.target.checked) {
-                                next.add(record.linkKey);
-                              } else {
-                                next.delete(record.linkKey);
-                              }
-                              return next;
-                            });
-                          }}
-                          type="checkbox"
-                        />
-                        <span>{deletable ? "Select link" : "Close on-chain before deleting"}</span>
-                      </label>
-                    ) : null}
-                    <div className="claimable-mylinks-main">
-                      <div className="claimable-mylinks-info">
-                        <div className="claimable-mylinks-title-row">
-                          <strong>{record.title}</strong>
-                          <span
-                            className={`status-pill ${
-                              expired ? "status-expired" : claimableStatusPillClass(record.status)
-                            }`}
-                          >
-                            {expired ? "Ready to refund" : humanClaimableStatus(record.status)}
-                          </span>
-                        </div>
-                        <p className="muted claimable-mylinks-meta">
-                          <strong>{record.netClaimKas} KAS claim</strong>
-                          {record.status === "refunded" ? (
-                            <span>Refund completed</span>
-                          ) : record.status === "claimed" ? (
-                            <span>Claim completed</span>
-                          ) : record.status === "spent_unknown" ? (
-                            <span>Output spent on-chain</span>
-                          ) : expired ? (
-                            <span className="claimable-mylinks-expired">
-                              Claim window closed · refund available
-                            </span>
-                          ) : expiry ? (
-                            <span>
-                              Claimable for about {expiry.remainingLabel} · ends about{" "}
-                              {formatClaimableEndTime(expiry.endsAtMs)}
-                            </span>
-                          ) : record.validFor ? (
-                            <span>Claim window: {record.validFor}</span>
-                          ) : null}
-                          <span>Created {new Date(record.createdAtMs).toLocaleDateString()}</span>
-                        </p>
-                        {expired ? (
-                          <p className="claimable-mylinks-expiry-notice">
-                            This link can no longer be claimed. The locked KAS are ready to refund
-                            with your private refund link.
-                          </p>
-                        ) : null}
-                        {privateRecoveryMissing ? (
-                          <p className="claimable-mylinks-expiry-notice">
-                            {batchRecoveryMissing
-                              ? "This browser does not have the private refund key. Open Batch recovery and restore the private recovery bundle saved before funding."
-                              : "This browser does not have the private refund key. Import the private recovery bundle saved before funding, or use the private refund link saved after funding."}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="claimable-mylinks-actions claimable-mylinks-primary-actions">
-                        {versionedClaimUrl && !expired ? (
-                          <a
-                            className="btn btn-primary"
-                            href={versionedClaimUrl}
-                            rel="noreferrer"
-                            target="_blank"
-                          >
-                            Open claim
-                          </a>
-                        ) : null}
-                        {versionedClaimUrl && !expired ? (
-                          <button
-                            className="btn"
-                            onClick={() => void copy(`${record.linkKey}-claim`, versionedClaimUrl)}
-                            type="button"
-                          >
-                            {copied === `${record.linkKey}-claim` ? "Copied!" : "Copy claim link"}
-                          </button>
-                        ) : null}
-                        {versionedClaimUrl && !expired ? (
-                          <button
-                            aria-expanded={claimableQr?.linkKey === record.linkKey}
-                            className="btn"
-                            disabled={claimableQrLoadingId === record.linkKey}
-                            onClick={() => void toggleClaimableQr(record, versionedClaimUrl)}
-                            type="button"
-                          >
-                            {claimableQrLoadingId === record.linkKey
-                              ? "Creating QR…"
-                              : claimableQr?.linkKey === record.linkKey
-                                ? "Hide QR"
-                                : "QR Code"}
-                          </button>
-                        ) : null}
-                        {record.manageUrl ? (
-                          <a
-                            className={expired ? "btn btn-primary" : "btn"}
-                            href={record.manageUrl}
-                            rel="noreferrer"
-                            target="_blank"
-                          >
-                            {expired ? "Open refund" : "Refund"}
-                          </a>
-                        ) : privateRecoveryMissing ? (
-                          <a
-                            className="btn btn-primary"
-                            href={
-                              batchRecoveryMissing && record.batchKey
-                                ? buildBatchRecoveryPath(
-                                    record.batchKey,
-                                    record.batchTitle ?? record.title,
-                                  )
-                                : batchRecoveryMissing
-                                  ? "/claim/batch-recovery"
-                                  : buildClaimableRecoveryPath(record.linkKey, record.title)
-                            }
-                          >
-                            {batchRecoveryMissing ? "Open batch recovery" : "Open recovery"}
-                          </a>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {claimableQr?.linkKey === record.linkKey ? (
-                      <div className="qr-download-panel claimable-mylinks-qr-panel">
-                        <div className="qr-download-preview">
-                          <Image
-                            alt={`Claim QR code for ${claimableQr.title}`}
-                            height={196}
-                            src={claimableQr.dataUrl}
-                            unoptimized
-                            width={196}
+                  return (
+                    <li
+                      className={`claimable-mylinks-item${expired ? " is-expired" : ""}${selected ? " is-selected" : ""}`}
+                      key={record.linkKey}
+                    >
+                      {claimableSelectionMode ? (
+                        <label className="claimable-select-control">
+                          <input
+                            checked={selected}
+                            disabled={!deletable || bulkDeletingClaimables}
+                            onChange={(event) => {
+                              setSelectedClaimableKeys((current) => {
+                                const next = new Set(current);
+                                if (event.target.checked) {
+                                  next.add(record.linkKey);
+                                } else {
+                                  next.delete(record.linkKey);
+                                }
+                                return next;
+                              });
+                            }}
+                            type="checkbox"
                           />
+                          <span>
+                            {deletable ? "Select link" : "Close on-chain before deleting"}
+                          </span>
+                        </label>
+                      ) : null}
+                      <div className="claimable-mylinks-main">
+                        <div className="claimable-mylinks-info">
+                          <div className="claimable-mylinks-title-row">
+                            <strong>{record.title}</strong>
+                            <span
+                              className={`status-pill ${
+                                expired ? "status-expired" : claimableStatusPillClass(record.status)
+                              }`}
+                            >
+                              {expired ? "Ready to refund" : humanClaimableStatus(record.status)}
+                            </span>
+                          </div>
+                          <p className="muted claimable-mylinks-meta">
+                            <strong>{record.netClaimKas} KAS claim</strong>
+                            {record.status === "refunded" ? (
+                              <span>Refund completed</span>
+                            ) : record.status === "claimed" ? (
+                              <span>Claim completed</span>
+                            ) : record.status === "spent_unknown" ? (
+                              <span>Output spent on-chain</span>
+                            ) : expired ? (
+                              <span className="claimable-mylinks-expired">
+                                Claim window closed · refund available
+                              </span>
+                            ) : expiry ? (
+                              <span>
+                                Claimable for about {expiry.remainingLabel} · ends about{" "}
+                                {formatClaimableEndTime(expiry.endsAtMs)}
+                              </span>
+                            ) : record.validFor ? (
+                              <span>Claim window: {record.validFor}</span>
+                            ) : null}
+                            <span>Created {new Date(record.createdAtMs).toLocaleDateString()}</span>
+                          </p>
+                          {expired ? (
+                            <p className="claimable-mylinks-expiry-notice">
+                              This link can no longer be claimed. The locked KAS are ready to refund
+                              with your private refund link.
+                            </p>
+                          ) : null}
+                          {privateRecoveryMissing ? (
+                            <p className="claimable-mylinks-expiry-notice">
+                              {batchRecoveryMissing
+                                ? "This browser does not have the private refund key. Open Batch recovery and restore the private recovery bundle saved before funding."
+                                : "This browser does not have the private refund key. Import the private recovery bundle saved before funding, or use the private refund link saved after funding."}
+                            </p>
+                          ) : null}
                         </div>
-                        <div className="qr-download-copy">
-                          <span className="label">Claim QR code</span>
-                          <p>
-                            Share this QR to open <strong>{claimableQr.title}</strong> directly.
-                          </p>
-                          <p className="muted">
-                            The QR contains the private claim code. Anyone who scans it can claim
-                            the KAS while the link is available. It is generated only in this
-                            browser.
-                          </p>
-                          <div className="row">
+                        <div className="claimable-mylinks-actions claimable-mylinks-primary-actions">
+                          {versionedClaimUrl && !expired ? (
                             <a
                               className="btn btn-primary"
-                              download={`kaspalinks-${record.linkKey}-claim.png`}
-                              href={claimableQr.dataUrl}
+                              href={versionedClaimUrl}
+                              rel="noreferrer"
+                              target="_blank"
                             >
-                              Download PNG
+                              Open claim
                             </a>
-                            <button
-                              className="btn"
-                              onClick={() => setClaimableQr(null)}
-                              type="button"
-                            >
-                              Hide QR
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <details className="claimable-mylinks-details">
-                      <summary className="claimable-mylinks-summary">
-                        <span>Details</span>
-                      </summary>
-                      <div className="claimable-mylinks-detail-panel">
-                        {record.fundingAddress ? (
-                          <div>
-                            <span className="label">Funding address</span>
-                            <p className="value-mono claimable-mylinks-addr">
-                              {record.fundingAddress}
-                            </p>
-                          </div>
-                        ) : null}
-                        {!record.hasLocal ? (
-                          <p className="muted">
-                            Created on another device — the claim/refund links live there.
-                          </p>
-                        ) : null}
-                        <div className="claimable-mylinks-actions">
+                          ) : null}
                           {versionedClaimUrl && !expired ? (
                             <button
                               className="btn"
-                              onClick={() => {
-                                try {
-                                  const intent = buildXIntentUrl({
-                                    hashtags: ["Kaspa"],
-                                    text: buildClaimableXPostText({
-                                      netClaimKas: record.netClaimKas,
-                                      title: record.title,
-                                    }),
-                                    url: versionedClaimUrl,
-                                  });
-                                  window.open(intent, "_blank", "noopener,noreferrer");
-                                } catch (shareError) {
-                                  setListError(
-                                    shareError instanceof Error
-                                      ? shareError.message
-                                      : "Could not prepare the claim post.",
-                                  );
-                                }
-                              }}
+                              onClick={() =>
+                                void copy(`${record.linkKey}-claim`, versionedClaimUrl)
+                              }
                               type="button"
                             >
-                              Post on X
+                              {copied === `${record.linkKey}-claim` ? "Copied!" : "Copy claim link"}
+                            </button>
+                          ) : null}
+                          {versionedClaimUrl && !expired ? (
+                            <button
+                              aria-expanded={claimableQr?.linkKey === record.linkKey}
+                              className="btn"
+                              disabled={claimableQrLoadingId === record.linkKey}
+                              onClick={() => void toggleClaimableQr(record, versionedClaimUrl)}
+                              type="button"
+                            >
+                              {claimableQrLoadingId === record.linkKey
+                                ? "Creating QR…"
+                                : claimableQr?.linkKey === record.linkKey
+                                  ? "Hide QR"
+                                  : "QR Code"}
                             </button>
                           ) : null}
                           {record.manageUrl ? (
                             <a
-                              className="btn"
+                              className={expired ? "btn btn-primary" : "btn"}
                               href={record.manageUrl}
                               rel="noreferrer"
                               target="_blank"
                             >
-                              Refund link
+                              {expired ? "Open refund" : "Refund"}
                             </a>
                           ) : privateRecoveryMissing ? (
                             <a
-                              className="btn"
+                              className="btn btn-primary"
                               href={
                                 batchRecoveryMissing && record.batchKey
                                   ? buildBatchRecoveryPath(
@@ -3072,23 +3521,139 @@ export function MyLinksClient() {
                                     : buildClaimableRecoveryPath(record.linkKey, record.title)
                               }
                             >
-                              {batchRecoveryMissing ? "Batch recovery" : "Recovery"}
+                              {batchRecoveryMissing ? "Open batch recovery" : "Open recovery"}
                             </a>
-                          ) : null}
-                          {deletable ? (
-                            <button
-                              className="btn btn-danger"
-                              onClick={() => void deleteClaimableLink(record)}
-                              type="button"
-                            >
-                              Delete
-                            </button>
                           ) : null}
                         </div>
                       </div>
-                    </details>
-                  </li>
-                );
+
+                      {claimableQr?.linkKey === record.linkKey ? (
+                        <div className="qr-download-panel claimable-mylinks-qr-panel">
+                          <div className="qr-download-preview">
+                            <Image
+                              alt={`Claim QR code for ${claimableQr.title}`}
+                              height={196}
+                              src={claimableQr.dataUrl}
+                              unoptimized
+                              width={196}
+                            />
+                          </div>
+                          <div className="qr-download-copy">
+                            <span className="label">Claim QR code</span>
+                            <p>
+                              Share this QR to open <strong>{claimableQr.title}</strong> directly.
+                            </p>
+                            <p className="muted">
+                              The QR contains the private claim code. Anyone who scans it can claim
+                              the KAS while the link is available. It is generated only in this
+                              browser.
+                            </p>
+                            <div className="row">
+                              <a
+                                className="btn btn-primary"
+                                download={`kaspalinks-${record.linkKey}-claim.png`}
+                                href={claimableQr.dataUrl}
+                              >
+                                Download PNG
+                              </a>
+                              <button
+                                className="btn"
+                                onClick={() => setClaimableQr(null)}
+                                type="button"
+                              >
+                                Hide QR
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <details className="claimable-mylinks-details">
+                        <summary className="claimable-mylinks-summary">
+                          <span>Details</span>
+                        </summary>
+                        <div className="claimable-mylinks-detail-panel">
+                          {record.fundingAddress ? (
+                            <div>
+                              <span className="label">Funding address</span>
+                              <p className="value-mono claimable-mylinks-addr">
+                                {record.fundingAddress}
+                              </p>
+                            </div>
+                          ) : null}
+                          {!record.hasLocal ? (
+                            <p className="muted">
+                              Created on another device — the claim/refund links live there.
+                            </p>
+                          ) : null}
+                          <div className="claimable-mylinks-actions">
+                            {versionedClaimUrl && !expired ? (
+                              <button
+                                className="btn"
+                                onClick={() => {
+                                  try {
+                                    const intent = buildXIntentUrl({
+                                      hashtags: ["Kaspa"],
+                                      text: buildClaimableXPostText({
+                                        netClaimKas: record.netClaimKas,
+                                        title: record.title,
+                                      }),
+                                      url: versionedClaimUrl,
+                                    });
+                                    window.open(intent, "_blank", "noopener,noreferrer");
+                                  } catch (shareError) {
+                                    setListError(
+                                      shareError instanceof Error
+                                        ? shareError.message
+                                        : "Could not prepare the claim post.",
+                                    );
+                                  }
+                                }}
+                                type="button"
+                              >
+                                Post on X
+                              </button>
+                            ) : null}
+                            {record.manageUrl ? (
+                              <a
+                                className="btn"
+                                href={record.manageUrl}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                Refund link
+                              </a>
+                            ) : privateRecoveryMissing ? (
+                              <a
+                                className="btn"
+                                href={
+                                  batchRecoveryMissing && record.batchKey
+                                    ? buildBatchRecoveryPath(
+                                        record.batchKey,
+                                        record.batchTitle ?? record.title,
+                                      )
+                                    : batchRecoveryMissing
+                                      ? "/claim/batch-recovery"
+                                      : buildClaimableRecoveryPath(record.linkKey, record.title)
+                                }
+                              >
+                                {batchRecoveryMissing ? "Batch recovery" : "Recovery"}
+                              </a>
+                            ) : null}
+                            {deletable ? (
+                              <button
+                                className="btn btn-danger"
+                                onClick={() => void deleteClaimableLink(record)}
+                                type="button"
+                              >
+                                Delete
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </details>
+                    </li>
+                  );
                 })();
 
               return groupedClaimables.map((group) => {
@@ -3224,6 +3789,15 @@ export function MyLinksClient() {
             The list comes from your creator account (cross-device); the claim and refund links are
             held only in this browser (non-custodial). Keep this device private — those links carry
             the secret codes.
+          </p>
+        </section>
+      ) : null}
+
+      {typeFilter === "kaspa.claimable" && mergedClaimable.length === 0 ? (
+        <section className="card">
+          <p className="muted" style={{ margin: 0 }}>
+            You don&apos;t have any claimable links yet.{" "}
+            <Link href="/claim/create">Create a claimable link</Link>.
           </p>
         </section>
       ) : null}

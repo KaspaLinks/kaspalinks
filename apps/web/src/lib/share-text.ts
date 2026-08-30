@@ -43,6 +43,42 @@ export function buildProfileXPostText(input: {
   return lines.join("\n");
 }
 
+export function buildGiveawayXPostText(input: {
+  amountKas: string;
+  title: string;
+}): string {
+  return `${input.title.trim()} — enter for a chance to win ${input.amountKas} $KAS.`;
+}
+
+export function buildGiveawayWinnerXPostText(input: {
+  amountKas: string;
+  includeUrl?: boolean;
+  shareUrl?: string;
+  title: string;
+  winnerAddress: string;
+}): string {
+  const winnerAddress = input.winnerAddress.trim();
+  const winner =
+    winnerAddress.length <= 28
+      ? winnerAddress
+      : `${winnerAddress.slice(0, 14)}…${winnerAddress.slice(-10)}`;
+  const title = input.title.trim();
+  const displayTitle = title.length > 50 ? `${title.slice(0, 49)}…` : title;
+  const lines = [
+    "🎉 We have a winner!",
+    "",
+    `${winner} won ${input.amountKas} $KAS in "${displayTitle}".`,
+    "",
+    "View and verify the result:",
+  ];
+
+  if (input.includeUrl !== false && input.shareUrl) {
+    lines.push(input.shareUrl);
+  }
+
+  return lines.join("\n");
+}
+
 type XIntentInput =
   | string
   | {

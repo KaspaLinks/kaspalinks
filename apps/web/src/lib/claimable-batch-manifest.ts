@@ -5,6 +5,8 @@ export type StoredClaimableBatchOutput = {
 };
 
 export function parseStoredClaimableBatchOutputs(value: unknown): StoredClaimableBatchOutput[] {
+  // Keep legacy 9/10-output records readable. New allocator creation rejects
+  // sizes that cannot be spent under Kaspa's P2SH script-element limit.
   if (!Array.isArray(value) || value.length < 2 || value.length > 10) {
     throw new Error("Stored batch outputs are invalid.");
   }

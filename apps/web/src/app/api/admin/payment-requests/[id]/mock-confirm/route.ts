@@ -1,5 +1,6 @@
 import { prisma } from "@kaspa-actions/db";
 import { AuditActorType, PaymentRequestStatus } from "@kaspa-actions/db";
+import { confirmMockPayment } from "@kaspa-actions/application";
 
 import { requireAdmin } from "@/lib/admin-guard";
 import { writeAuditLog } from "@/lib/audit";
@@ -94,24 +95,14 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const fakeTxId = generateFakeTxId();
-  const confirmed = await prisma.paymentRequest.update({
-    data: {
-      confirmedAt: new Date(),
-      detectionSource: "mock",
-      fakeTxId,
-      status: PaymentRequestStatus.CONFIRMED,
-    },
-    where: { id: paymentRequest.id },
-  });
-
-  await writeAuditLog(prisma, {
-    actionId: confirmed.actionId,
-    actorType: AuditActorType.ADMIN,
-    event: "payment_request.mock_confirmed",
-    ipHash: guard.ipHash,
-    metadata: { fakeTxId },
-    paymentRequestId: confirmed.id,
-  });
+  const confirmed = await confirmMockPayment(prisma, paymentRequest, fakeTxId, guard.ipHash);
+  if (!confirmed) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "Payment request changed state before it could be confirmed.",
+      409,
+    );
+  }
 
   return apiJson({ paymentRequest: serializePaymentRequest(confirmed) });
 }

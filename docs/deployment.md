@@ -11,6 +11,7 @@ relay only already signed transaction JSON through an internal wRPC service.
 
 - `caddy`: public reverse proxy, exposes ports `80`, `443`, and `443/udp`
 - `app`: internal Next.js standalone server, exposed only inside the Docker network
+- `agent-worker`: private Payment Detection and Telegram Outbox worker with no public port
 - `toccata-relay`: internal wRPC relay for claimable-link broadcasts, exposed only inside the Docker network
 - `postgres`: internal PostgreSQL database, stored in a Docker volume, not publicly exposed
 
@@ -51,6 +52,7 @@ Before deployment, change at least:
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`, keeping it consistent with the PostgreSQL values
 - `ADMIN_ACCESS_TOKEN`
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET` when Agent beta is enabled
 
 Do not use the placeholder passwords or admin token from `.env.example` on a real VPS.
 
@@ -77,6 +79,8 @@ Do not publish the app container port directly. Caddy should be the only public 
 - Set `APP_COMMIT_SHA` during deploy so `/api/health` and the site footer show the exact live build.
 - `MOCK_CONFIRM_ENABLED` defaults to `false`. Leave it `false` in production; the mock-confirm endpoint is for demos only.
 - `ADMIN_ACCESS_TOKEN` is required for admin mutation routes. If unset, those routes refuse writes with `503 ADMIN_DISABLED`.
+- `AGENT_WORKER_ENABLED` and `AGENT_AI_ENABLED` default to `false`. Keep both off until the Agent
+  migration is applied and Telegram has been configured. See [agent.md](./agent.md).
 - `CREATOR_SIGNUP_ENABLED` defaults to `false` in production. Turn it on only while you intentionally accept new creator profiles.
 - `CREATOR_ACTION_DAILY_LIMIT` defaults to `50` and caps creator-owned Action creation per creator over a rolling 24-hour window.
 - `/operator-stats` reads rolling Caddy access logs from `OPERATOR_ACCESS_LOG_DIR`, deduplicates
@@ -124,3 +128,24 @@ pnpm db:seed
 
 Automatic migration execution inside Docker Compose is not wired up; run migrations deliberately
 during deployment.
+
+## Telegram Agent rollout
+
+1. Apply migrations while both Agent feature switches remain `false`.
+2. Configure the bot token, bot username, a random webhook secret of at least 32 bytes, and the
+   public `NEXT_PUBLIC_APP_URL`.
+3. Rebuild `app` and `agent-worker`, then set `AGENT_WORKER_ENABLED=true`.
+4. Register the webhook after both containers are healthy:
+
+```sh
+docker compose run --rm agent-worker \
+  pnpm --filter @kaspa-actions/agent-worker telegram:webhook:set
+```
+
+5. Enable only the intended beta Creator through the admin endpoint. For the first rollout use
+   `example` with `telegramBetaEnabled=true` and `aiEnabled=false`.
+6. Confirm private-chat connection, notification opt-in, one Mainnet payment notification, update
+   replay deduplication, and blocked-bot handling before adding another Creator.
+
+AI requires the additional global switch, per-Creator allowlist, consent, API key, model, and
+validated runtime price values. Enabling Telegram does not implicitly enable AI.

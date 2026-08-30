@@ -16,17 +16,35 @@ const {
     count: vi.fn(),
     create: vi.fn(),
     findFirst: vi.fn(),
+    findUnique: vi.fn(),
     findMany: vi.fn(),
   };
   const creator = {
+    findUnique: vi.fn(),
     updateMany: vi.fn(),
   };
+  const auditLog = { create: vi.fn() };
+  type MockPrisma = {
+    $transaction: ReturnType<typeof vi.fn>;
+    action: typeof action;
+    auditLog: typeof auditLog;
+    creator: typeof creator;
+  };
+  const mockPrisma = {
+    $transaction: vi.fn(),
+    action,
+    auditLog,
+    creator,
+  } satisfies MockPrisma;
+  mockPrisma.$transaction.mockImplementation(
+    async (callback: (client: MockPrisma) => unknown): Promise<unknown> => callback(mockPrisma),
+  );
   return {
     mockEnforceRateLimit: vi.fn(),
     mockFormatSompiToKaspa: vi.fn(),
     mockParseKaspaAmountToSompi: vi.fn(),
     mockParseSompiAmount: vi.fn(),
-    mockPrisma: { action, creator },
+    mockPrisma,
     mockReadCreatorActionDailyLimit: vi.fn(),
     mockRequireCreator: vi.fn(),
     mockRollingDailyWindowStart: vi.fn(),
@@ -35,23 +53,10 @@ const {
   };
 });
 
-vi.mock("@kaspa-actions/db", () => ({
-  ActionType: {
-    KASPA_DONATION: "KASPA_DONATION",
-    KASPA_GOAL: "KASPA_GOAL",
-    KASPA_INVOICE: "KASPA_INVOICE",
-    KASPA_TIP: "KASPA_TIP",
-    KASPA_TRANSFER: "KASPA_TRANSFER",
-  },
-  AuditActorType: {
-    CREATOR: "CREATOR",
-  },
-  Network: {
-    MAINNET: "MAINNET",
-    TESTNET: "TESTNET",
-  },
-  prisma: mockPrisma,
-}));
+vi.mock("@kaspa-actions/db", async () => {
+  const actual = await vi.importActual<typeof import("@kaspa-actions/db")>("@kaspa-actions/db");
+  return { ...actual, prisma: mockPrisma };
+});
 
 vi.mock("@kaspa-actions/kaspa", () => ({
   formatSompiToKaspa: mockFormatSompiToKaspa,
@@ -136,6 +141,12 @@ describe("POST /api/creator/actions", () => {
     );
     mockPrisma.action.count.mockResolvedValue(0);
     mockPrisma.action.findFirst.mockResolvedValue(null);
+    mockPrisma.action.findUnique.mockResolvedValue(null);
+    mockPrisma.creator.findUnique.mockResolvedValue({
+      id: "creator-1",
+      tipActionId: null,
+      username: "ada",
+    });
     mockPrisma.action.create.mockImplementation(async ({ data }) => ({
       amountSompi: data.amountSompi ?? null,
       createdAt: ACTION_CREATED_AT,
@@ -196,11 +207,12 @@ describe("POST /api/creator/actions", () => {
       data: { tipActionId: "action-1" },
       where: { id: "creator-1", tipActionId: null },
     });
-    expect(mockWriteAuditLog).toHaveBeenCalledWith(
-      mockPrisma,
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "creator.action_created",
-        metadata: expect.objectContaining({ quickTipAutoAssigned: true }),
+        data: expect.objectContaining({
+          event: "creator.action_created",
+          metadata: expect.objectContaining({ quickTipAutoAssigned: true }),
+        }),
       }),
     );
     await expect(response.json()).resolves.toMatchObject({
@@ -222,9 +234,11 @@ describe("POST /api/creator/actions", () => {
 
     expect(response.status).toBe(201);
     expect(mockPrisma.action.findFirst).toHaveBeenNthCalledWith(1, {
+      select: { id: true },
       where: { creatorId: "creator-1", slug: "support" },
     });
     expect(mockPrisma.action.findFirst).toHaveBeenNthCalledWith(2, {
+      select: { id: true },
       where: { creatorId: "creator-1", slug: "support-2" },
     });
     expect(mockPrisma.action.create).toHaveBeenCalledWith({
@@ -239,16 +253,20 @@ describe("POST /api/creator/actions", () => {
   });
 
   it("does not overwrite the quick-tip card when a visible profile link already exists", async () => {
-    mockPrisma.action.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+    mockPrisma.action.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1);
 
     const response = await POST(postRequest(basePayload({ slug: "second" })));
 
     expect(response.status).toBe(201);
     expect(mockPrisma.creator.updateMany).not.toHaveBeenCalled();
-    expect(mockWriteAuditLog).toHaveBeenCalledWith(
-      mockPrisma,
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({ quickTipAutoAssigned: false }),
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({ quickTipAutoAssigned: false }),
+        }),
       }),
     );
   });
