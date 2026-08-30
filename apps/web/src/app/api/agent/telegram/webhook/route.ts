@@ -486,6 +486,14 @@ async function handleMessage(
 
   const command = parseTelegramCommand(text);
   if (command?.kind === "connect") {
+    const existing = await connectedCreator(telegramUserId);
+    if (existing?.telegramChatId === chatId) {
+      await client.sendMessage({
+        chatId,
+        text: `Already connected to KaspaLinks creator ${existing.creator.username}. Try /help to continue.`,
+      });
+      return;
+    }
     const connected = await consumeTelegramConnectCodeTool(prisma, {
       code: command.code,
       telegramChatId: chatId,

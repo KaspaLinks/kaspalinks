@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   answerCallbackQuery: vi.fn(),
   createGiveawaySetupDraft: vi.fn(),
   createUpdate: vi.fn(),
+  consumeTelegramConnectCode: vi.fn(),
   findConnection: vi.fn(),
   sendMessage: vi.fn(),
   updateMany: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock("@kaspa-actions/agent", async () => {
 vi.mock("@kaspa-actions/application", () => ({
   actorContext: (creatorId: string, channel: string) => ({ channel, creatorId }),
   ApplicationError: class extends Error {},
+  consumeTelegramConnectCodeTool: mocks.consumeTelegramConnectCode,
   createGiveawaySetupDraftTool: mocks.createGiveawaySetupDraft,
 }));
 
@@ -124,6 +126,33 @@ describe("Telegram Agent webhook", () => {
       expect.objectContaining({
         text: expect.stringContaining("send /connect followed by that code"),
       }),
+    );
+  });
+
+  it("does not reuse a connection code when the private chat is already connected", async () => {
+    mocks.findConnection.mockResolvedValue({
+      creator: { username: "example" },
+      creatorId: "creator-1",
+      telegramChatId: "123",
+      telegramUserId: "123",
+    });
+
+    const response = await POST(
+      webhookRequest({
+        message: {
+          chat: { id: 123, type: "private" },
+          from: { id: 123 },
+          message_id: 3,
+          text: "/connect already-used-code",
+        },
+        update_id: 21,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.consumeTelegramConnectCode).not.toHaveBeenCalled();
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining("Already connected") }),
     );
   });
 
