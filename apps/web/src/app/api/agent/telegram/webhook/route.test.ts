@@ -104,6 +104,29 @@ describe("Telegram Agent webhook", () => {
     );
   });
 
+  it("explains how an unconnected private chat completes the connection", async () => {
+    mocks.findConnection.mockResolvedValue(null);
+
+    const response = await POST(
+      webhookRequest({
+        message: {
+          chat: { id: 123, type: "private" },
+          from: { id: 123 },
+          message_id: 2,
+          text: "/help",
+        },
+        update_id: 20,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("send /connect followed by that code"),
+      }),
+    );
+  });
+
   it("deduplicates replayed update ids before a second Telegram response", async () => {
     mocks.findConnection.mockResolvedValue({
       creator: { defaultRecipientAddress: null },

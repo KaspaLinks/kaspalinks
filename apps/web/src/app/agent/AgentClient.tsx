@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { writeClipboardText } from "@/lib/clipboard";
+
 const TOKEN_KEY = "kaspa-actions:creator-token";
 const USERNAME_KEY = "kaspa-actions:creator-username";
 
@@ -57,6 +59,14 @@ export function AgentClient() {
   useEffect(() => {
     void load().catch((error) => setMessage((error as Error).message));
   }, [load]);
+
+  useEffect(() => {
+    if (!connect || settings?.telegramConnection) return;
+    const timer = window.setInterval(() => {
+      void load().catch(() => undefined);
+    }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [connect, load, settings?.telegramConnection]);
 
   async function mutate(path: string, method: "DELETE" | "PATCH" | "POST", body?: object) {
     setBusy(true);
@@ -260,12 +270,33 @@ export function AgentClient() {
                 </button>
                 {connect ? (
                   <div className="agent-connect-code">
-                    <code>{connect.code}</code>
-                    {connect.deepLink ? (
-                      <a className="btn" href={connect.deepLink} rel="noreferrer" target="_blank">
-                        Open Telegram
-                      </a>
-                    ) : null}
+                    <p className="muted">
+                      In Telegram, tap <strong>Start</strong>. If no Start button appears, paste
+                      this command into the private bot chat:
+                    </p>
+                    <code>{`/connect ${connect.code}`}</code>
+                    <div className="button-row">
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          void writeClipboardText(`/connect ${connect.code}`).then((copied) =>
+                            setMessage(
+                              copied
+                                ? "Connection command copied. Paste it into the private Telegram chat."
+                                : "Copy failed. Select the connection command manually.",
+                            ),
+                          );
+                        }}
+                        type="button"
+                      >
+                        Copy connection command
+                      </button>
+                      {connect.deepLink ? (
+                        <a className="btn" href={connect.deepLink} rel="noreferrer" target="_blank">
+                          Open @{settings.telegramBotUsername}
+                        </a>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
               </>

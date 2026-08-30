@@ -509,7 +509,10 @@ async function handleMessage(
     await client.sendMessage({
       buttons: [[{ text: "Open Agent settings", url: agentSettingsUrl() }]],
       chatId,
-      text: "Connect this private chat from your KaspaLinks Agent settings first.",
+      text:
+        "This private chat is not connected yet. Open KaspaLinks Agent settings, generate a new " +
+        "connection code, then tap Start or send /connect followed by that code. Opening the chat " +
+        "alone does not connect it.",
     });
     return;
   }
