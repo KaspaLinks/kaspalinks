@@ -52,7 +52,7 @@ RUN pnpm db:generate \
 
 USER agent
 
-CMD ["pnpm", "--filter", "@kaspa-actions/agent-worker", "start"]
+CMD ["./node_modules/.bin/tsx", "apps/agent-worker/src/index.ts"]
 
 FROM node:24-bookworm-slim AS wrpc-relay
 
