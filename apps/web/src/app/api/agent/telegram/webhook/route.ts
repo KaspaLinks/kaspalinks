@@ -625,6 +625,9 @@ export async function POST(request: Request) {
       where: { updateId },
     });
   } catch (error) {
+    const isPermanentInputError =
+      error instanceof TelegramCommandError ||
+      (error instanceof ApplicationError && error.status < 500);
     const code =
       error instanceof TelegramCommandError
         ? "COMMAND_INVALID"
@@ -648,6 +651,13 @@ export async function POST(request: Request) {
       } catch {
         // Telegram retries the update because this webhook returns 503 below.
       }
+    }
+    if (isPermanentInputError) {
+      await prisma.telegramUpdate.update({
+        data: { processedAt: new Date(), processingAt: null },
+        where: { updateId },
+      });
+      return apiJson({ ok: true });
     }
     return apiError(ErrorCodes.SERVER_ERROR, "Telegram update could not be processed.", 503);
   }
