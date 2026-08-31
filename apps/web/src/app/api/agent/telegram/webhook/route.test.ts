@@ -156,6 +156,34 @@ describe("Telegram Agent webhook", () => {
     );
   });
 
+  it("explains command units and duration syntax in help", async () => {
+    mocks.findConnection.mockResolvedValue({
+      creator: { defaultRecipientAddress: null },
+      creatorId: "creator-1",
+      telegramChatId: "123",
+      telegramUserId: "123",
+    });
+
+    const response = await POST(
+      webhookRequest({
+        message: {
+          chat: { id: 123, type: "private" },
+          from: { id: 123 },
+          message_id: 5,
+          text: "/help",
+        },
+        update_id: 23,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const help = mocks.sendMessage.mock.calls[0]?.[0]?.text as string;
+    expect(help).toContain("Amounts are always entered in KAS");
+    expect(help).toContain("30m");
+    expect(help).toContain("24h");
+    expect(help).toContain("7d");
+  });
+
   it("acknowledges invalid commands after sending the correction", async () => {
     mocks.findConnection.mockResolvedValue({
       creator: { defaultRecipientAddress: null },

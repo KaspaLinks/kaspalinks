@@ -14,12 +14,12 @@ await client.setMyCommands([
   { command: "payments", description: "Show recent confirmed payments" },
   { command: "stats", description: "Show your totals" },
   { command: "giveaways", description: "Show your recent giveaways" },
-  { command: "link", description: "Create a transfer link" },
-  { command: "invoice", description: "Create a fixed invoice" },
-  { command: "tip", description: "Create a tip link" },
-  { command: "donation", description: "Create a donation link" },
-  { command: "goal", description: "Create a funding goal" },
-  { command: "giveaway", description: "Prepare a giveaway" },
+  { command: "link", description: "Create: /link <KAS> <title>" },
+  { command: "invoice", description: "Create: /invoice <KAS> <title>" },
+  { command: "tip", description: "Create: /tip [KAS] <title>" },
+  { command: "donation", description: "Create: /donation [KAS] <title>" },
+  { command: "goal", description: "Create: /goal <KAS target> <title>" },
+  { command: "giveaway", description: "Create: /giveaway <KAS> <30m|24h|7d> <title>" },
   { command: "disconnect", description: "Disconnect this Telegram chat" },
 ]);
 console.info("Telegram webhook and command menu registered.");
