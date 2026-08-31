@@ -139,7 +139,7 @@ during deployment.
 
 ```sh
 docker compose run --rm agent-worker \
-  pnpm --filter @kaspa-actions/agent-worker telegram:webhook:set
+  ./node_modules/.bin/tsx apps/agent-worker/src/register-webhook.ts
 ```
 
 5. Enable only the intended beta Creator through the admin endpoint. For the first rollout use
