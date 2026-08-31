@@ -12,6 +12,11 @@ _Avoid_: Telegram bot, AI bot
 A delivery-specific interface that translates between an external channel and Agent Commands.
 _Avoid_: Business service
 
+**Telegram Mini App**:
+The device-local Giveaway interface opened from a connected private Telegram chat. Telegram proves
+the Creator identity, while recovery material and transaction signing remain inside the device.
+_Avoid_: Telegram wallet, Bot custody
+
 **Command**:
 An explicit Creator instruction with deterministic meaning and immediate execution.
 _Avoid_: Prompt, intent

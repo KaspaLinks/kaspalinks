@@ -32,4 +32,5 @@ export type TelegramInlineButton = {
   callback_data?: string;
   text: string;
   url?: string;
+  web_app?: { url: string };
 };

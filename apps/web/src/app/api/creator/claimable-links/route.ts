@@ -202,7 +202,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const guard = await requireCreator(request, prisma);
+  const guard = await requireCreator(request, prisma, { allowTelegramMiniApp: true });
   if (!guard.ok) return guard.response;
 
   const limited = enforceRateLimit(RateBuckets.CREATOR_ACTION_CREATE, guard.creator.id);

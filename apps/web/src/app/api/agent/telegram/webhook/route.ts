@@ -63,6 +63,11 @@ function agentSettingsUrl() {
   return `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/agent`;
 }
 
+function giveawayMiniAppUrl(draftId?: string) {
+  const base = `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/toccata-lab/giveaway`;
+  return draftId ? `${base}?draft=${encodeURIComponent(draftId)}` : base;
+}
+
 function helpButtons() {
   return [
     [
@@ -70,9 +75,16 @@ function helpButtons() {
       { callback_data: "menu:payments", text: "Payments" },
       { callback_data: "menu:stats", text: "Stats" },
     ],
-    [{ callback_data: "menu:giveaways", text: "Giveaways" }],
+    [
+      { callback_data: "menu:giveaways", text: "Giveaways" },
+      { text: "Open giveaway app", web_app: { url: giveawayMiniAppUrl() } },
+    ],
     [{ text: "Agent settings", url: agentSettingsUrl() }],
   ];
+}
+
+function giveawayAppButtons() {
+  return [[{ text: "Manage giveaways", web_app: { url: giveawayMiniAppUrl() } }]];
 }
 
 const helpText = [
@@ -202,7 +214,7 @@ async function createGiveawayHandoff(
       winnerClaimWindowSeconds: 24 * 60 * 60,
     },
   );
-  const url = `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/toccata-lab/giveaway?draft=${encodeURIComponent(draft.id)}`;
+  const url = giveawayMiniAppUrl(draft.id);
   return { draft, url };
 }
 
@@ -230,9 +242,11 @@ async function handleCallback(client: TelegramApiClient, callback: TelegramCallb
     return;
   }
   if (data.startsWith("menu:")) {
+    const action = data.slice(5);
     await client.sendMessage({
+      ...(action === "giveaways" ? { buttons: giveawayAppButtons() } : {}),
       chatId: String(chat.id),
-      text: await executeMenuAction(data.slice(5), connection.creatorId),
+      text: await executeMenuAction(action, connection.creatorId),
     });
     await client.answerCallbackQuery(callback.id);
     return;
@@ -556,6 +570,7 @@ async function handleMessage(
     command.kind === "stats"
   ) {
     await client.sendMessage({
+      ...(command.kind === "giveaways" ? { buttons: giveawayAppButtons() } : {}),
       chatId,
       text: await executeMenuAction(command.kind, connection.creatorId),
     });
@@ -564,7 +579,7 @@ async function handleMessage(
   if (command.kind === "prepare_giveaway") {
     const handoff = await createGiveawayHandoff(connection, command);
     await client.sendMessage({
-      buttons: [[{ text: "Finish giveaway setup", url: handoff.url }]],
+      buttons: [[{ text: "Finish giveaway setup", web_app: { url: handoff.url } }]],
       chatId,
       text:
         `Giveaway draft: ${command.title}\n${command.amountKas} KAS\n` +

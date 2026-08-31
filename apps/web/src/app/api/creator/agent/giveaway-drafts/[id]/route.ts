@@ -15,7 +15,7 @@ const idSchema = z
   .regex(/^[a-zA-Z0-9_-]+$/);
 
 export async function GET(request: Request, context: RouteContext) {
-  const guard = await requireCreator(request, prisma);
+  const guard = await requireCreator(request, prisma, { allowTelegramMiniApp: true });
   if (!guard.ok) return guard.response;
   const { id } = await context.params;
   const parsedId = idSchema.safeParse(id);

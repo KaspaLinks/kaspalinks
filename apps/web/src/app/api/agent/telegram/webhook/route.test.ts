@@ -281,7 +281,9 @@ describe("Telegram Agent webhook", () => {
           [
             {
               text: "Finish giveaway setup",
-              url: "https://kaspalinks.com/toccata-lab/giveaway?draft=giveaway-draft-1",
+              web_app: {
+                url: "https://kaspalinks.com/toccata-lab/giveaway?draft=giveaway-draft-1",
+              },
             },
           ],
         ],

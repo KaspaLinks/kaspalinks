@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   decryptClaimableVaultValue,
+  ensureTelegramMiniAppVaultSecret,
   encryptClaimableVaultValue,
   readEncryptedLocalJson,
+  resolveClaimableVaultStorageKey,
 } from "./claimable-vault";
 
 describe("claimable recovery vault", () => {
@@ -67,6 +69,26 @@ describe("claimable recovery vault", () => {
       value: { refundCode: "private" },
     });
     expect(localStorage.getItem("recovery")).not.toContain("refundCode");
+  });
+
+  it("keeps Telegram Mini App recovery in a separate browser vault", () => {
+    const sessionStorage = memoryStorage();
+    vi.stubGlobal("window", { localStorage: memoryStorage(), sessionStorage });
+
+    const secret = ensureTelegramMiniAppVaultSecret();
+
+    expect(secret).toHaveLength(43);
+    expect(resolveClaimableVaultStorageKey("recovery")).toBe("recovery.telegram-mini-app");
+  });
+
+  it("prefers the signed-in creator vault over the Mini App vault", () => {
+    const sessionStorage = memoryStorage({
+      "kaspa-actions:creator-token": "ka_creator_existing",
+      "kaspa-actions:telegram-mini-app-vault-key": "mini-app-key",
+    });
+    vi.stubGlobal("window", { localStorage: memoryStorage(), sessionStorage });
+
+    expect(resolveClaimableVaultStorageKey("recovery")).toBe("recovery");
   });
 });
 

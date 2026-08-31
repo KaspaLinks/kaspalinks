@@ -16,7 +16,7 @@ export async function POST(request: Request, context: { params: Promise<{ public
     return apiError(ErrorCodes.TOCCATA_LAB_DISABLED, "Giveaway lab is disabled.", 403);
   }
 
-  const guard = await requireCreator(request, prisma);
+  const guard = await requireCreator(request, prisma, { allowTelegramMiniApp: true });
   if (!guard.ok) return guard.response;
 
   const limited = enforceRateLimit(RateBuckets.TOCCATA_LAB_GIVEAWAY_MUTATION, guard.creator.id);

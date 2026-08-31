@@ -2,7 +2,11 @@
 // and are encrypted with key material derived from the creator token before
 // localStorage sees them. The token itself remains sessionStorage-only.
 
-import { readEncryptedLocalJson, writeEncryptedLocalJson } from "./claimable-vault";
+import {
+  readEncryptedLocalJson,
+  resolveClaimableVaultStorageKey,
+  writeEncryptedLocalJson,
+} from "./claimable-vault";
 
 export type ClaimableStoreRecord = {
   id: string;
@@ -52,7 +56,9 @@ export async function loadClaimableRecords(): Promise<ClaimableStoreRecord[]> {
 }
 
 async function readRecords(): Promise<ClaimableStoreRecord[]> {
-  const result = await readEncryptedLocalJson<unknown>(STORAGE_KEY);
+  const result = await readEncryptedLocalJson<unknown>(
+    resolveClaimableVaultStorageKey(STORAGE_KEY),
+  );
   if (!Array.isArray(result.value)) return [];
   return result.value.filter(isStoreRecord).sort((a, b) => b.createdAtMs - a.createdAtMs);
 }
@@ -67,7 +73,7 @@ export function saveClaimableRecord(record: ClaimableStoreRecord): Promise<Claim
       records.push(record);
     }
     const sorted = records.sort((a, b) => b.createdAtMs - a.createdAtMs);
-    await writeEncryptedLocalJson(STORAGE_KEY, sorted);
+    await writeEncryptedLocalJson(resolveClaimableVaultStorageKey(STORAGE_KEY), sorted);
     return sorted;
   });
 }
@@ -75,7 +81,7 @@ export function saveClaimableRecord(record: ClaimableStoreRecord): Promise<Claim
 export function removeClaimableRecord(id: string): Promise<ClaimableStoreRecord[]> {
   return enqueueWrite(async () => {
     const records = (await readRecords()).filter((entry) => entry.id !== id);
-    await writeEncryptedLocalJson(STORAGE_KEY, records);
+    await writeEncryptedLocalJson(resolveClaimableVaultStorageKey(STORAGE_KEY), records);
     return records;
   });
 }
@@ -87,7 +93,7 @@ export function updateClaimableStatus(id: string, status: string): Promise<Claim
     const updated = records.map((entry) =>
       entry.id === id ? { ...entry, status, updatedAtMs: Date.now() } : entry,
     );
-    await writeEncryptedLocalJson(STORAGE_KEY, updated);
+    await writeEncryptedLocalJson(resolveClaimableVaultStorageKey(STORAGE_KEY), updated);
     return updated;
   });
 }

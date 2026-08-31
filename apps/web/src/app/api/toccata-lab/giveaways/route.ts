@@ -19,7 +19,7 @@ import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 export async function GET(request: Request) {
   if (!isGiveawayLabEnabled()) return disabledResponse();
 
-  const guard = await requireCreator(request, prisma);
+  const guard = await requireCreator(request, prisma, { allowTelegramMiniApp: true });
   if (!guard.ok) return guard.response;
 
   const giveaways = await prisma.giveaway.findMany({
@@ -126,7 +126,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   if (!isGiveawayLabEnabled()) return disabledResponse();
 
-  const guard = await requireCreator(request, prisma);
+  const guard = await requireCreator(request, prisma, { allowTelegramMiniApp: true });
   if (!guard.ok) return guard.response;
 
   const limited = enforceRateLimit(RateBuckets.TOCCATA_LAB_GIVEAWAY_MUTATION, guard.creator.id);

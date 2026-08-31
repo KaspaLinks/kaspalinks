@@ -17,6 +17,7 @@ import {
   preloadClaimableBrowserSigner,
 } from "@/app/toccata-lab/claimable-browser";
 import { loadClaimableRecords, saveClaimableRecord } from "@/lib/claimable-store";
+import { ensureTelegramMiniAppVaultSecret } from "@/lib/claimable-vault";
 import { FundingQrCode } from "@/lib/funding-qr";
 import {
   createGiveawayPrizeRecoveryBundle,
@@ -93,7 +94,9 @@ type GiveawaySummary = {
   winnerAddress: null | string;
 };
 
-type Session = { token: string; username: string };
+type Session =
+  | { initData: string; kind: "telegram" }
+  | { kind: "creator"; token: string; username: string };
 
 type PrizeEscrow = GiveawayPrizeRecoveryRecord;
 
@@ -147,9 +150,19 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
   const loadedDraftRef = useRef<null | string>(null);
 
   useEffect(() => {
+    const telegramWebApp = window.Telegram?.WebApp;
+    const initData = telegramWebApp?.initData?.trim() ?? "";
+    if (initData) {
+      ensureTelegramMiniAppVaultSecret();
+      telegramWebApp?.ready();
+      telegramWebApp?.expand();
+      setSession({ initData, kind: "telegram" });
+      setSessionReady(true);
+      return;
+    }
     const token = window.sessionStorage.getItem(TOKEN_STORAGE_KEY)?.trim() ?? "";
     const username = window.sessionStorage.getItem(USERNAME_STORAGE_KEY)?.trim() ?? "";
-    setSession(token && username ? { token, username } : null);
+    setSession(token && username ? { kind: "creator", token, username } : null);
     setSessionReady(true);
   }, []);
 
@@ -176,17 +189,17 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
     return () => window.clearInterval(timer);
   }, [giveaways]);
 
-  const creatorHeaders = useMemo(
-    () =>
-      session
-        ? {
-            "Content-Type": "application/json",
-            "x-creator-token": session.token,
-            "x-creator-username": session.username,
-          }
-        : null,
-    [session],
-  );
+  const creatorHeaders = useMemo<Headers | null>(() => {
+    if (!session) return null;
+    const headers = new Headers({ "Content-Type": "application/json" });
+    if (session.kind === "creator") {
+      headers.set("x-creator-token", session.token);
+      headers.set("x-creator-username", session.username);
+    } else {
+      headers.set("x-telegram-mini-app-init-data", session.initData);
+    }
+    return headers;
+  }, [session]);
 
   useEffect(() => {
     if (!draftId || !creatorHeaders || loadedDraftRef.current === draftId) return;
@@ -324,7 +337,7 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
     entryWindowSeconds: number,
     winnerClaimWindowSeconds: number,
   ): Promise<PrizeEscrow> {
-    if (!creatorHeaders) throw new Error("Sign in again to escrow a prize.");
+    if (!creatorHeaders) throw new Error("Reopen this giveaway from Telegram or sign in again.");
 
     const plan = planToccataCanaryClaimFromNetKas({ netAmountKas });
     const claimKey = createToccataLabKeyPair();
@@ -623,15 +636,26 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
     if (!prize) return;
     try {
       const bundle = createGiveawayPrizeRecoveryBundle(prize);
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
-      const href = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = href;
-      anchor.download = `${safeFilePart(prize.title)}-prize-recovery.json`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(href);
+      const filename = `${safeFilePart(prize.title)}-prize-recovery.json`;
+      const file = new File([JSON.stringify(bundle, null, 2)], filename, {
+        type: "application/json",
+      });
+      if (
+        session?.kind === "telegram" &&
+        typeof navigator.share === "function" &&
+        navigator.canShare?.({ files: [file] })
+      ) {
+        await navigator.share({ files: [file], title: "KaspaLinks prize recovery" });
+      } else {
+        const href = URL.createObjectURL(file);
+        const anchor = document.createElement("a");
+        anchor.href = href;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(href);
+      }
       setPrizeRecoveryReady(true);
       setPrizeRecoverySkipped(false);
       const records = await loadClaimableRecords();
@@ -645,8 +669,9 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
         });
       }
       setPrizeRecoveryAccessByLink((current) => ({ ...current, [prize.linkKey]: true }));
-      setNotice("Private prize recovery bundle downloaded.");
+      setNotice("Private prize recovery bundle saved.");
     } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
       setError(
         caught instanceof Error ? caught.message : "Prize recovery could not be downloaded.",
       );
@@ -1056,9 +1081,17 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
     return (
       <main className="main giveaway-lab-page">
         <CreatorSignInGate
-          description="Sign in with your creator token to create and draw private Lab giveaways."
+          description={
+            draftId
+              ? "Open the Finish giveaway setup button in your connected Telegram chat, or sign in here as a fallback."
+              : "Open the Giveaway Mini App from your connected Telegram chat, or sign in here as a fallback."
+          }
           label="Private Lab"
-          nextPath="/toccata-lab/giveaway"
+          nextPath={
+            draftId
+              ? `/toccata-lab/giveaway?draft=${encodeURIComponent(draftId)}`
+              : "/toccata-lab/giveaway"
+          }
           title="Creator sign-in required"
         />
       </main>
@@ -1085,7 +1118,9 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
   return (
     <main className="main-wide giveaway-lab-page">
       <section className="hero giveaway-lab-hero">
-        <span className="hero-eyebrow">Private Lab</span>
+        <span className="hero-eyebrow">
+          {session.kind === "telegram" ? "Telegram Mini App" : "Private Lab"}
+        </span>
         <h1 className="hero-title">Address giveaway.</h1>
         <p className="hero-sub">
           Collect mainnet addresses, close entries at a fixed time, and draw one auditable winner.
@@ -1174,6 +1209,9 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
                 <p>
                   This private file is needed to pay the winner from the parked output or refund it
                   later from another device. Kaspa Links never receives it.
+                  {session.kind === "telegram"
+                    ? " In the device menu, choose Save to Files and never send it in a chat."
+                    : ""}
                 </p>
                 <div className="row">
                   <button

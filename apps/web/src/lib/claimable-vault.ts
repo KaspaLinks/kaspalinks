@@ -1,4 +1,5 @@
 const CREATOR_TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
+const TELEGRAM_MINI_APP_VAULT_KEY = "kaspa-actions:telegram-mini-app-vault-key";
 const ENVELOPE_VERSION = 1;
 
 type VaultEnvelope = {
@@ -68,6 +69,24 @@ export function removeEncryptedLocalJson(storageKey: string): void {
   window.localStorage.removeItem(storageKey);
 }
 
+export function ensureTelegramMiniAppVaultSecret(): string {
+  if (typeof window === "undefined") return "";
+  const existing = window.sessionStorage.getItem(TELEGRAM_MINI_APP_VAULT_KEY)?.trim() ?? "";
+  if (existing) return existing;
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const secret = bytesToBase64Url(bytes);
+  window.sessionStorage.setItem(TELEGRAM_MINI_APP_VAULT_KEY, secret);
+  return secret;
+}
+
+export function resolveClaimableVaultStorageKey(baseKey: string): string {
+  if (typeof window === "undefined") return baseKey;
+  const creatorToken = window.sessionStorage.getItem(CREATOR_TOKEN_STORAGE_KEY)?.trim() ?? "";
+  if (creatorToken) return baseKey;
+  const miniAppSecret = window.sessionStorage.getItem(TELEGRAM_MINI_APP_VAULT_KEY)?.trim() ?? "";
+  return miniAppSecret ? `${baseKey}.telegram-mini-app` : baseKey;
+}
+
 export async function encryptClaimableVaultValue(
   value: unknown,
   secret: string,
@@ -118,7 +137,11 @@ export async function decryptClaimableVaultValue<T>(
 
 function readCreatorVaultSecret(): string {
   try {
-    return window.sessionStorage.getItem(CREATOR_TOKEN_STORAGE_KEY)?.trim() ?? "";
+    return (
+      window.sessionStorage.getItem(CREATOR_TOKEN_STORAGE_KEY)?.trim() ||
+      window.sessionStorage.getItem(TELEGRAM_MINI_APP_VAULT_KEY)?.trim() ||
+      ""
+    );
   } catch {
     return "";
   }
