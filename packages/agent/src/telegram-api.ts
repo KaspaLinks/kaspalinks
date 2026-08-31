@@ -17,6 +17,11 @@ type TelegramApiResponse<T> = {
   result?: T;
 };
 
+export type TelegramBotCommand = {
+  command: string;
+  description: string;
+};
+
 export class TelegramApiClient {
   constructor(
     private readonly botToken: string,
@@ -53,6 +58,10 @@ export class TelegramApiClient {
       secret_token: input.secretToken,
       url: input.url,
     });
+  }
+
+  async setMyCommands(commands: TelegramBotCommand[]): Promise<boolean> {
+    return this.call("setMyCommands", { commands });
   }
 
   private async call<T>(method: string, body: Record<string, unknown>): Promise<T> {
