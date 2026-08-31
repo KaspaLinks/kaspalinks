@@ -114,7 +114,7 @@ export function AgentClient() {
 
   if (!signedIn) {
     return (
-      <main className="narrow-main agent-page">
+      <main className="main-wide agent-page">
         <section className="card agent-hero">
           <span className="label">KaspaLinks Agent</span>
           <h1>Sign in to manage Agent access.</h1>
@@ -128,14 +128,14 @@ export function AgentClient() {
 
   if (!settings) {
     return (
-      <main className="narrow-main agent-page">
+      <main className="main-wide agent-page">
         <p className="muted">Loading Agent settings...</p>
       </main>
     );
   }
 
   return (
-    <main className="wide-main agent-page">
+    <main className="main-wide agent-page">
       <header className="agent-hero">
         <span className="label">KaspaLinks Agent</span>
         <h1>Manage links and payment alerts from Telegram.</h1>
