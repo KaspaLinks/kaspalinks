@@ -274,7 +274,9 @@ export async function POST(request: Request) {
           : "Kaspa had already accepted this signed transaction; the registered link status was reconciled.",
       });
     }
-    const timedOut = message.toLowerCase().includes("timed out");
+    const timedOut =
+      (error instanceof Error && error.name === "TimeoutError") ||
+      message.toLowerCase().includes("timed out");
     const dagUnavailable =
       message.startsWith("Could not read current Kaspa DAA score") ||
       message.startsWith("Unexpected Kaspa BlockDAG response");
@@ -299,6 +301,7 @@ export async function POST(request: Request) {
 async function readCurrentDaaScore(): Promise<bigint> {
   const response = await fetch("https://api.kaspa.org/info/blockdag", {
     headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(7_000),
     next: { revalidate: 5 },
   });
 

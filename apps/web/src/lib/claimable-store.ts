@@ -3,6 +3,7 @@
 // localStorage sees them. The token itself remains sessionStorage-only.
 
 import {
+  assertClaimableVaultSession,
   readEncryptedLocalJson,
   resolveClaimableVaultStorageKey,
   writeEncryptedLocalJson,
@@ -59,13 +60,17 @@ async function readRecords(): Promise<ClaimableStoreRecord[]> {
   const result = await readEncryptedLocalJson<unknown>(
     resolveClaimableVaultStorageKey(STORAGE_KEY),
   );
+  if (result.locked)
+    throw new Error("Recovery storage is locked or damaged. Restore your backup before saving.");
   if (!Array.isArray(result.value)) return [];
   return result.value.filter(isStoreRecord).sort((a, b) => b.createdAtMs - a.createdAtMs);
 }
 
 export function saveClaimableRecord(record: ClaimableStoreRecord): Promise<ClaimableStoreRecord[]> {
   return enqueueWrite(async () => {
+    const assertSession = assertClaimableVaultSession();
     const records = await readRecords();
+    assertSession();
     const index = records.findIndex((entry) => entry.id === record.id);
     if (index >= 0) {
       records[index] = { ...records[index], ...record };
@@ -80,7 +85,9 @@ export function saveClaimableRecord(record: ClaimableStoreRecord): Promise<Claim
 
 export function removeClaimableRecord(id: string): Promise<ClaimableStoreRecord[]> {
   return enqueueWrite(async () => {
+    const assertSession = assertClaimableVaultSession();
     const records = (await readRecords()).filter((entry) => entry.id !== id);
+    assertSession();
     await writeEncryptedLocalJson(resolveClaimableVaultStorageKey(STORAGE_KEY), records);
     return records;
   });
@@ -88,7 +95,9 @@ export function removeClaimableRecord(id: string): Promise<ClaimableStoreRecord[
 
 export function updateClaimableStatus(id: string, status: string): Promise<ClaimableStoreRecord[]> {
   return enqueueWrite(async () => {
+    const assertSession = assertClaimableVaultSession();
     const records = await readRecords();
+    assertSession();
     if (!records.some((entry) => entry.id === id)) return records;
     const updated = records.map((entry) =>
       entry.id === id ? { ...entry, status, updatedAtMs: Date.now() } : entry,
@@ -99,7 +108,18 @@ export function updateClaimableStatus(id: string, status: string): Promise<Claim
 }
 
 function enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
-  const result = writeQueue.then(operation, operation);
+  const assertSession = assertClaimableVaultSession();
+  const guarded = async () => {
+    assertSession();
+    const run = async () => {
+      assertSession();
+      return operation();
+    };
+    return typeof navigator !== "undefined" && navigator.locks
+      ? navigator.locks.request(STORAGE_KEY, run)
+      : run();
+  };
+  const result = writeQueue.then(guarded, guarded);
   writeQueue = result.then(
     () => undefined,
     () => undefined,

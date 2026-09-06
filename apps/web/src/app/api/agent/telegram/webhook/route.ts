@@ -8,6 +8,8 @@ import {
   parseAiPrice,
   parseTelegramCommand,
   slugifyAgentTitle,
+  giveawayCardText,
+  telegramGiveawayIdSchema,
   type InterpretedIntent,
   type TelegramCallbackQuery,
   type TelegramMessage,
@@ -30,6 +32,8 @@ import {
   recordAiUsage,
   reserveAiQuota,
   updateAgentSettingsTool,
+  setGiveawayResultSubscription,
+  stopGiveawayResultSubscriptions,
 } from "@kaspa-actions/application";
 import { Prisma, prisma } from "@kaspa-actions/db";
 import { formatSompiToKaspa } from "@kaspa-actions/kaspa";
@@ -37,13 +41,48 @@ import { z } from "zod";
 
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 
+import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
+import { getTelegramGiveawayCard } from "@/lib/telegram-giveaway";
+import { isGiveawayLabEnabled } from "@/lib/giveaway-lab";
+
 export const runtime = "nodejs";
 
 const telegramUpdateSchema = z
   .object({
-    callback_query: z.unknown().optional(),
-    message: z.unknown().optional(),
-    update_id: z.union([z.number(), z.string()]),
+    callback_query: z
+      .object({
+        id: z.string().min(1).max(128),
+        from: z.object({
+          id: z.union([z.number().int().positive().safe(), z.string().regex(/^\d{1,20}$/)]),
+        }),
+        data: z.string().max(64).optional(),
+        message: z
+          .object({
+            message_id: z.number().int(),
+            chat: z.object({
+              id: z.union([z.number().int().safe(), z.string().regex(/^-?\d{1,20}$/)]),
+              type: z.enum(["private", "group", "supergroup", "channel"]),
+            }),
+          })
+          .optional(),
+      })
+      .optional(),
+    message: z
+      .object({
+        message_id: z.number().int(),
+        text: z.string().max(4096).optional(),
+        from: z
+          .object({
+            id: z.union([z.number().int().positive().safe(), z.string().regex(/^\d{1,20}$/)]),
+          })
+          .optional(),
+        chat: z.object({
+          id: z.union([z.number().int().safe(), z.string().regex(/^-?\d{1,20}$/)]),
+          type: z.enum(["private", "group", "supergroup", "channel"]),
+        }),
+      })
+      .optional(),
+    update_id: z.union([z.number().int().nonnegative().safe(), z.string().regex(/^\d{1,20}$/)]),
   })
   .passthrough();
 
@@ -162,6 +201,7 @@ async function renderStats(creatorId: string): Promise<string> {
 }
 
 function giveawayStateLabel(giveaway: Awaited<ReturnType<typeof listGiveawaysTool>>[number]) {
+  if (giveaway.prizeStatus === "spent_unknown") return "Prize spend requires verification";
   if (giveaway.prizeStatus === "claimed") return "Prize claimed";
   if (giveaway.prizeStatus === "refunded") return "Prize refunded";
   if (!giveaway.funded) return "Waiting for prize funding";
@@ -202,6 +242,7 @@ async function executeMenuAction(action: string, creatorId: string): Promise<str
 async function createGiveawayHandoff(
   connection: NonNullable<Awaited<ReturnType<typeof connectedCreator>>>,
   command: Extract<ReturnType<typeof parseTelegramCommand>, { kind: "prepare_giveaway" }>,
+  updateId: string,
 ) {
   const draft = await createGiveawaySetupDraftTool(
     prisma,
@@ -213,6 +254,8 @@ async function createGiveawayHandoff(
       title: command.title,
       winnerClaimWindowSeconds: 24 * 60 * 60,
     },
+    new Date(),
+    `telegram:${updateId}`,
   );
   const url = giveawayMiniAppUrl(draft.id);
   return { draft, url };
@@ -225,6 +268,38 @@ async function handleCallback(client: TelegramApiClient, callback: TelegramCallb
     return;
   }
   const telegramUserId = String(callback.from.id);
+  const watch = /^watch:(on|off):([a-zA-Z0-9_-]{1,48})$/.exec(callback.data ?? "");
+  if (watch) {
+    if (!isGiveawayLabEnabled()) {
+      await client.answerCallbackQuery(callback.id, "Giveaways are unavailable.");
+      return;
+    }
+    const result = await setGiveawayResultSubscription(prisma, {
+      publicId: telegramGiveawayIdSchema.parse(watch[2]),
+      telegramUserId,
+      telegramChatId: String(chat.id),
+      enabled: watch[1] === "on",
+    });
+    await client.answerCallbackQuery(
+      callback.id,
+      result.enabled ? "Result reminder enabled." : "Result reminder disabled.",
+    );
+    await client.sendMessage({
+      chatId: String(chat.id),
+      text: result.enabled
+        ? `Result reminder enabled for ${result.title}. Use /stop to stop all giveaway reminders.`
+        : `Result reminder disabled for ${result.title}.`,
+      buttons: [
+        [
+          {
+            text: result.enabled ? "Turn off reminder" : "Notify me of the result",
+            callback_data: `watch:${result.enabled ? "off" : "on"}:${watch[2]}`,
+          },
+        ],
+      ],
+    });
+    return;
+  }
   const connection = await connectedCreator(telegramUserId);
   if (!connection || connection.telegramChatId !== String(chat.id)) {
     await client.answerCallbackQuery(callback.id, "Connect this private chat first.");
@@ -510,9 +585,34 @@ async function handleMessage(
   if (!text) return;
 
   const command = parseTelegramCommand(text);
+  if (command?.kind === "stop_giveaway_alerts") {
+    await stopGiveawayResultSubscriptions(prisma, telegramUserId);
+    await client.sendMessage({ chatId, text: "All giveaway result reminders are off." });
+    return;
+  }
+  if (command?.kind === "public_giveaway" || command?.kind === "watch_giveaway") {
+    const card = await getTelegramGiveawayCard(command.publicId);
+    if (!card) throw new ApplicationError("GIVEAWAY_NOT_FOUND", "Giveaway is unavailable.", 404);
+    await client.sendMessage({
+      chatId,
+      text: giveawayCardText(card),
+      buttons: [
+        [
+          {
+            text: "Open giveaway",
+            web_app: {
+              url: `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/toccata-lab/giveaway/${card.publicId}`,
+            },
+          },
+        ],
+        [{ text: "Notify me of the result", callback_data: `watch:on:${card.publicId}` }],
+      ],
+    });
+    return;
+  }
   if (command?.kind === "connect") {
     const existing = await connectedCreator(telegramUserId);
-    if (existing?.telegramChatId === chatId) {
+    if (existing?.telegramChatId === chatId && !existing.blockedAt) {
       await client.sendMessage({
         chatId,
         text: `Already connected to KaspaLinks creator ${existing.creator.username}. Try /help to continue.`,
@@ -543,7 +643,8 @@ async function handleMessage(
       buttons: [[{ text: "Open Agent settings", url: agentSettingsUrl() }]],
       chatId,
       text:
-        "This private chat is not connected yet. Open KaspaLinks Agent settings, generate a new " +
+        "Open a shared giveaway to participate without a Creator account. Use /stop to disable giveaway reminders. " +
+        "To create giveaways from bot commands, connect a Creator account first. Open KaspaLinks Agent settings, generate a new " +
         "connection code, then tap Start or send /connect followed by that code. Opening the chat " +
         "alone does not connect it.",
     });
@@ -577,7 +678,7 @@ async function handleMessage(
     return;
   }
   if (command.kind === "prepare_giveaway") {
-    const handoff = await createGiveawayHandoff(connection, command);
+    const handoff = await createGiveawayHandoff(connection, command, updateId);
     await client.sendMessage({
       buttons: [[{ text: "Finish giveaway setup", web_app: { url: handoff.url } }]],
       chatId,
@@ -644,6 +745,12 @@ export async function POST(request: Request) {
   }
 
   try {
+    const userId = update.callback_query?.from.id ?? update.message?.from?.id;
+    if (userId !== undefined) {
+      const limited = enforceRateLimit(RateBuckets.AGENT_MUTATION, `telegram:${userId}`);
+      if (!limited.allowed)
+        throw new ApplicationError("RATE_LIMITED", "Too many commands. Please wait a minute.", 429);
+    }
     if (update.callback_query) await handleCallback(client, update.callback_query);
     else if (update.message) await handleMessage(client, update.message, updateId);
     await prisma.telegramUpdate.update({

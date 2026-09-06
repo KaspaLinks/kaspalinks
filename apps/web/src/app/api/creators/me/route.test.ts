@@ -113,7 +113,10 @@ describe("DELETE /api/creators/me", () => {
 
     // Audit log captures the deletion before the row is wiped.
     expect(mockWriteAuditLog).toHaveBeenCalledWith(
-      mockPrisma,
+      expect.objectContaining({
+        creator: mockPrisma.creator,
+        paymentRequest: mockPrisma.paymentRequest,
+      }),
       expect.objectContaining({
         creatorId: "creator-1",
         event: "creator.deleted",

@@ -5,6 +5,8 @@ export class TelegramApiError extends Error {
     message: string,
     public readonly permanent: boolean,
     public readonly errorCode?: number,
+    public readonly retryAfterSeconds?: number,
+    public readonly connectionUnavailable = false,
   ) {
     super(message);
   }
@@ -13,6 +15,7 @@ export class TelegramApiError extends Error {
 type TelegramApiResponse<T> = {
   description?: string;
   error_code?: number;
+  parameters?: { retry_after?: number };
   ok: boolean;
   result?: T;
 };
@@ -41,6 +44,19 @@ export class TelegramApiClient {
       disable_web_page_preview: input.disableWebPagePreview ?? true,
       ...(input.buttons ? { reply_markup: { inline_keyboard: input.buttons } } : {}),
       text: input.text,
+    });
+  }
+
+  async savePreparedInlineMessage(
+    userId: string,
+    result: Record<string, unknown>,
+  ): Promise<{ id: string; expiration_date: number }> {
+    return this.call("savePreparedInlineMessage", {
+      user_id: userId,
+      result,
+      allow_user_chats: true,
+      allow_group_chats: true,
+      allow_channel_chats: true,
     });
   }
 
@@ -84,6 +100,9 @@ export class TelegramApiClient {
       throw new TelegramApiError(
         `Telegram returned HTTP ${response.status}.`,
         response.status === 403,
+        response.status,
+        undefined,
+        response.status === 403,
       );
     }
     if (!response.ok || !payload.ok || payload.result === undefined) {
@@ -92,6 +111,10 @@ export class TelegramApiClient {
         payload.description ?? "Telegram request failed.",
         code === 400 || code === 403,
         code,
+        Number.isFinite(payload.parameters?.retry_after)
+          ? Math.max(1, payload.parameters!.retry_after!)
+          : undefined,
+        code === 403,
       );
     }
     return payload.result;

@@ -20,6 +20,7 @@ const { mockPrisma } = vi.hoisted(() => ({
 
 vi.mock("@kaspa-actions/application", () => ({
   lockActionPaymentLifecycle: vi.fn(),
+  lockRecipientPaymentLifecycle: vi.fn(),
 }));
 
 vi.mock("@kaspa-actions/db", () => ({

@@ -1,5 +1,7 @@
 "use client";
 
+import { TelegramGiveawayActions } from "./TelegramGiveawayActions";
+
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -109,7 +111,17 @@ function durationFields(seconds: number): {
   return { unit: "minutes", value: String(Math.max(1, Math.ceil(seconds / 60))) };
 }
 
-export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enabled: boolean }) {
+export function GiveawayLabClient({
+  draftId,
+  templateId,
+  botUsername = "",
+  enabled,
+}: {
+  draftId?: string;
+  templateId?: string;
+  botUsername?: string;
+  enabled: boolean;
+}) {
   const [session, setSession] = useState<null | Session>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [giveaways, setGiveaways] = useState<GiveawaySummary[]>([]);
@@ -150,6 +162,13 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
   const loadedDraftRef = useRef<null | string>(null);
 
   useEffect(() => {
+    const token = window.sessionStorage.getItem(TOKEN_STORAGE_KEY)?.trim() ?? "";
+    const username = window.sessionStorage.getItem(USERNAME_STORAGE_KEY)?.trim() ?? "";
+    if (token && username) {
+      setSession({ kind: "creator", token, username });
+      setSessionReady(true);
+      return;
+    }
     const telegramWebApp = window.Telegram?.WebApp;
     const initData = telegramWebApp?.initData?.trim() ?? "";
     if (initData) {
@@ -160,9 +179,7 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
       setSessionReady(true);
       return;
     }
-    const token = window.sessionStorage.getItem(TOKEN_STORAGE_KEY)?.trim() ?? "";
-    const username = window.sessionStorage.getItem(USERNAME_STORAGE_KEY)?.trim() ?? "";
-    setSession(token && username ? { kind: "creator", token, username } : null);
+    setSession(null);
     setSessionReady(true);
   }, []);
 
@@ -239,6 +256,38 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
     })();
   }, [creatorHeaders, draftId]);
 
+  useEffect(() => {
+    if (draftId || !templateId || !/^[a-zA-Z0-9_-]{1,48}$/.test(templateId)) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/toccata-lab/giveaways/${templateId}`, {
+          cache: "no-store",
+        });
+        const body = await readJsonResponse<{
+          giveaway?: { amountKas: string; title: string; entryWindowSeconds?: number | null };
+        }>(response);
+        if (!response.ok || !body?.giveaway)
+          throw new Error("Giveaway template could not be loaded.");
+        if (cancelled) return;
+        setTitle(body.giveaway.title);
+        setAmountKas(body.giveaway.amountKas);
+        const seconds = body.giveaway.entryWindowSeconds ?? 86400;
+        const duration = durationFields(Math.min(604800, Math.max(60, seconds)));
+        setDurationUnit(duration.unit);
+        setDurationValue(duration.value);
+        setNotice(
+          "Template loaded. Review the prize and duration before funding your own giveaway.",
+        );
+      } catch {
+        if (!cancelled) setError("Template unavailable. You can still create your own giveaway.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [draftId, templateId]);
+
   const loadGiveaways = useCallback(
     async (options: { quiet?: boolean } = {}) => {
       if (!creatorHeaders) return;
@@ -252,6 +301,10 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
           error?: { message?: string };
           giveaways?: GiveawaySummary[];
         };
+        if (response.status === 401 || response.status === 403) {
+          setSession(null);
+          return;
+        }
         if (!response.ok) throw new Error(body.error?.message ?? "Giveaways could not be loaded.");
         setGiveaways(body.giveaways ?? []);
         setError(null);
@@ -1084,13 +1137,15 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
           description={
             draftId
               ? "Open the Finish giveaway setup button in your connected Telegram chat, or sign in here as a fallback."
-              : "Open the Giveaway Mini App from your connected Telegram chat, or sign in here as a fallback."
+              : "Sign in or create a profile to set up and fund your own giveaway."
           }
           label="Private Lab"
           nextPath={
             draftId
               ? `/toccata-lab/giveaway?draft=${encodeURIComponent(draftId)}`
-              : "/toccata-lab/giveaway"
+              : templateId
+                ? `/toccata-lab/giveaway?template=${encodeURIComponent(templateId)}`
+                : "/toccata-lab/giveaway"
           }
           title="Creator sign-in required"
         />
@@ -1334,6 +1389,12 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
                 Done
               </button>
             </div>
+            {createdGiveawayState.status !== "PENDING_FUNDING" ? (
+              <TelegramGiveawayActions
+                publicId={createdGiveawayState.publicId}
+                botUsername={botUsername}
+              />
+            ) : null}
             <p className="giveaway-dialog-hint">
               {createdEscrow
                 ? "After the draw, this browser prepares a fixed-address claim for the winner."
@@ -1742,6 +1803,10 @@ export function GiveawayLabClient({ draftId, enabled }: { draftId?: string; enab
                       >
                         Copy entry link
                       </button>
+                      <TelegramGiveawayActions
+                        publicId={giveaway.publicId}
+                        botUsername={botUsername}
+                      />
                     </>
                   ) : null}
                   {effectiveStatus === "CLOSED" ? (

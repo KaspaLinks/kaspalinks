@@ -8,3 +8,4 @@ export * from "./payments.ts";
 export * from "./reads.ts";
 export * from "./rules.ts";
 export * from "./telegram-connect.ts";
+export * from "./giveaway-notifications.ts";

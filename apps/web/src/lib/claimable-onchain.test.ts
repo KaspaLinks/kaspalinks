@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveClaimableOnChain } from "./claimable-onchain";
+import { isClaimableFundingAddressEmpty, resolveClaimableOnChain } from "./claimable-onchain";
 
 const ADDRESS = "kaspa:pqtvlcvulje439t7dankkw56m2z75zhjqrwkrqf6qnlgrsuwy8ahxgf55x7hg";
 const FUNDING_TX_ID = "a".repeat(64);
@@ -57,4 +57,39 @@ describe("resolveClaimableOnChain", () => {
       }),
     ).resolves.toEqual({ status: testCase.expected });
   });
+});
+
+describe("claimable deletion funding proof", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  it.each(["1", "50000000", "200000000"])(
+    "does not treat a remaining %s-sompi output as empty",
+    async (amount) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify([{ utxoEntry: { amount } }]))),
+      );
+      expect(await isClaimableFundingAddressEmpty(ADDRESS)).toBe(false);
+    },
+  );
+  it("accepts only a successful empty UTXO array", async () => {
+    const mock = vi.fn(async () => new Response("[]"));
+    vi.stubGlobal("fetch", mock);
+    expect(await isClaimableFundingAddressEmpty(ADDRESS)).toBe(true);
+    expect(mock).toHaveBeenCalledWith(
+      expect.stringContaining("/utxos"),
+      expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
+    );
+  });
+  it.each([new Response("{}"), new Response("[]", { status: 503 })])(
+    "rejects malformed or failed lookups",
+    async (response) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response),
+      );
+      await expect(isClaimableFundingAddressEmpty(ADDRESS)).rejects.toThrow();
+    },
+  );
 });

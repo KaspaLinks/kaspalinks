@@ -19,7 +19,7 @@ const RECIPIENT = "kaspatest:qqnapngv3zxp305qf06w6hpzmyxtx2r99jjhs04lu980xdyd2ul
 type PrismaStub = {
   audits: Array<{ event: string; metadata?: unknown }>;
   client: PrismaClient;
-  control: { expireBeforeUpdate: boolean };
+  control: { expireBeforeUpdate: boolean; possibleRequests: number; countWhere?: unknown };
   events: Array<{ paymentRequestId: string; txId: string }>;
   existingByTxId: Map<string, PaymentRequest>;
   invoicePaidAt: Date | null;
@@ -61,7 +61,7 @@ function buildPrismaStub(
   options: { actionType?: ActionType; telegramConnected?: boolean } = {},
 ): PrismaStub {
   const audits: Array<{ event: string; metadata?: unknown }> = [];
-  const control = { expireBeforeUpdate: false };
+  const control: PrismaStub["control"] = { expireBeforeUpdate: false, possibleRequests: 1 };
   const events: Array<{ paymentRequestId: string; txId: string }> = [];
   const existingByTxId = new Map<string, PaymentRequest>();
   let invoicePaidAt: Date | null = null;
@@ -88,6 +88,10 @@ function buildPrismaStub(
       },
     },
     paymentRequest: {
+      count: async ({ where }: { where: unknown }) => {
+        control.countWhere = where;
+        return control.possibleRequests;
+      },
       findUnique: async ({
         include,
         where,
@@ -213,10 +217,49 @@ beforeEach(() => {
 });
 
 describe("detectAndConfirmPayment", () => {
+  it.each([null, Date.parse("2026-05-13T09:59:59Z"), Date.parse("2026-05-13T10:15:00Z")])(
+    "rejects missing or out-of-window chain timestamps: %s",
+    async (blockTime) => {
+      const stub = buildPrismaStub();
+      const indexer = buildIndexer({
+        blockTime,
+        matchedSompi: 1_000_000_000n,
+        outputIndex: 0,
+        transactionId: "old-tx",
+      });
+      expect((await detectAndConfirmPayment(stub.request, indexer, stub.client)).kind).toBe(
+        "no_match",
+      );
+      expect(stub.events).toHaveLength(0);
+    },
+  );
+
+  it("does not choose between overlapping requests even with a reported tx", async () => {
+    const stub = buildPrismaStub();
+    stub.control.possibleRequests = 2;
+    const match = {
+      blockTime: Date.parse("2026-05-13T10:00:01Z"),
+      matchedSompi: 1_000_000_000n,
+      outputIndex: 0,
+      transactionId: "shared-tx",
+    };
+    const indexer = buildIndexer(match, { directMatch: match });
+    expect(
+      (
+        await detectAndConfirmPayment(stub.request, indexer, stub.client, {
+          reportedTxId: "shared-tx",
+        })
+      ).kind,
+    ).toBe("ambiguous");
+    expect(stub.control.countWhere).toMatchObject({ status: { in: ["PENDING", "EXPIRED"] } });
+    expect(stub.request.status).toBe("PENDING");
+    expect(stub.events).toHaveLength(0);
+  });
+
   it("confirms a pending request when the indexer returns a match", async () => {
     const stub = buildPrismaStub();
     const indexer = buildIndexer({
-      blockTime: 1_770_000_000_000,
+      blockTime: Date.parse("2026-05-13T10:00:01Z"),
       matchedSompi: 1_000_000_000n,
       outputIndex: 0,
       transactionId: "real-tx-id",
@@ -242,7 +285,7 @@ describe("detectAndConfirmPayment", () => {
       { actionType: ActionType.KASPA_INVOICE, telegramConnected: true },
     );
     const indexer = buildIndexer({
-      blockTime: 1_770_000_000_000,
+      blockTime: Date.parse("2026-05-13T10:00:01Z"),
       matchedSompi: 1_000_000_000n,
       outputIndex: 0,
       transactionId: "invoice-tx-id",
@@ -267,7 +310,7 @@ describe("detectAndConfirmPayment", () => {
   it("skips when the request is not PENDING", async () => {
     const stub = buildPrismaStub({ status: PaymentRequestStatus.CONFIRMED });
     const indexer = buildIndexer({
-      blockTime: null,
+      blockTime: Date.parse("2026-05-13T10:00:01Z"),
       matchedSompi: 1_000_000_000n,
       outputIndex: 0,
       transactionId: "real-tx-id",
@@ -296,7 +339,7 @@ describe("detectAndConfirmPayment", () => {
     stub.existingByTxId.set("real-tx-id", other);
 
     const indexer = buildIndexer({
-      blockTime: null,
+      blockTime: Date.parse("2026-05-13T10:00:01Z"),
       matchedSompi: 1_000_000_000n,
       outputIndex: 0,
       transactionId: "real-tx-id",
@@ -316,13 +359,13 @@ describe("detectAndConfirmPayment", () => {
     const indexer = buildIndexer(null, {
       incoming: [
         {
-          blockTime: 1_770_000_000_000,
+          blockTime: Date.parse("2026-05-13T10:00:01Z"),
           matchedSompi: 1_000_000_000n,
           outputIndex: 0,
           transactionId: "already-claimed",
         },
         {
-          blockTime: 1_770_000_001_000,
+          blockTime: Date.parse("2026-05-13T10:00:02Z"),
           matchedSompi: 1_000_000_000n,
           outputIndex: 0,
           transactionId: "fresh-match",
@@ -340,14 +383,14 @@ describe("detectAndConfirmPayment", () => {
     const stub = buildPrismaStub();
     const indexer = buildIndexer(null, {
       directMatch: {
-        blockTime: 1_770_000_002_000,
+        blockTime: Date.parse("2026-05-13T10:00:03Z"),
         matchedSompi: 1_000_000_000n,
         outputIndex: 0,
         transactionId: "reported-match",
       },
       incoming: [
         {
-          blockTime: 1_770_000_000_000,
+          blockTime: Date.parse("2026-05-13T10:00:01Z"),
           matchedSompi: 1_000_000_000n,
           outputIndex: 0,
           transactionId: "older-address-match",
@@ -369,7 +412,7 @@ describe("detectAndConfirmPayment", () => {
       directMatch: null,
       incoming: [
         {
-          blockTime: 1_770_000_000_000,
+          blockTime: Date.parse("2026-05-13T10:00:01Z"),
           matchedSompi: 1_000_000_000n,
           outputIndex: 0,
           transactionId: "unrelated-address-match",
@@ -391,7 +434,7 @@ describe("detectAndConfirmPayment", () => {
     const indexer = buildIndexer(null, {
       incoming: [
         {
-          blockTime: 1_770_000_000_000,
+          blockTime: Date.parse("2026-05-13T10:00:01Z"),
           matchedSompi: 1_000_000_000n,
           outputIndex: 0,
           transactionId: "late-match",

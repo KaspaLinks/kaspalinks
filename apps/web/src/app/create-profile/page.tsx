@@ -1,3 +1,4 @@
+import { sanitizeInternalNextPath } from "@/lib/internal-next-path";
 import type { Metadata } from "next";
 
 import { CreateProfileClient } from "./CreateProfileClient";
@@ -11,6 +12,15 @@ export const metadata: Metadata = {
   title: "Create profile",
 };
 
-export default function CreateProfilePage() {
-  return <CreateProfileClient />;
+export default async function CreateProfilePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string | string[] }>;
+}) {
+  const query = await searchParams;
+  return (
+    <CreateProfileClient
+      nextPath={sanitizeInternalNextPath(typeof query.next === "string" ? query.next : undefined)}
+    />
+  );
 }

@@ -1,3 +1,4 @@
+import { isClaimableFundingAddressEmpty } from "@/lib/claimable-onchain";
 import { prisma, AuditActorType, Network, Prisma } from "@kaspa-actions/db";
 
 import { writeAuditLog } from "@/lib/audit";
@@ -308,7 +309,7 @@ export async function DELETE(request: Request) {
 
   const outputs = parseStoredClaimableBatchOutputs(batch.expectedOutputs);
   const childLinks = await prisma.claimableLink.findMany({
-    select: { deletedAt: true, id: true, linkKey: true, status: true },
+    select: { deletedAt: true, id: true, linkKey: true, status: true, fundingAddress: true },
     where: {
       creatorId: guard.creator.id,
       linkKey: { in: outputs.map((output) => output.linkKey) },
@@ -333,6 +334,30 @@ export async function DELETE(request: Request) {
       ErrorCodes.INVALID_STATE,
       "Every link in this batch must be claimed, refunded, or otherwise spent on-chain before the batch can be deleted.",
       409,
+    );
+  }
+
+  try {
+    const addresses = [
+      ...new Set([batch.fundingAddress, ...childLinks.map((link) => link.fundingAddress)]),
+    ];
+    for (let offset = 0; offset < addresses.length; offset += 8) {
+      const empty = await Promise.all(
+        addresses.slice(offset, offset + 8).map(isClaimableFundingAddressEmpty),
+      );
+      if (empty.some((value) => !value)) {
+        return apiError(
+          ErrorCodes.INVALID_STATE,
+          "A batch funding address still holds KAS. Recover every output before deleting the batch.",
+          409,
+        );
+      }
+    }
+  } catch {
+    return apiError(
+      ErrorCodes.SERVER_ERROR,
+      "Could not verify every batch funding address. Try again later.",
+      503,
     );
   }
 

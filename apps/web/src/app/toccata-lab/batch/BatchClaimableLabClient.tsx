@@ -475,7 +475,7 @@ export function BatchClaimableLabClient({
 
   async function persist(next: BatchRecord | null) {
     if (!next) {
-      removeEncryptedLocalJson(STORAGE_KEY);
+      await removeEncryptedLocalJson(STORAGE_KEY);
       batchRef.current = null;
       setBatch(null);
       return;

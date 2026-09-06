@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createRestKaspaIndexer, KaspaIndexerError } from "./index";
 
@@ -22,6 +22,63 @@ function buildFetchMock(
 }
 
 describe("createRestKaspaIndexer", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([null, 999_999])(
+    "excludes unknown or pre-request timestamps from both scan paths: %s",
+    async (blockTime) => {
+      const tx = {
+        transaction_id: "a".repeat(64),
+        is_accepted: true,
+        block_time: blockTime,
+        outputs: [{ amount: "100", script_public_key_address: RECIPIENT }],
+      };
+      const input = { recipientAddress: RECIPIENT, amountSompi: 100n, notBefore: 1_000_000 };
+      const scan = createRestKaspaIndexer({ fetchImpl: buildFetchMock(200, [tx]) });
+      expect(await scan.findIncomingPayment(input)).toBeNull();
+      expect(await scan.listIncomingPayments(input)).toEqual([]);
+      const direct = createRestKaspaIndexer({ fetchImpl: buildFetchMock(200, tx) });
+      expect(
+        await direct.findTransactionPayment({ ...input, transactionId: tx.transaction_id }),
+      ).toBeNull();
+    },
+  );
+
+  it("does not mistake a successful null response for a missing transaction", async () => {
+    const indexer = createRestKaspaIndexer({ fetchImpl: buildFetchMock(200, null) });
+    await expect(
+      indexer.listIncomingPayments({ recipientAddress: RECIPIENT }),
+    ).rejects.toMatchObject({ code: "INDEXER_PARSE_ERROR" });
+    await expect(
+      indexer.findTransactionPayment({
+        recipientAddress: RECIPIENT,
+        transactionId: "a".repeat(64),
+      }),
+    ).rejects.toMatchObject({ code: "INDEXER_PARSE_ERROR" });
+  });
+
+  it("times out and aborts a response whose headers arrive but body stalls", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null | undefined;
+    const indexer = createRestKaspaIndexer({
+      timeoutMs: 1000,
+      fetchImpl: vi.fn(async (_url, init) => {
+        signal = init?.signal;
+        return { status: 200, ok: true, json: () => new Promise(() => {}) } as Response;
+      }),
+    });
+    const result = indexer.listIncomingPayments({ recipientAddress: RECIPIENT });
+    const assertion = expect(result).rejects.toMatchObject({
+      code: "INDEXER_NETWORK_ERROR",
+      message: expect.stringContaining("timed out"),
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    await assertion;
+    expect(signal?.aborted).toBe(true);
+  });
+
   it("returns a match when an accepted output to the recipient exists with the expected amount", async () => {
     const indexer = createRestKaspaIndexer({
       fetchImpl: buildFetchMock(200, [

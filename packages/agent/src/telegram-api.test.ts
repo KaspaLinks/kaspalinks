@@ -72,3 +72,53 @@ describe("TelegramApiClient", () => {
     );
   });
 });
+
+describe("Telegram delivery errors and prepared cards", () => {
+  it("retains flood-control retry_after without disabling a chat", async () => {
+    const client = new TelegramApiClient(
+      "test-token",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ ok: false, error_code: 429, parameters: { retry_after: 120 } }),
+            { status: 429 },
+          ),
+        ),
+    );
+    await expect(client.sendMessage({ chatId: "123", text: "Test" })).rejects.toMatchObject({
+      permanent: false,
+      connectionUnavailable: false,
+      retryAfterSeconds: 120,
+    });
+  });
+  it("distinguishes invalid message content from blocked chats", async () => {
+    for (const code of [400, 403]) {
+      const client = new TelegramApiClient(
+        "test-token",
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response(JSON.stringify({ ok: false, error_code: code }), { status: code }),
+          ),
+      );
+      await expect(client.sendMessage({ chatId: "123", text: "Test" })).rejects.toMatchObject({
+        permanent: true,
+        connectionUnavailable: code === 403,
+      });
+    }
+  });
+  it("binds prepared cards to the authenticated user and only prepares them", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ ok: true, result: { id: "prepared", expiration_date: 1234 } }),
+        ),
+      );
+    const client = new TelegramApiClient("test-token", fetcher);
+    await client.savePreparedInlineMessage("123", { type: "article", id: "public" });
+    expect(fetcher.mock.calls[0]![0]).toContain("savePreparedInlineMessage");
+    expect(JSON.parse(fetcher.mock.calls[0]![1].body).user_id).toBe("123");
+  });
+});

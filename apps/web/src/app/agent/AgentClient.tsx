@@ -223,7 +223,7 @@ export function AgentClient() {
                     }
                     type="checkbox"
                   />
-                  Payment notifications
+                  Notify me of all payments
                 </label>
                 <label className="agent-toggle">
                   <input

@@ -1222,6 +1222,7 @@ export function MyLinksClient() {
           setDbClaimableLinks((current) =>
             current.filter((link) => link.linkKey !== record.linkKey),
           );
+          setDeletedClaimableLinkKeys((current) => new Set([...current, record.linkKey]));
         } else if (!isClaimableTerminal(record.status)) {
           const proof = extractClaimableFundingProofFromManageUrl(record.manageUrl, record.linkKey);
           const response = await fetch("/api/toccata-lab/funding-status", {
@@ -1241,7 +1242,9 @@ export function MyLinksClient() {
           }
         }
 
-        if (record.hasLocal) {
+        // Server deletion hides the record; retain encrypted recovery because
+        // another payment may reach the address after the final UTXO check.
+        if (record.hasLocal && !record.hasDb) {
           setClaimableRecords(await removeClaimableRecord(record.linkKey));
         }
         return null;
@@ -1319,13 +1322,7 @@ export function MyLinksClient() {
         for (const linkKey of deletedLinkKeys) next.add(linkKey);
         return next;
       });
-      let localRecords = claimableRecords;
-      for (const linkKey of deletedLinkKeys) {
-        if (localRecords.some((record) => record.id === linkKey)) {
-          localRecords = await removeClaimableRecord(linkKey);
-        }
-      }
-      setClaimableRecords(localRecords);
+      // Retain the encrypted recovery records; the server tombstones hide them.
       setSelectedClaimableKeys((current) => {
         const next = new Set(current);
         for (const linkKey of deletedLinkKeys) next.delete(linkKey);
@@ -1342,7 +1339,7 @@ export function MyLinksClient() {
     } finally {
       setDeletingClaimableBatch(false);
     }
-  }, [authHeaders, claimableBatchDeleteTarget, claimableRecords, deletingClaimableBatch]);
+  }, [authHeaders, claimableBatchDeleteTarget, deletingClaimableBatch]);
 
   const deleteSelectedClaimableLinks = useCallback(async () => {
     if (selectedDeletableClaimables.length === 0) return;

@@ -89,3 +89,31 @@ describe("Agent giveaway tools", () => {
     );
   });
 });
+
+describe("Giveaway command retry", () => {
+  it("reuses the same update-scoped draft without extending its expiry", async () => {
+    const upsert = vi.fn(async ({ create }) => ({ ...create, id: "draft-1" }));
+    const prisma = { agentIntentDraft: { upsert } } as unknown as PrismaClient;
+    const input = { amountKas: "10", title: "Weekend", entryWindowSeconds: 3600 };
+    await createGiveawaySetupDraftTool(
+      prisma,
+      actorContext("creator-1", "telegram"),
+      "123",
+      input,
+      new Date(),
+      "telegram:99",
+    );
+    await createGiveawaySetupDraftTool(
+      prisma,
+      actorContext("creator-1", "telegram"),
+      "123",
+      input,
+      new Date(),
+      "telegram:99",
+    );
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: { sourceUpdateId: "telegram:99" }, update: {} }),
+    );
+  });
+});

@@ -36,6 +36,7 @@ export async function createGiveawaySetupDraftTool(
   telegramUserId: string,
   rawInput: GiveawaySetupDraftInput,
   now = new Date(),
+  sourceUpdateId?: string,
 ) {
   const parsed = giveawaySetupDraftSchema.safeParse(rawInput);
   if (!parsed.success) {
@@ -46,18 +47,27 @@ export async function createGiveawaySetupDraftTool(
   }
   const amountSompi = parseKaspaAmountToSompi(parsed.data.amountKas);
 
-  return prisma.agentIntentDraft.create({
-    data: {
-      creatorId: actor.creatorId,
-      expiresAt: new Date(now.getTime() + GIVEAWAY_DRAFT_TTL_MS),
-      intent: "prepare_giveaway",
-      payload: {
-        ...parsed.data,
-        amountKas: formatSompiToKaspa(amountSompi),
-      },
-      telegramUserId,
+  const data = {
+    creatorId: actor.creatorId,
+    expiresAt: new Date(now.getTime() + GIVEAWAY_DRAFT_TTL_MS),
+    intent: "prepare_giveaway",
+    payload: {
+      ...parsed.data,
+      amountKas: formatSompiToKaspa(amountSompi),
     },
+    telegramUserId,
+    ...(sourceUpdateId ? { sourceUpdateId } : {}),
+  };
+  if (!sourceUpdateId) return prisma.agentIntentDraft.create({ data });
+  const draft = await prisma.agentIntentDraft.upsert({
+    where: { sourceUpdateId },
+    create: data,
+    update: {},
   });
+  if (draft.creatorId !== actor.creatorId || draft.telegramUserId !== telegramUserId) {
+    throw new ApplicationError("DRAFT_OWNER_MISMATCH", "Draft is unavailable.", 409);
+  }
+  return draft;
 }
 
 export async function readGiveawaySetupDraftTool(

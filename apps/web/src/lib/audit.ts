@@ -47,7 +47,7 @@ export function sanitizeAuditMetadata(metadata?: AuditMetadata): AuditMetadata |
 }
 
 export async function writeAuditLog(
-  prisma: PrismaClient,
+  prisma: Pick<PrismaClient, "auditLog">,
   input: WriteAuditLogInput,
 ): Promise<void> {
   await prisma.auditLog.create({

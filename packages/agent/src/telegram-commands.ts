@@ -1,6 +1,8 @@
 import { parseKaspaAmountToSompi } from "@kaspa-actions/kaspa";
 
 export type TelegramCommand =
+  | { kind: "public_giveaway" | "watch_giveaway"; publicId: string }
+  | { kind: "stop_giveaway_alerts" }
   | { kind: "connect"; code: string }
   | { kind: "disconnect" | "giveaways" | "help" | "links" | "payments" | "start" | "stats" }
   | {
@@ -65,6 +67,15 @@ export function parseTelegramCommand(text: string): TelegramCommand | null {
   const command = rawName.split("@")[0]?.toLowerCase() ?? "";
   const rest = firstSpace === -1 ? "" : trimmed.slice(firstSpace + 1).trim();
 
+  if (command === "stop") return { kind: "stop_giveaway_alerts" };
+  if (command === "start") {
+    const publicLink = /^(g|watch)_([a-zA-Z0-9_-]{1,48})$/.exec(rest);
+    if (publicLink)
+      return {
+        kind: publicLink[1] === "g" ? "public_giveaway" : "watch_giveaway",
+        publicId: publicLink[2]!,
+      };
+  }
   if (command === "connect") {
     if (!rest) throw new TelegramCommandError("Use /connect followed by the connection code.");
     return { code: rest, kind: "connect" };

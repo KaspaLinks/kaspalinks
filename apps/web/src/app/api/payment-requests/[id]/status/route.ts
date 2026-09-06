@@ -76,6 +76,16 @@ export async function GET(request: Request, context: RouteContext) {
         ipHash,
         reportedTxId: parsedQuery.data.txId ?? null,
       });
+      if (result.kind === "ambiguous") {
+        return apiJson({
+          paymentRequest: serializePaymentRequest(paymentRequest),
+          detection: {
+            status: "ambiguous",
+            message:
+              "This payment matches more than one request. Check your wallet transaction before paying again.",
+          },
+        });
+      }
       if (result.kind === "confirmed") {
         return apiJson({ paymentRequest: serializePaymentRequest(result.paymentRequest) });
       }

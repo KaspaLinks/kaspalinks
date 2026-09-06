@@ -54,7 +54,7 @@ async function writeClipboardText(value: string): Promise<boolean> {
   }
 }
 
-export function CreateProfileClient() {
+export function CreateProfileClient({ nextPath = "/dashboard" }: { nextPath?: string }) {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -70,9 +70,9 @@ export function CreateProfileClient() {
     const storedUsername = window.sessionStorage.getItem(USERNAME_STORAGE_KEY) ?? "";
     const storedToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
     if (storedUsername && storedToken) {
-      router.replace("/dashboard");
+      router.replace(nextPath);
     }
-  }, [router]);
+  }, [router, nextPath]);
 
   const submit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -149,8 +149,13 @@ export function CreateProfileClient() {
             saved the token, you&apos;re ready to spin up your first link.
           </p>
           <div className="row">
-            <Link className="btn btn-primary" href="/new-link">
-              Create your first link
+            <Link
+              className="btn btn-primary"
+              href={nextPath === "/dashboard" ? "/new-link" : nextPath}
+            >
+              {nextPath.startsWith("/toccata-lab/giveaway")
+                ? "Continue to my giveaway"
+                : "Create your first link"}
             </Link>
             <Link className="btn" href="/dashboard">
               Open dashboard

@@ -36,6 +36,10 @@ function readRequestedDestination(): string {
 
 export function SignInClient() {
   const router = useRouter();
+  const [signupHref, setSignupHref] = useState("/create-profile");
+  useEffect(() => {
+    setSignupHref(`/create-profile?next=${encodeURIComponent(readRequestedDestination())}`);
+  }, []);
   const [username, setUsername] = useState("");
   const [token, setToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -143,8 +147,8 @@ export function SignInClient() {
 
       <section className="card card-muted auth-note">
         <p className="muted" style={{ margin: 0 }}>
-          New here? <Link href="/create-profile">Create a creator profile</Link> — it takes seconds,
-          no email required.
+          New here? <Link href={signupHref}>Create a creator profile</Link> — it takes seconds, no
+          email required.
         </p>
       </section>
     </main>

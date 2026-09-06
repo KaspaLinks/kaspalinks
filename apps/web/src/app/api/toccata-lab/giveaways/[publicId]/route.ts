@@ -175,6 +175,7 @@ export async function GET(_request: Request, context: { params: Promise<{ public
       amountKas: formatSompiToKaspa(reconciled.amountSompi),
       closesAt: reconciled.closesAt.toISOString(),
       description: reconciled.description,
+      entryWindowSeconds: reconciled.entryWindowSeconds,
       drawCommitment: reconciled.drawCommitment,
       drawProtocol: {
         entropyBlockBlueScore: reconciled.entropyBlockBlueScore?.toString() ?? null,

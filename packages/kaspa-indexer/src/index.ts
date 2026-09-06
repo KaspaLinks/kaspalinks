@@ -169,40 +169,8 @@ export function createRestKaspaIndexer(options: RestKaspaIndexerOptions = {}): K
 
     const url = `${baseUrl}/addresses/${encodeURIComponent(input.recipientAddress)}/full-transactions-page?${params.toString()}`;
 
-    let response: Response;
-    try {
-      const requestInit: RequestInit & { next?: { revalidate: number } } = {
-        headers: { accept: "application/json" },
-      };
-      if (cacheRevalidateSeconds !== null) {
-        requestInit.next = { revalidate: cacheRevalidateSeconds };
-      }
-      response = await withTimeout(fetchImpl(url, requestInit), timeoutMs);
-    } catch (error) {
-      throw new KaspaIndexerError(
-        `Indexer request to ${baseUrl} failed: ${(error as Error).message}`,
-        { code: "INDEXER_NETWORK_ERROR" },
-      );
-    }
-
-    if (response.status === 404) {
-      return [];
-    }
-
-    if (!response.ok) {
-      throw new KaspaIndexerError(`Indexer responded with status ${response.status}.`, {
-        code: "INDEXER_HTTP_ERROR",
-      });
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new KaspaIndexerError("Indexer returned a non-JSON response.", {
-        code: "INDEXER_PARSE_ERROR",
-      });
-    }
+    const payload = await fetchJson(url, cacheRevalidateSeconds);
+    if (payload === null) return [];
 
     if (!Array.isArray(payload)) {
       throw new KaspaIndexerError("Indexer returned an unexpected payload shape.", {
@@ -217,36 +185,43 @@ export function createRestKaspaIndexer(options: RestKaspaIndexerOptions = {}): K
     const normalizedTransactionId = normalizeTransactionId(transactionId);
     const url = `${baseUrl}/transactions/${encodeURIComponent(normalizedTransactionId)}`;
 
-    let response: Response;
+    return fetchJson(url);
+  }
+
+  async function fetchJson(url: string, revalidate: number | null = null): Promise<unknown | null> {
+    const controller = new AbortController();
     try {
-      response = await withTimeout(
-        fetchImpl(url, {
-          headers: { accept: "application/json" },
-        }),
+      return await withTimeout(
+        async () => {
+          const init: RequestInit & { next?: { revalidate: number } } = {
+            headers: { accept: "application/json" },
+            signal: controller.signal,
+          };
+          if (revalidate !== null) init.next = { revalidate };
+          const response = await fetchImpl(url, init);
+          if (response.status === 404) return null;
+          if (!response.ok) {
+            throw new KaspaIndexerError(`Indexer responded with status ${response.status}.`, {
+              code: "INDEXER_HTTP_ERROR",
+            });
+          }
+          try {
+            const payload: unknown = await response.json();
+            if (payload === null) throw new Error("Empty indexer payload.");
+            return payload;
+          } catch {
+            throw new KaspaIndexerError("Indexer returned a non-JSON response.", {
+              code: "INDEXER_PARSE_ERROR",
+            });
+          }
+        },
         timeoutMs,
+        controller,
       );
     } catch (error) {
-      throw new KaspaIndexerError(
-        `Indexer request to ${baseUrl} failed: ${(error as Error).message}`,
-        { code: "INDEXER_NETWORK_ERROR" },
-      );
-    }
-
-    if (response.status === 404) {
-      return null;
-    }
-
-    if (!response.ok) {
-      throw new KaspaIndexerError(`Indexer responded with status ${response.status}.`, {
-        code: "INDEXER_HTTP_ERROR",
-      });
-    }
-
-    try {
-      return await response.json();
-    } catch {
-      throw new KaspaIndexerError("Indexer returned a non-JSON response.", {
-        code: "INDEXER_PARSE_ERROR",
+      if (error instanceof KaspaIndexerError) throw error;
+      throw new KaspaIndexerError(`Indexer request failed: ${(error as Error).message}`, {
+        code: "INDEXER_NETWORK_ERROR",
       });
     }
   }
@@ -273,11 +248,7 @@ function findMatchingOutput(
     if (!transactionId) continue;
 
     const blockTime = parseTimestamp(tx.block_time);
-    if (
-      typeof notBefore === "number" &&
-      blockTime !== null &&
-      blockTime < notBefore - CLOCK_SKEW_MS
-    ) {
+    if (typeof notBefore === "number" && (blockTime === null || blockTime < notBefore)) {
       continue;
     }
 
@@ -328,11 +299,7 @@ function listMatchingOutputs(
     if (!transactionId) continue;
 
     const blockTime = parseTimestamp(tx.block_time);
-    if (
-      typeof notBefore === "number" &&
-      blockTime !== null &&
-      blockTime < notBefore - CLOCK_SKEW_MS
-    ) {
+    if (typeof notBefore === "number" && (blockTime === null || blockTime < notBefore)) {
       continue;
     }
 
@@ -366,7 +333,7 @@ function parseSompi(value: unknown): bigint | null {
   if (typeof value === "bigint") return value >= 0n ? value : null;
   if (typeof value === "number") {
     if (!Number.isFinite(value) || value < 0) return null;
-    if (!Number.isInteger(value)) return null;
+    if (!Number.isSafeInteger(value)) return null;
     return BigInt(value);
   }
   if (typeof value !== "string") return null;
@@ -434,17 +401,22 @@ function resolveFetch(custom?: typeof fetch): typeof fetch {
   });
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withTimeout<T>(
+  operation: () => Promise<T>,
+  timeoutMs: number,
+  controller: AbortController,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject(new Error(`request timed out after ${timeoutMs}ms`));
+      controller.abort();
     }, timeoutMs);
   });
 
   try {
-    return await Promise.race([promise, timeout]);
+    return await Promise.race([operation(), timeout]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }

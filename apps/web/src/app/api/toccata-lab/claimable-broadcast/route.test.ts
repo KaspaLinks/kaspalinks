@@ -448,6 +448,25 @@ describe("POST /api/toccata-lab/claimable-broadcast", () => {
     );
   });
 
+  it("reports a DAA response timeout as an upstream failure without broadcasting", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockRejectedValueOnce(
+      new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+    );
+    const response = await POST(
+      broadcastRequest({
+        expectedTransactionId: SIGNED_TRANSACTION_ID,
+        linkKey: LINK_KEY,
+        transactionSafeJson: SIGNED_TRANSACTION_SAFE_JSON,
+      }),
+    );
+    expect(response.status).toBe(504);
+    expect((await response.json()).error.code).toBe("UPSTREAM_TIMEOUT");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
+  });
+
   it("returns JSON for unsupported methods", async () => {
     const response = GET();
 

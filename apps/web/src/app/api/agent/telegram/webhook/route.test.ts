@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getCard: vi.fn(),
+  subscribe: vi.fn(),
+  stopSubscriptions: vi.fn(),
   answerCallbackQuery: vi.fn(),
   createGiveawaySetupDraft: vi.fn(),
   createUpdate: vi.fn(),
@@ -28,6 +31,8 @@ vi.mock("@kaspa-actions/application", () => ({
   ApplicationError: class extends Error {},
   consumeTelegramConnectCodeTool: mocks.consumeTelegramConnectCode,
   createGiveawaySetupDraftTool: mocks.createGiveawaySetupDraft,
+  setGiveawayResultSubscription: mocks.subscribe,
+  stopGiveawayResultSubscriptions: mocks.stopSubscriptions,
 }));
 
 vi.mock("@kaspa-actions/db", () => {
@@ -53,6 +58,8 @@ vi.mock("@kaspa-actions/db", () => {
 
 import { Prisma } from "@kaspa-actions/db";
 
+vi.mock("@/lib/telegram-giveaway", () => ({ getTelegramGiveawayCard: mocks.getCard }));
+import { resetRateLimits } from "@/lib/rate-limit";
 import { POST } from "./route";
 
 function webhookRequest(body: unknown, secret = "webhook-secret") {
@@ -69,6 +76,9 @@ function webhookRequest(body: unknown, secret = "webhook-secret") {
 describe("Telegram Agent webhook", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    resetRateLimits();
+    process.env.TOCCATA_LAB_ENABLED = "true";
+    process.env.GIVEAWAY_LAB_ENABLED = "true";
     process.env.NEXT_PUBLIC_APP_URL = "https://kaspalinks.com";
     process.env.TELEGRAM_BOT_TOKEN = "test-bot-token";
     process.env.TELEGRAM_WEBHOOK_SECRET = "webhook-secret";
@@ -274,6 +284,8 @@ describe("Telegram Agent webhook", () => {
         title: "Weekend KAS",
         winnerClaimWindowSeconds: 86_400,
       },
+      expect.any(Date),
+      "telegram:4",
     );
     expect(mocks.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -318,5 +330,102 @@ describe("Telegram Agent webhook", () => {
       "Connect this private chat first.",
     );
     expect(mocks.sendMessage).not.toHaveBeenCalled();
+  });
+  it("opens a public giveaway without a creator connection or implicit subscription", async () => {
+    mocks.getCard.mockResolvedValue({
+      publicId: "g1",
+      title: "Weekend",
+      creator: "alice",
+      amountKas: "10",
+      closesAt: new Date(),
+      status: "OPEN",
+      fundingConfirmed: true,
+    });
+    const response = await POST(
+      webhookRequest({
+        update_id: 101,
+        message: {
+          message_id: 1,
+          from: { id: 123 },
+          chat: { id: 123, type: "private" },
+          text: "/start g_g1",
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.findConnection).not.toHaveBeenCalled();
+    expect(mocks.subscribe).not.toHaveBeenCalled();
+    expect(mocks.sendMessage.mock.calls[0][0].buttons[1][0].callback_data).toBe("watch:on:g1");
+  });
+  it("enables a result reminder only after an explicit private callback", async () => {
+    mocks.subscribe.mockResolvedValue({ title: "Weekend", enabled: true });
+    const response = await POST(
+      webhookRequest({
+        update_id: 102,
+        callback_query: {
+          id: "cb",
+          from: { id: 123 },
+          data: "watch:on:g1",
+          message: { message_id: 1, chat: { id: 123, type: "private" } },
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.subscribe).toHaveBeenCalledWith(expect.anything(), {
+      publicId: "g1",
+      telegramUserId: "123",
+      telegramChatId: "123",
+      enabled: true,
+    });
+    expect(mocks.findConnection).not.toHaveBeenCalled();
+  });
+  it("does not subscribe group callbacks", async () => {
+    await POST(
+      webhookRequest({
+        update_id: 103,
+        callback_query: {
+          id: "cb",
+          from: { id: 123 },
+          data: "watch:on:g1",
+          message: { message_id: 1, chat: { id: -123, type: "group" } },
+        },
+      }),
+    );
+    expect(mocks.subscribe).not.toHaveBeenCalled();
+  });
+  it("accepts stop without a Creator account", async () => {
+    await POST(
+      webhookRequest({
+        update_id: 104,
+        message: {
+          message_id: 1,
+          from: { id: 123 },
+          chat: { id: 123, type: "private" },
+          text: "/stop",
+        },
+      }),
+    );
+    expect(mocks.stopSubscriptions).toHaveBeenCalledWith(expect.anything(), "123");
+  });
+  it("lets a blocked same-chat connection consume a fresh reconnect code", async () => {
+    mocks.findConnection.mockResolvedValue({ telegramChatId: "123", blockedAt: new Date() });
+    mocks.consumeTelegramConnectCode.mockResolvedValue({ creator: { username: "alice" } });
+    await POST(
+      webhookRequest({
+        update_id: 105,
+        message: {
+          message_id: 1,
+          from: { id: 123 },
+          chat: { id: 123, type: "private" },
+          text: "/connect new-code",
+        },
+      }),
+    );
+    expect(mocks.consumeTelegramConnectCode).toHaveBeenCalled();
+  });
+  it("rejects malformed nested update fields before claiming the update", async () => {
+    const response = await POST(webhookRequest({ update_id: 106, message: { chat: null } }));
+    expect(response.status).toBe(400);
+    expect(mocks.createUpdate).not.toHaveBeenCalled();
   });
 });

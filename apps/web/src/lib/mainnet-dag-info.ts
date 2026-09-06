@@ -16,6 +16,7 @@ export async function readResilientMainnetDagInfo(): Promise<MainnetBlockDagInfo
     try {
       const response = await fetch("https://api.kaspa.org/info/blockdag", {
         headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(7_000),
         next: { revalidate: 5 },
       });
       if (!response.ok) continue;

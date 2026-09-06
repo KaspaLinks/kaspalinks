@@ -36,7 +36,8 @@ describe("batch claimable My Links store", () => {
     });
 
     await writeEncryptedLocalJson(BATCH_CLAIMABLE_STORAGE_KEY, activatedBatch());
-    expect(localStorage.getItem(BATCH_CLAIMABLE_STORAGE_KEY)).not.toContain("claimCode");
+    expect(localStorage.getItem(BATCH_CLAIMABLE_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(localStorage.key(0)!)).not.toContain("claimCode");
 
     await expect(restoreCurrentBatchLinksToMyLinks()).resolves.toBe(2);
     const records = await loadClaimableRecords();

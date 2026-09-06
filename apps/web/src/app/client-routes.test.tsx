@@ -21,7 +21,9 @@ describe("client route smoke rendering", () => {
 
   it("renders the create-profile route shell", async () => {
     const { default: CreateProfilePage } = await import("./create-profile/page");
-    const markup = renderToStaticMarkup(<CreateProfilePage />);
+    const markup = renderToStaticMarkup(
+      await CreateProfilePage({ searchParams: Promise.resolve({}) }),
+    );
     expect(markup).toContain("Start sharing Kaspa links");
     expect(markup).toContain("cannot read the token back later");
   });

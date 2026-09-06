@@ -71,6 +71,15 @@ www.{$DOMAIN} {
 		-Server
 	}
 
+	# Only the Mini App and its sign-in continuation may be embedded by Telegram Web.
+	# Deferred replacement preserves the stricter default for every other page.
+	@telegramMini path /telegram /telegram/* /toccata-lab/giveaway /toccata-lab/giveaway/* /sign-in /create-profile
+	header @telegramMini {
+		defer
+		-X-Frame-Options
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors https://web.telegram.org; base-uri 'self'; form-action 'self'; object-src 'none'"
+	}
+
 	log {
 		output file /data/logs/kaspa-access.log {
 			mode 0644
@@ -87,30 +96,13 @@ www.{$DOMAIN} {
 				request>headers>Cookie delete
 				request>headers>X-Admin-Token delete
 				request>headers>X-Creator-Token delete
+				request>headers>X-Telegram-Mini-App-Init-Data delete
+				request>headers>X-Telegram-Bot-Api-Secret-Token delete
 			}
 		}
 	}
 
-	# Reverse-proxy to the Next.js app. header_down overrides the upstream's
-	# Cache-Control on a few read-only endpoints so downstream caches and
-	# browsers can hold the response for ~30 s. This is mostly insurance for
-	# when a CDN like Cloudflare gets put in front — the application also
-	# caches the upstream indexer fetch at the Next.js layer (revalidate=30),
-	# so even without a CDN one upstream fetch covers all concurrent users.
-	reverse_proxy /api/creator/actions/*/payments app:3000 {
-		header_down Cache-Control "public, max-age=30, stale-while-revalidate=60"
-	}
-
-	@action_qr {
-		path_regexp action_qr ^/api/actions/[^/]+/qr$
-	}
-	reverse_proxy @action_qr app:3000 {
-		header_down Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
-	}
-
-	reverse_proxy /api/actions/* app:3000 {
-		header_down Cache-Control "public, max-age=30, stale-while-revalidate=60"
-	}
-
+	# Preserve application cache policy for authenticated routes, mutations and
+	# errors. Public assets declare their own cache headers in the application.
 	reverse_proxy app:3000
 }

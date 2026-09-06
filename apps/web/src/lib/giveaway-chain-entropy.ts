@@ -39,6 +39,7 @@ export async function readCurrentMainnetVirtualBlueScore(): Promise<bigint> {
   const response = await fetch(`${KASPA_REST_BASE_URL}/info/virtual-chain-blue-score`, {
     cache: "no-store",
     headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(7_000),
   });
   if (!response.ok) throw new Error("Kaspa virtual-chain score is unavailable.");
 
@@ -64,10 +65,18 @@ export async function readConfirmedGiveawayChainEntropy(
   // The REST endpoint returns blocks at the first available blue score, which
   // may contain only non-chain blocks. Advance past that score until the first
   // confirmed virtual-chain block is found.
-  for (let lookup = 0; lookup < MAX_ENTROPY_BLOCK_LOOKUPS && cursor <= confirmedLimit; lookup += 1) {
+  for (
+    let lookup = 0;
+    lookup < MAX_ENTROPY_BLOCK_LOOKUPS && cursor <= confirmedLimit;
+    lookup += 1
+  ) {
     const response = await fetch(
       `${KASPA_REST_BASE_URL}/blocks-from-bluescore?blueScoreGte=${cursor.toString()}&includeTransactions=false`,
-      { cache: "no-store", headers: { accept: "application/json" } },
+      {
+        cache: "no-store",
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(7_000),
+      },
     );
     if (!response.ok) throw new Error("Kaspa entropy block is unavailable.");
 

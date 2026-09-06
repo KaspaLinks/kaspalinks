@@ -14,9 +14,16 @@ export const metadata: Metadata = {
 export default async function GiveawayLabPage({
   searchParams,
 }: {
-  searchParams: Promise<{ draft?: string | string[] }>;
+  searchParams: Promise<{ draft?: string | string[]; template?: string | string[] }>;
 }) {
   const query = await searchParams;
   const draftId = typeof query.draft === "string" ? query.draft : undefined;
-  return <GiveawayLabClient draftId={draftId} enabled={isGiveawayLabEnabled()} />;
+  return (
+    <GiveawayLabClient
+      draftId={draftId}
+      templateId={typeof query.template === "string" ? query.template : undefined}
+      botUsername={process.env.TELEGRAM_BOT_USERNAME ?? ""}
+      enabled={isGiveawayLabEnabled()}
+    />
+  );
 }

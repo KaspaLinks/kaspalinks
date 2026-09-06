@@ -7,6 +7,7 @@ const {
   mockReadCreatorActionDailyLimit,
   mockRequireCreator,
   mockResolveClaimableOnChain,
+  mockIsClaimableFundingAddressEmpty,
   mockRollingDailyWindowStart,
   mockWriteAuditLog,
 } = vi.hoisted(() => ({
@@ -27,6 +28,7 @@ const {
   mockReadCreatorActionDailyLimit: vi.fn(),
   mockRequireCreator: vi.fn(),
   mockResolveClaimableOnChain: vi.fn(),
+  mockIsClaimableFundingAddressEmpty: vi.fn(),
   mockRollingDailyWindowStart: vi.fn(),
   mockWriteAuditLog: vi.fn(),
 }));
@@ -45,6 +47,7 @@ vi.mock("@/lib/creator-auth", () => ({
 vi.mock("@/lib/creator-guard", () => ({ requireCreator: mockRequireCreator }));
 vi.mock("@/lib/claimable-onchain", () => ({
   resolveClaimableOnChain: mockResolveClaimableOnChain,
+  isClaimableFundingAddressEmpty: mockIsClaimableFundingAddressEmpty,
 }));
 vi.mock("@/lib/rate-limit-helpers", () => ({
   enforceRateLimit: mockEnforceRateLimit,
@@ -153,6 +156,7 @@ describe("creator claimable link API", () => {
     mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 1 });
     mockIndexer.findTransactionPayment.mockResolvedValue(null);
     mockResolveClaimableOnChain.mockResolvedValue(null);
+    mockIsClaimableFundingAddressEmpty.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -357,112 +361,109 @@ describe("creator claimable link API", () => {
     );
   });
 
-  it("hides an awaiting-funding link only after verifying that it is unfunded", async () => {
+  it("hides an unfunded link only after checking the entire address", async () => {
     mockPrisma.claimableLink.findUnique.mockResolvedValue(row());
-
     const response = await DELETE(deleteRequest());
-
     expect(response.status).toBe(200);
-    expect(mockResolveClaimableOnChain).toHaveBeenCalledWith(
-      expect.objectContaining({
-        amountSompi: "100000000",
-        fundingAddress: expect.stringMatching(/^kaspa:/),
-        status: "awaiting_funding",
-      }),
-    );
-    expect(mockPrisma.claimableLink.update).toHaveBeenCalledWith({
+    expect(mockIsClaimableFundingAddressEmpty).toHaveBeenCalledWith(FUNDING_ADDRESS);
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith({
       data: { deletedAt: expect.any(Date) },
-      where: { id: "claimable-1" },
+      where: {
+        id: "claimable-1",
+        creatorId: "creator-1",
+        updatedAt: CREATED_AT,
+        status: "awaiting_funding",
+        deletedAt: null,
+      },
     });
   });
 
-  it("keeps an awaiting-funding link when funding is detected during deletion", async () => {
+  it.each(["awaiting_funding", "claimed", "refunded", "spent_unknown"])(
+    "keeps recovery when any UTXO remains in state %s",
+    async (status) => {
+      mockPrisma.claimableLink.findUnique.mockResolvedValue(row({ status }));
+      mockIsClaimableFundingAddressEmpty.mockResolvedValue(false);
+      expect((await DELETE(deleteRequest())).status).toBe(409);
+      expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails closed when the complete address lookup fails", async () => {
+    mockPrisma.claimableLink.findUnique.mockResolvedValue(row());
+    mockIsClaimableFundingAddressEmpty.mockRejectedValueOnce(new Error("unavailable"));
+    expect((await DELETE(deleteRequest())).status).toBe(503);
+    expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not delete a link while the funding indexer is still settling", async () => {
     mockPrisma.claimableLink.findUnique.mockResolvedValue(row());
     mockResolveClaimableOnChain.mockResolvedValue({
       fundingOutputIndex: 0,
       fundingTxId: "c".repeat(64),
       status: "funded",
     });
-
-    const response = await DELETE(deleteRequest());
-
-    expect(response.status).toBe(409);
-    expect(mockPrisma.claimableLink.update).toHaveBeenCalledWith({
-      data: {
-        fundingOutputIndex: 0,
-        fundingTxId: "c".repeat(64),
-        status: "funded",
-      },
-      where: { id: "claimable-1" },
-    });
-    expect(mockPrisma.claimableLink.update).toHaveBeenCalledTimes(1);
+    expect((await DELETE(deleteRequest())).status).toBe(409);
+    expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the unfunded check is unavailable", async () => {
-    mockPrisma.claimableLink.findUnique.mockResolvedValue(row());
-    mockResolveClaimableOnChain.mockRejectedValue(new Error("indexer unavailable"));
-
-    const response = await DELETE(deleteRequest());
-
-    expect(response.status).toBe(503);
-    expect(mockPrisma.claimableLink.update).not.toHaveBeenCalled();
-  });
-
-  it("does not delete a funded claimable link that remains unspent", async () => {
-    mockPrisma.claimableLink.findUnique.mockResolvedValue(
-      row({ fundingOutputIndex: 0, fundingTxId: "c".repeat(64), status: "funded" }),
-    );
-
-    const response = await DELETE(deleteRequest());
-    const body = await response.json();
-
-    expect(response.status).toBe(409);
-    expect(body).toEqual({
-      error: {
-        code: "INVALID_STATE",
-        message:
-          "This link still holds 1 KAS on-chain. Refund it from the browser that has the private refund link, or restore the recovery bundle, before deleting it.",
-      },
-    });
-    expect(mockResolveClaimableOnChain).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "funded" }),
-    );
-    expect(mockPrisma.claimableLink.update).not.toHaveBeenCalled();
-  });
-
-  it("reconciles an on-chain refund before deleting a stale expired link", async () => {
-    mockPrisma.claimableLink.findUnique.mockResolvedValue(
-      row({
-        fundingOutputIndex: 0,
-        fundingTxId: "c".repeat(64),
-        refundTxId: "d".repeat(64),
+  it("reconciles and deletes an empty refunded address with one conditional update", async () => {
+    mockPrisma.claimableLink.findUnique.mockResolvedValue(row({ status: "refundable" }));
+    mockResolveClaimableOnChain.mockResolvedValue({ status: "refunded" });
+    expect((await DELETE(deleteRequest())).status).toBe(200);
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith({
+      data: { status: "refunded", deletedAt: expect.any(Date) },
+      where: {
+        id: "claimable-1",
+        creatorId: "creator-1",
+        updatedAt: CREATED_AT,
         status: "refundable",
+        deletedAt: null,
+      },
+    });
+  });
+
+  it("refuses deletion if the record changed during the chain lookup", async () => {
+    mockPrisma.claimableLink.findUnique.mockResolvedValue(row({ status: "claimed" }));
+    mockPrisma.claimableLink.updateMany.mockResolvedValueOnce({ count: 0 });
+    expect((await DELETE(deleteRequest())).status).toBe(409);
+    expect(mockWriteAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("keeps a concurrent terminal broadcast when a stale refresh finishes", async () => {
+    mockRequireCreator.mockResolvedValue({
+      ok: true,
+      creator: { id: "refresh-race-creator" },
+      ipHash: "ip",
+    });
+    const snapshot = row({ status: "funded", fundingTxId: "c".repeat(64), fundingOutputIndex: 0 });
+    mockPrisma.claimableLink.findMany.mockResolvedValueOnce([snapshot]).mockResolvedValueOnce([]);
+    let finish!: (value: { status: string }) => void;
+    let started!: () => void;
+    const resolverStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    mockResolveClaimableOnChain.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+          started();
+        }),
+    );
+    const request = GET(new Request("https://example.com/api/creator/claimable-links"));
+    await resolverStarted;
+    // Simulate a broadcast committing after the refresh read its snapshot.
+    mockPrisma.claimableLink.updateMany.mockResolvedValueOnce({ count: 0 });
+    mockPrisma.claimableLink.findUnique.mockResolvedValueOnce(
+      row({ status: "claimed", claimTxId: "d".repeat(64) }),
+    );
+    finish({ status: "refundable" });
+    const body = await (await request).json();
+    expect(body.claimableLinks[0].status).toBe("claimed");
+    expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "claimable-1", updatedAt: CREATED_AT, status: "funded", deletedAt: null },
       }),
     );
-    mockResolveClaimableOnChain.mockResolvedValue({ status: "refunded" });
-
-    const response = await DELETE(deleteRequest());
-
-    expect(response.status).toBe(200);
-    expect(mockPrisma.claimableLink.update).toHaveBeenNthCalledWith(1, {
-      data: { status: "refunded" },
-      where: { id: "claimable-1" },
-    });
-    expect(mockPrisma.claimableLink.update).toHaveBeenNthCalledWith(2, {
-      data: { deletedAt: expect.any(Date) },
-      where: { id: "claimable-1" },
-    });
-  });
-
-  it("soft-deletes a closed claimable link so historical stats remain stable", async () => {
-    mockPrisma.claimableLink.findUnique.mockResolvedValue(row({ status: "claimed" }));
-
-    const response = await DELETE(deleteRequest());
-
-    expect(response.status).toBe(200);
-    expect(mockPrisma.claimableLink.update).toHaveBeenCalledWith({
-      data: { deletedAt: expect.any(Date) },
-      where: { id: "claimable-1" },
-    });
+    expect(mockPrisma.claimableLink.update).not.toHaveBeenCalled();
   });
 });

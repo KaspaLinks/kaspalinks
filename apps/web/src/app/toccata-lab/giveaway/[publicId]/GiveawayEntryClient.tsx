@@ -10,6 +10,8 @@ import {
 import { kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
 import { readJsonResponse } from "@/lib/response-json";
 
+import { TelegramGiveawayActions } from "../TelegramGiveawayActions";
+
 import { TurnstileWidget } from "./TurnstileWidget";
 
 type PublicGiveaway = {
@@ -62,8 +64,10 @@ type PublicGiveaway = {
 export function GiveawayEntryClient({
   publicId,
   turnstile,
+  botUsername = "",
 }: {
   publicId: string;
+  botUsername?: string;
   turnstile: { required: boolean; siteKey: string };
 }) {
   const [giveaway, setGiveaway] = useState<null | PublicGiveaway>(null);
@@ -83,6 +87,10 @@ export function GiveawayEntryClient({
   const [verifyingProof, setVerifyingProof] = useState(false);
   const [freezeReceiptChanged, setFreezeReceiptChanged] = useState(false);
   const finalizeInFlight = useRef(false);
+  useEffect(() => {
+    window.Telegram?.WebApp?.ready();
+    window.Telegram?.WebApp?.expand();
+  }, []);
 
   const loadGiveaway = useCallback(async () => {
     try {
@@ -337,7 +345,7 @@ export function GiveawayEntryClient({
   return (
     <main className="main giveaway-entry-page">
       <section className="giveaway-entry-hero">
-        <span className="hero-eyebrow">Giveaway Lab</span>
+        <span className="hero-eyebrow">Kaspa giveaway</span>
         <h1>{giveaway.title}</h1>
         {giveaway.description ? <p>{giveaway.description}</p> : null}
         <div className="giveaway-hero-prize">
@@ -362,25 +370,6 @@ export function GiveawayEntryClient({
           </a>
         </section>
       ) : null}
-
-      <section className="giveaway-draw-disclosure" aria-label="Giveaway draw trust model">
-        <div className="giveaway-draw-disclosure-lead">
-          <strong>Fair draw, verifiable on Kaspa</strong>
-          <p>
-            When entries close, the participant list is locked and a later Kaspa block supplies the
-            random value that picks the winner — so nobody can choose the result in advance, and you
-            can check it right here.
-          </p>
-        </div>
-        <details className="giveaway-protocol-details">
-          <summary>How does the fair draw work?</summary>
-          <ol>
-            <li>The participant list is locked when entries close.</li>
-            <li>A newly confirmed Kaspa block supplies the random input.</li>
-            <li>This page checks the list, the Kaspa block, and the selected winner for you.</li>
-          </ol>
-        </details>
-      </section>
 
       <section className="card giveaway-entry-card">
         {freezeReceiptChanged ? (
@@ -623,6 +612,27 @@ export function GiveawayEntryClient({
             ) : null}
           </details>
         ) : null}
+      </section>
+
+      <TelegramGiveawayActions publicId={publicId} botUsername={botUsername} participant />
+
+      <section className="giveaway-draw-disclosure" aria-label="Giveaway draw trust model">
+        <div className="giveaway-draw-disclosure-lead">
+          <strong>Fair draw, verifiable on Kaspa</strong>
+          <p>
+            When entries close, the participant list is locked and a later Kaspa block supplies the
+            random value that picks the winner — so nobody can choose the result in advance, and you
+            can check it right here.
+          </p>
+        </div>
+        <details className="giveaway-protocol-details">
+          <summary>How does the fair draw work?</summary>
+          <ol>
+            <li>The participant list is locked when entries close.</li>
+            <li>A newly confirmed Kaspa block supplies the random input.</li>
+            <li>This page checks the list, the Kaspa block, and the selected winner for you.</li>
+          </ol>
+        </details>
       </section>
 
       <p className="giveaway-entry-footnote">

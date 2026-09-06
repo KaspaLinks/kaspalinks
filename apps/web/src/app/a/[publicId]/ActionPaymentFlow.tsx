@@ -807,6 +807,11 @@ export function ActionPaymentFlow({
         if (!response.ok) return;
         const body = await response.json();
         setPaymentRequest(body.paymentRequest as SerializedPaymentRequest);
+        if (body.detection?.status === "ambiguous") {
+          setError(
+            "This payment matches more than one request. Check your wallet transaction before paying again.",
+          );
+        }
       } catch {
         /* keep polling, transient error */
       }

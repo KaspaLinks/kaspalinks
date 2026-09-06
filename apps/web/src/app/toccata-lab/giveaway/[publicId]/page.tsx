@@ -71,5 +71,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function GiveawayEntryPage({ params }: PageProps) {
   const { publicId } = await params;
-  return <GiveawayEntryClient publicId={publicId} turnstile={getGiveawayTurnstileClientConfig()} />;
+  return (
+    <GiveawayEntryClient
+      publicId={publicId}
+      botUsername={process.env.TELEGRAM_BOT_USERNAME ?? ""}
+      turnstile={getGiveawayTurnstileClientConfig()}
+    />
+  );
 }

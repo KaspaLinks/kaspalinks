@@ -7,13 +7,14 @@ import {
 import { deriveToccataLabKeyPair } from "@/lib/toccata-lab-keys";
 import { resetRateLimits } from "@/lib/rate-limit";
 
-const { mockPrisma, mockRequireCreator } = vi.hoisted(() => ({
+const { mockPrisma, mockRequireCreator, mockIsClaimableFundingAddressEmpty } = vi.hoisted(() => ({
   mockPrisma: {
     $transaction: vi.fn(),
     claimableBatch: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     claimableLink: { findMany: vi.fn(), updateMany: vi.fn() },
   },
   mockRequireCreator: vi.fn(),
+  mockIsClaimableFundingAddressEmpty: vi.fn(),
 }));
 
 vi.mock("@kaspa-actions/db", () => ({
@@ -23,6 +24,9 @@ vi.mock("@kaspa-actions/db", () => ({
   prisma: mockPrisma,
 }));
 vi.mock("@/lib/creator-guard", () => ({ requireCreator: mockRequireCreator }));
+vi.mock("@/lib/claimable-onchain", () => ({
+  isClaimableFundingAddressEmpty: mockIsClaimableFundingAddressEmpty,
+}));
 vi.mock("@/lib/audit", () => ({ writeAuditLog: vi.fn() }));
 
 import { DELETE, GET, POST } from "./route";
@@ -75,6 +79,7 @@ function request(overrides: Record<string, unknown> = {}) {
 describe("POST /api/creator/claimable-batches", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsClaimableFundingAddressEmpty.mockResolvedValue(true);
     mockRequireCreator.mockResolvedValue({
       creator: { id: "creator-1" },
       ipHash: "ip-hash",
@@ -246,6 +251,7 @@ describe("POST /api/creator/claimable-batches", () => {
 describe("GET /api/creator/claimable-batches", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsClaimableFundingAddressEmpty.mockResolvedValue(true);
     mockRequireCreator.mockResolvedValue({
       creator: { id: "creator-1" },
       ipHash: "ip-hash",
@@ -335,6 +341,7 @@ describe("GET /api/creator/claimable-batches", () => {
 describe("DELETE /api/creator/claimable-batches", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsClaimableFundingAddressEmpty.mockResolvedValue(true);
     mockRequireCreator.mockResolvedValue({
       creator: { id: "creator-1" },
       ipHash: "ip-hash",
@@ -352,6 +359,30 @@ describe("DELETE /api/creator/claimable-batches", () => {
     vi.restoreAllMocks();
     resetRateLimits();
   });
+
+  it.each([false, "unavailable"])(
+    "blocks terminal batch deletion when a funding proof is %s",
+    async (proof) => {
+      mockPrisma.claimableLink.findMany.mockResolvedValue(
+        outputs.map((output, index) => ({
+          deletedAt: null,
+          id: `child-${index}`,
+          linkKey: output.linkKey,
+          status: "claimed",
+          fundingAddress: children[index]!.script.fundingAddress,
+        })),
+      );
+      if (proof === false) mockIsClaimableFundingAddressEmpty.mockResolvedValueOnce(false);
+      else mockIsClaimableFundingAddressEmpty.mockRejectedValueOnce(new Error("unavailable"));
+      const response = await DELETE(
+        new Request("https://example.com/api/creator/claimable-batches?batchKey=batch-test", {
+          method: "DELETE",
+        }),
+      );
+      expect(response.status).toBe(proof === false ? 409 : 503);
+      expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
+    },
+  );
 
   it("soft-deletes every closed child link in one update", async () => {
     mockPrisma.claimableLink.findMany.mockResolvedValue([

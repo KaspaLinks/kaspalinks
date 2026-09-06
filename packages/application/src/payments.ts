@@ -26,10 +26,12 @@ export type ChainConfirmContext = {
 export type ChainConfirmResult =
   | { kind: "confirmed"; paymentRequest: PaymentRequest }
   | { kind: "error"; reason: string }
+  | { kind: "ambiguous" }
   | { kind: "no_match" }
   | { kind: "skipped" };
 
 type PaymentConfirmationInput = {
+  blockTime?: number | null;
   amountSompi: bigint;
   auditEvent: string;
   auditMetadata: Prisma.InputJsonObject;
@@ -70,6 +72,17 @@ export async function lockActionPaymentLifecycle(
   );
 }
 
+export async function lockRecipientPaymentLifecycle(
+  tx: Prisma.TransactionClient,
+  request: Pick<PaymentRequest, "network" | "recipientAddress">,
+): Promise<void> {
+  await tx.$queryRaw(
+    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`kaspalinks:recipient:${request.network}:${request.recipientAddress}`}, 0))`,
+  );
+}
+
+class AmbiguousPaymentError extends Error {}
+
 export async function detectAndConfirmPayment(
   paymentRequest: PaymentRequest,
   indexer: KaspaIndexer,
@@ -103,12 +116,13 @@ export async function detectAndConfirmPayment(
       );
       if (confirmed) return { kind: "confirmed", paymentRequest: confirmed };
     } catch (error) {
+      if (error instanceof AmbiguousPaymentError) return { kind: "ambiguous" };
       if (isUniqueError(error)) continue;
       return { kind: "error", reason: (error as Error).message };
     }
   }
 
-  return matches.length === 0 ? { kind: "no_match" } : { kind: "no_match" };
+  return { kind: "no_match" };
 }
 
 async function confirmCandidate(
@@ -121,6 +135,7 @@ async function confirmCandidate(
 ): Promise<PaymentRequest | null> {
   return confirmPayment(prisma, input, {
     amountSompi: candidate.matchedSompi,
+    blockTime: candidate.blockTime,
     auditEvent: "payment_request.chain_confirmed",
     auditMetadata: {
       matchedSompi: candidate.matchedSompi.toString(),
@@ -167,6 +182,7 @@ async function confirmPayment(
 ): Promise<PaymentRequest | null> {
   return prisma.$transaction(async (tx) => {
     await lockActionPaymentLifecycle(tx, input.actionId);
+    await lockRecipientPaymentLifecycle(tx, input);
     const current = await tx.paymentRequest.findUnique({
       include: {
         action: {
@@ -179,6 +195,33 @@ async function confirmPayment(
       where: { id: input.id },
     });
     if (!current || current.status !== PaymentRequestStatus.PENDING) return null;
+    if (!confirmation.fakeTxId) {
+      const blockTime = confirmation.blockTime;
+      if (
+        typeof blockTime !== "number" ||
+        !Number.isFinite(blockTime) ||
+        blockTime < current.createdAt.getTime() ||
+        blockTime >= current.expiresAt.getTime()
+      )
+        return null;
+      if (current.amountSompi !== null && current.amountSompi !== confirmation.amountSompi)
+        return null;
+      // Address/amount matching cannot choose safely between overlapping intents,
+      // even when a caller supplies the publicly visible transaction id.
+      const possibleRequests = await tx.paymentRequest.count({
+        where: {
+          network: current.network,
+          recipientAddress: current.recipientAddress,
+          // Expiring another request must not turn an ambiguous historical
+          // payment into a uniquely attributable payment for this request.
+          status: { in: [PaymentRequestStatus.PENDING, PaymentRequestStatus.EXPIRED] },
+          createdAt: { lte: new Date(blockTime) },
+          expiresAt: { gt: new Date(blockTime) },
+          OR: [{ amountSompi: null }, { amountSompi: confirmation.amountSompi }],
+        },
+      });
+      if (possibleRequests !== 1) throw new AmbiguousPaymentError();
+    }
 
     const duplicate = confirmation.fakeTxId
       ? await tx.paymentRequest.findUnique({

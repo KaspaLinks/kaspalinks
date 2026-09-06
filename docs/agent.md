@@ -14,8 +14,9 @@ Creator transaction.
 
 `/giveaway` creates a ten-minute Giveaway Setup Draft containing only amount, title, entry window,
 and winner-claim window. The Creator completes prize funding, recovery setup, and browser signing
-on the existing Giveaway page. Claimable Links, Claim Drops, and Giveaway payment events do not
-enter the Agent notification pipeline.
+on the existing Giveaway page. Claimable Links and Claim Drops do not enter the payment notification pipeline.
+Public Giveaway result subscriptions use their own opt-in model and outbox kind; see
+[Telegram giveaways](telegram-giveaways.md).
 
 ## Closed beta
 
@@ -60,6 +61,7 @@ checked against the connected Telegram user and private chat.
 /donation [KAS] <title>
 /goal <KAS target> <title>
 /disconnect
+/stop — disable all public giveaway result reminders
 ```
 
 Durations use `m`, `h`, or `d`, for example `/giveaway 10 24h Weekend KAS`. Explicit Slash
@@ -70,7 +72,8 @@ Commands execute deterministically. Giveaway commands stop at a browser handoff.
 The private Agent Worker polls due Pending Payment Requests, applying an initial three-second
 interval and bounded backoff. Confirmation, Invoice completion, AuditLog, unique Payment Event,
 and optional Telegram Outbox row are committed in one PostgreSQL transaction. An Outbox dedupe key
-allows at most one Telegram delivery per Payment Request. Telegram outages never roll back a
+allows one logical delivery per Payment Request; uncertain Telegram acknowledgements can still
+produce repeated messages on retry. Telegram outages never roll back a
 payment confirmation.
 
 The first confirmed exact Invoice payment sets `invoicePaidAt`. The public Invoice remains visible

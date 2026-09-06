@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { createRestKaspaIndexer, KaspaIndexerError } from "@kaspa-actions/kaspa-indexer";
 
 // Server-side on-chain status resolution for claimable links. Lets the DB status
@@ -90,11 +92,27 @@ export async function resolveClaimableOnChain(
   return (await isRefundUnlocked(input.refundLockTime)) ? { status: "refundable" } : null;
 }
 
+// Any UTXO, including overpayment, dust or an additional output after a claim,
+// keeps recovery necessary. A failed/malformed lookup never proves emptiness.
+export async function isClaimableFundingAddressEmpty(fundingAddress: string): Promise<boolean> {
+  const response = await fetch(
+    `${KASPA_REST_BASE_URL}/addresses/${encodeURIComponent(fundingAddress)}/utxos`,
+    {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(UTXO_REQUEST_TIMEOUT_MS),
+    },
+  );
+  if (!response.ok) throw new Error("Could not verify claimable funding outputs.");
+  return z.array(z.unknown()).parse(await response.json()).length === 0;
+}
+
 async function isRefundUnlocked(refundLockTime: string): Promise<boolean> {
   if (!/^[0-9]+$/.test(refundLockTime)) return false;
 
   try {
     const response = await fetch(`${KASPA_REST_BASE_URL}/info/blockdag`, {
+      signal: AbortSignal.timeout(UTXO_REQUEST_TIMEOUT_MS),
       headers: { accept: "application/json" },
     });
     if (!response.ok) return false;

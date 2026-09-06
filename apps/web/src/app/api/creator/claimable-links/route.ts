@@ -7,7 +7,7 @@ import { parseStoredClaimableBatchOutputs } from "@/lib/claimable-batch-manifest
 import { readCreatorActionDailyLimit, rollingDailyWindowStart } from "@/lib/creator-auth";
 import { requireCreator } from "@/lib/creator-guard";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
-import { resolveClaimableOnChain } from "@/lib/claimable-onchain";
+import { isClaimableFundingAddressEmpty, resolveClaimableOnChain } from "@/lib/claimable-onchain";
 import { selectRotatingWindow } from "@/lib/claimable-refresh";
 import { isPrismaUniqueConstraintError } from "@/lib/prisma-errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
@@ -129,7 +129,15 @@ async function maybeRefreshOnChain(creatorId: string, links: ClaimableLinkRow[])
         if (update.fundingOutputIndex !== undefined) {
           data.fundingOutputIndex = update.fundingOutputIndex;
         }
-        await prisma.claimableLink.update({ where: { id: link.id }, data });
+        const changed = await prisma.claimableLink.updateMany({
+          where: { id: link.id, updatedAt: link.updatedAt, status: link.status, deletedAt: null },
+          data,
+        });
+        if (changed.count !== 1) {
+          const current = await prisma.claimableLink.findUnique({ where: { id: link.id } });
+          if (current) Object.assign(link, current);
+          return;
+        }
         link.status = update.status;
         if (update.fundingTxId) link.fundingTxId = update.fundingTxId;
         if (update.fundingOutputIndex !== undefined) {
@@ -196,7 +204,7 @@ export async function GET(request: Request) {
         return [];
       }
     }),
-    claimableLinks: links.map(serialize),
+    claimableLinks: links.filter((link) => link.deletedAt === null).map(serialize),
     deletedClaimableLinkKeys: deletedLinks.map((link) => link.linkKey),
   });
 }
@@ -481,28 +489,33 @@ export async function DELETE(request: Request) {
   const guard = await requireCreator(request, prisma);
   if (!guard.ok) return guard.response;
 
-  const url = new URL(request.url);
-  const linkKey = str(url.searchParams.get("linkKey"));
-  if (!linkKey || linkKey.length > 128) {
-    return apiError(ErrorCodes.INVALID_BODY, "linkKey is required.", 400);
-  }
-
+  const limited = enforceRateLimit(RateBuckets.CREATOR_PROFILE_UPDATE, guard.creator.id);
+  if (!limited.allowed) return limited.response;
+  const parsedKey = z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .safeParse(new URL(request.url).searchParams.get("linkKey"));
+  if (!parsedKey.success) return apiError(ErrorCodes.INVALID_BODY, "linkKey is required.", 400);
   const link = await prisma.claimableLink.findUnique({
-    where: { creatorId_linkKey: { creatorId: guard.creator.id, linkKey } },
+    where: { creatorId_linkKey: { creatorId: guard.creator.id, linkKey: parsedKey.data } },
   });
-
-  if (!link) {
+  if (!link || link.deletedAt !== null) {
     return apiError(ErrorCodes.NOT_FOUND, "Claimable link not found.", 404);
   }
 
-  if (link.deletedAt !== null) {
-    return apiError(ErrorCodes.NOT_FOUND, "Claimable link not found.", 404);
-  }
-
-  let resolvedStatus = link.status;
-  if (!DELETABLE_STATUSES.has(resolvedStatus)) {
-    try {
-      const onChain = await resolveClaimableOnChain({
+  let onChain: Awaited<ReturnType<typeof resolveClaimableOnChain>> = null;
+  try {
+    if (!(await isClaimableFundingAddressEmpty(link.fundingAddress))) {
+      return apiError(
+        ErrorCodes.INVALID_STATE,
+        "This funding address still holds KAS. Recover every output before deleting the link.",
+        409,
+      );
+    }
+    if (!DELETABLE_STATUSES.has(link.status)) {
+      onChain = await resolveClaimableOnChain({
         amountSompi: link.amountSompi.toString(),
         claimTxId: link.claimTxId,
         createdAtMs: link.createdAt.getTime(),
@@ -513,41 +526,46 @@ export async function DELETE(request: Request) {
         refundTxId: link.refundTxId,
         status: link.status,
       });
-
-      if (onChain) {
-        resolvedStatus = onChain.status;
-        await prisma.claimableLink.update({
-          data: {
-            ...(onChain.fundingOutputIndex !== undefined
-              ? { fundingOutputIndex: onChain.fundingOutputIndex }
-              : {}),
-            ...(onChain.fundingTxId ? { fundingTxId: onChain.fundingTxId } : {}),
-            status: onChain.status,
-          },
-          where: { id: link.id },
-        });
-      }
-    } catch {
-      return apiError(
-        ErrorCodes.SERVER_ERROR,
-        "Could not verify this claimable link on-chain. Try again later.",
-        503,
-      );
     }
+  } catch {
+    return apiError(
+      ErrorCodes.SERVER_ERROR,
+      "Could not verify this claimable link on-chain. Try again later.",
+      503,
+    );
   }
-
+  const resolvedStatus = onChain?.status ?? link.status;
   const verifiedUnfunded = resolvedStatus === "awaiting_funding" && link.fundingTxId === null;
   if (!verifiedUnfunded && !DELETABLE_STATUSES.has(resolvedStatus)) {
     return apiError(
       ErrorCodes.INVALID_STATE,
-      `This link still holds ${formatSompiKas(link.amountSompi)} KAS on-chain. Refund it from the browser that has the private refund link, or restore the recovery bundle, before deleting it.`,
+      "Funding state is not yet settled. Wait for confirmation before deleting this link.",
       409,
     );
   }
-
-  await prisma.claimableLink.update({
-    data: { deletedAt: new Date() },
-    where: { id: link.id },
+  const deleted = await prisma.claimableLink.updateMany({
+    data: { ...onChain, deletedAt: new Date() },
+    where: {
+      id: link.id,
+      creatorId: guard.creator.id,
+      updatedAt: link.updatedAt,
+      status: link.status,
+      deletedAt: null,
+    },
+  });
+  if (deleted.count !== 1) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "This link changed while being checked. Refresh and retry.",
+      409,
+    );
+  }
+  await writeAuditLog(prisma, {
+    actorType: AuditActorType.CREATOR,
+    creatorId: guard.creator.id,
+    event: "claimable_link.deleted",
+    ipHash: guard.ipHash,
+    metadata: { linkKey: link.linkKey },
   });
 
   return apiJson({ deleted: true });
@@ -592,12 +610,6 @@ async function isFundingOutputCurrentlyUnspent(input: {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function formatSompiKas(value: bigint): string {
-  const whole = value / 100_000_000n;
-  const fraction = (value % 100_000_000n).toString().padStart(8, "0").replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
 const methodNotAllowed = () => apiMethodNotAllowed(["GET", "POST", "PATCH", "DELETE"]);

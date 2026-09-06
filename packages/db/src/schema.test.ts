@@ -61,3 +61,18 @@ describe("initial migration", () => {
     expect(migration).not.toContain("0.0.0.0");
   });
 });
+
+describe("payment fact retention", () => {
+  it("keeps events while unlinking deleted actions and payment requests", () => {
+    const event = schema.match(/model PaymentEvent \{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(event).toMatch(/paymentRequestId\s+String\?/);
+    expect(event).toMatch(/actionId\s+String\?/);
+    expect(event).not.toContain("onDelete: Restrict");
+    const sql = readFileSync(
+      "packages/db/prisma/migrations/20260905130000_preserve_payment_events_on_deletion/migration.sql",
+      "utf8",
+    );
+    expect(sql.match(/ON DELETE SET NULL/g)).toHaveLength(2);
+    expect(sql).not.toMatch(/DELETE FROM|DROP TABLE/);
+  });
+});

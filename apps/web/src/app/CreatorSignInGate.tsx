@@ -19,7 +19,7 @@ export function CreatorSignInGate({ description, label, nextPath, title }: Creat
         <Link className="btn btn-primary" href={signInHref}>
           Sign in
         </Link>
-        <Link className="btn" href="/create-profile">
+        <Link className="btn" href={`/create-profile?next=${encodeURIComponent(nextPath)}`}>
           Create profile
         </Link>
       </div>

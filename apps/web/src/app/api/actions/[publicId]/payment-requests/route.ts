@@ -1,4 +1,7 @@
-import { lockActionPaymentLifecycle } from "@kaspa-actions/application";
+import {
+  lockActionPaymentLifecycle,
+  lockRecipientPaymentLifecycle,
+} from "@kaspa-actions/application";
 import { prisma } from "@kaspa-actions/db";
 import { ActionType, AuditActorType, PaymentRequestStatus } from "@kaspa-actions/db";
 import { buildKaspaPaymentUri, parseKaspaAmountToSompi } from "@kaspa-actions/kaspa";
@@ -144,6 +147,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   const paymentRequest = await prisma.$transaction(async (tx) => {
     await lockActionPaymentLifecycle(tx, action.id);
+    await lockRecipientPaymentLifecycle(tx, action);
     if (action.type === ActionType.KASPA_INVOICE) {
       const invoice = await tx.action.findUnique({
         select: { invoicePaidAt: true },

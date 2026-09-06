@@ -107,9 +107,8 @@ export async function DELETE(request: Request) {
     );
   }
 
-  // Write the audit log entry BEFORE deletion so the creatorId reference
-  // is valid. Prisma's SetNull cascade will clear that foreign key when
-  // the Creator gets dropped a few lines down; the audit event itself stays.
+  // Record deletion atomically with the deletes. SetNull preserves the audit
+  // and payment facts after their creator/resources have been removed.
   const actionIds = await prisma.action
     .findMany({ select: { id: true }, where: { creatorId: guard.creator.id } })
     .then((rows) => rows.map((row) => row.id));
@@ -119,19 +118,19 @@ export async function DELETE(request: Request) {
       ? await prisma.paymentRequest.count({ where: { actionId: { in: actionIds } } })
       : 0;
 
-  await writeAuditLog(prisma, {
-    actorType: AuditActorType.CREATOR,
-    creatorId: guard.creator.id,
-    event: "creator.deleted",
-    ipHash: guard.ipHash,
-    metadata: {
-      deletedActionCount: actionIds.length,
-      deletedPaymentRequestCount,
-      username: guard.creator.username,
-    },
-  });
-
   await prisma.$transaction(async (tx) => {
+    await writeAuditLog(tx, {
+      actorType: AuditActorType.CREATOR,
+      creatorId: guard.creator.id,
+      event: "creator.deleted",
+      ipHash: guard.ipHash,
+      metadata: {
+        deletedActionCount: actionIds.length,
+        deletedPaymentRequestCount,
+        username: guard.creator.username,
+      },
+    });
+
     if (actionIds.length > 0) {
       // Restrict cascade — must wipe PaymentRequests before their Actions.
       await tx.paymentRequest.deleteMany({ where: { actionId: { in: actionIds } } });

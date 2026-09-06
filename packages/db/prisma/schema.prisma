@@ -303,10 +303,10 @@ model TelegramUpdate {
 
 model PaymentEvent {
   id               String           @id @default(cuid())
-  paymentRequestId String           @unique
-  paymentRequest   PaymentRequest   @relation(fields: [paymentRequestId], references: [id], onDelete: Restrict)
-  actionId         String
-  action           Action           @relation(fields: [actionId], references: [id], onDelete: Restrict)
+  paymentRequestId String?          @unique
+  paymentRequest   PaymentRequest?  @relation(fields: [paymentRequestId], references: [id], onDelete: SetNull)
+  actionId         String?
+  action           Action?          @relation(fields: [actionId], references: [id], onDelete: SetNull)
   creatorId        String?
   creator          Creator?         @relation(fields: [creatorId], references: [id], onDelete: SetNull)
   amountSompi      BigInt
@@ -321,28 +321,31 @@ model PaymentEvent {
 }
 
 model TelegramOutbox {
-  id             String               @id @default(cuid())
+  id             String                        @id @default(cuid())
   creatorId      String?
   connectionId   String?
-  connection     TelegramConnection?  @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  connection     TelegramConnection?           @relation(fields: [connectionId], references: [id], onDelete: SetNull)
   paymentEventId String?
-  paymentEvent   PaymentEvent?        @relation(fields: [paymentEventId], references: [id], onDelete: SetNull)
-  dedupeKey      String               @unique
+  paymentEvent   PaymentEvent?                 @relation(fields: [paymentEventId], references: [id], onDelete: SetNull)
+  subscriptionId String?
+  subscription   TelegramGiveawaySubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  dedupeKey      String                        @unique
   kind           String
   payload        Json
   matchedRuleIds Json?
-  status         TelegramOutboxStatus @default(PENDING)
-  attempts       Int                  @default(0)
-  availableAt    DateTime             @default(now())
+  status         TelegramOutboxStatus          @default(PENDING)
+  attempts       Int                           @default(0)
+  availableAt    DateTime                      @default(now())
   lockedAt       DateTime?
   sentAt         DateTime?
   lastErrorCode  String?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
 
   @@index([status, availableAt])
   @@index([creatorId, createdAt])
   @@index([connectionId])
+  @@index([subscriptionId])
 }
 
 model AgentIntentDraft {
@@ -356,6 +359,7 @@ model AgentIntentDraft {
   expiresAt      DateTime
   confirmedAt    DateTime?
   resultRef      String?
+  sourceUpdateId String?           @unique
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
@@ -521,19 +525,19 @@ model ClaimableBatch {
 // revealed only after the one-time draw so the result can be independently
 // reproduced.
 model Giveaway {
-  id                            String          @id @default(cuid())
-  publicId                      String          @unique @default(cuid())
+  id                            String                         @id @default(cuid())
+  publicId                      String                         @unique @default(cuid())
   creatorId                     String
-  creator                       Creator         @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  creator                       Creator                        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   title                         String
   description                   String?
   amountSompi                   BigInt
   closesAt                      DateTime
-  status                        GiveawayStatus  @default(OPEN)
+  status                        GiveawayStatus                 @default(OPEN)
   // Draw protocol v1 used only the precommitted server seed. Protocol v2
   // freezes the entry set before deriving the result from future Kaspa chain
   // entropy. Existing rows remain v1 for backwards-compatible verification.
-  drawProtocolVersion           Int             @default(1)
+  drawProtocolVersion           Int                            @default(1)
   drawSeedHex                   String
   drawCommitment                String
   drawDigest                    String?
@@ -558,15 +562,17 @@ model Giveaway {
   winnerClaimWindowSeconds      Int?
   winnerClaimExpiresAt          DateTime?
   prizeClaimPreparedAt          DateTime?
-  prizeClaimTransactionId       String?         @unique
+  prizeClaimTransactionId       String?                        @unique
   prizeClaimTransactionSafeJson String?
   // Optional escrow: the prize is parked in a claimable link whose claim code
   // stays in the creator's browser. Proves the prize exists without custody.
-  prizeLinkKey                  String?         @unique
-  prizeLink                     ClaimableLink?  @relation(fields: [prizeLinkKey], references: [linkKey], onDelete: SetNull)
-  createdAt                     DateTime        @default(now())
-  updatedAt                     DateTime        @updatedAt
+  prizeLinkKey                  String?                        @unique
+  prizeLink                     ClaimableLink?                 @relation(fields: [prizeLinkKey], references: [linkKey], onDelete: SetNull)
+  createdAt                     DateTime                       @default(now())
+  updatedAt                     DateTime                       @updatedAt
   entries                       GiveawayEntry[]
+  telegramSubscriptions         TelegramGiveawaySubscription[]
+  telegramCheckedAt             DateTime?
 
   @@index([creatorId])
   @@index([status])
@@ -585,4 +591,23 @@ model GiveawayEntry {
   @@unique([giveawayId, address])
   @@index([giveawayId])
   @@index([createdAt])
+}
+
+// Public result subscriptions are separate from Creator authentication.
+// No wallet ownership or prize entitlement is inferred from a Telegram ID.
+model TelegramGiveawaySubscription {
+  id               String           @id @default(cuid())
+  giveawayId       String
+  giveaway         Giveaway         @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  telegramUserId   String
+  telegramChatId   String
+  revokedAt        DateTime?
+  resultQueuedAt   DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  outboxDeliveries TelegramOutbox[]
+
+  @@unique([giveawayId, telegramUserId])
+  @@index([telegramUserId, revokedAt])
+  @@index([resultQueuedAt, revokedAt])
 }
