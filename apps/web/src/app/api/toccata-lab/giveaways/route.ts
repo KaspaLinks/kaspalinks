@@ -12,6 +12,7 @@ import {
   isGiveawayLabEnabled,
   parseGiveawayTerms,
 } from "@/lib/giveaway-lab";
+import { GIVEAWAY_FUNDING_GRACE_SECONDS } from "@/lib/giveaway-prize-shared";
 import { reconcileGiveawayPrize } from "@/lib/giveaway-prize";
 import { isPrismaUniqueConstraintError } from "@/lib/prisma-errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
@@ -65,6 +66,12 @@ export async function GET(request: Request) {
       amountKas: formatSompiToKaspa(giveaway.amountSompi),
       closesAt: giveaway.closesAt.toISOString(),
       createdAt: giveaway.createdAt.toISOString(),
+      entryWindowSeconds: giveaway.entryWindowSeconds,
+      fundingExpiresAt: giveaway.prizeLink
+        ? new Date(
+            giveaway.prizeLink.createdAt.getTime() + GIVEAWAY_FUNDING_GRACE_SECONDS * 1000,
+          ).toISOString()
+        : null,
       description: giveaway.description,
       drawCommitment: giveaway.drawCommitment,
       drawProtocol: {
@@ -166,6 +173,7 @@ export async function POST(request: Request) {
     amountSompi: bigint;
     claimPublicKey: string;
     claimTxId: null | string;
+    createdAt: Date;
     feeSompi: bigint;
     fundingAddress: string;
     fundingOutputIndex: null | number;
@@ -183,6 +191,7 @@ export async function POST(request: Request) {
         claimPublicKey: true,
         claimTxId: true,
         creatorId: true,
+        createdAt: true,
         deletedAt: true,
         feeSompi: true,
         fundingAddress: true,
@@ -271,6 +280,13 @@ export async function POST(request: Request) {
       giveaway: {
         amountKas: terms.amountKas,
         closesAt: terms.closesAt.toISOString(),
+        createdAt: giveaway.createdAt.toISOString(),
+        entryWindowSeconds: terms.entryWindowSeconds,
+        fundingExpiresAt: validatedPrizeLink
+          ? new Date(
+              validatedPrizeLink.createdAt.getTime() + GIVEAWAY_FUNDING_GRACE_SECONDS * 1000,
+            ).toISOString()
+          : null,
         description: giveaway.description,
         drawCommitment: giveaway.drawCommitment,
         drawProtocol: {

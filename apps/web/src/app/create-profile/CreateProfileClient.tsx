@@ -54,7 +54,16 @@ async function writeClipboardText(value: string): Promise<boolean> {
   }
 }
 
-export function CreateProfileClient({ nextPath = "/dashboard" }: { nextPath?: string }) {
+export function CreateProfileClient({
+  nextPath = "/dashboard",
+  onContinue,
+}: {
+  nextPath?: string;
+  onContinue?: (identity: { username: string; token: string }) => void;
+}) {
+  const Wrapper = onContinue ? "div" : "main";
+  const Heading = onContinue ? "h2" : "h1";
+  const [accessSaved, setAccessSaved] = useState(false);
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -66,13 +75,13 @@ export function CreateProfileClient({ nextPath = "/dashboard" }: { nextPath?: st
 
   // If already signed in, jump straight to /my-links.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || onContinue) return;
     const storedUsername = window.sessionStorage.getItem(USERNAME_STORAGE_KEY) ?? "";
     const storedToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
     if (storedUsername && storedToken) {
       router.replace(nextPath);
     }
-  }, [router, nextPath]);
+  }, [router, nextPath, onContinue]);
 
   const submit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -120,61 +129,101 @@ export function CreateProfileClient({ nextPath = "/dashboard" }: { nextPath?: st
 
   if (issuedToken && issuedUsername) {
     return (
-      <main className="auth-layout">
+      <Wrapper className={onContinue ? "giveaway-inline-auth" : "auth-layout"}>
         <section className="card card-accent auth-hero">
           <span className="label">Profile created</span>
-          <h1 style={{ marginBottom: 6 }}>Save your creator token</h1>
+          <Heading style={{ marginBottom: 6 }}>
+            {onContinue ? "Save your access code" : "Save your creator token"}
+          </Heading>
           <p className="muted" style={{ margin: 0 }}>
-            This token is shown only once. Without it, you cannot sign back into the{" "}
-            <code>{issuedUsername}</code> profile. Kaspa Links stores only a cryptographic hash, so
-            we cannot read the token back or recover it later. Save it in a password manager now.
+            {onContinue ? (
+              "Save this code in your password manager. You need it to sign in again; we cannot recover it."
+            ) : (
+              <>
+                This token is shown only once. Without it, you cannot sign back into the{" "}
+                <code>{issuedUsername}</code> profile. Kaspa Links stores only a cryptographic hash,
+                so we cannot read the token back or recover it later. Save it in a password manager
+                now.
+              </>
+            )}
           </p>
         </section>
 
         <section className="card auth-form-card">
-          <span className="label">Creator token</span>
+          <span className="label">{onContinue ? "Access code" : "Creator token"}</span>
           <p className="value-mono" style={{ marginTop: 8 }}>
             {issuedToken}
           </p>
           <div className="row">
             <button className="btn btn-primary" onClick={() => void copyToken()} type="button">
-              {copied ? "Token copied" : "Copy token"}
+              {copied ? "Copied" : onContinue ? "Copy access code" : "Copy token"}
             </button>
           </div>
         </section>
 
         <section className="card auth-note">
-          <p style={{ marginTop: 0 }}>
-            You&apos;re already signed in as <strong>{issuedUsername}</strong>. Once you&apos;ve
-            saved the token, you&apos;re ready to spin up your first link.
-          </p>
-          <div className="row">
-            <Link
-              className="btn btn-primary"
-              href={nextPath === "/dashboard" ? "/new-link" : nextPath}
-            >
-              {nextPath.startsWith("/toccata-lab/giveaway")
-                ? "Continue to my giveaway"
-                : "Create your first link"}
-            </Link>
-            <Link className="btn" href="/dashboard">
-              Open dashboard
-            </Link>
-          </div>
+          {onContinue ? (
+            <>
+              <label className="giveaway-check">
+                <input
+                  type="checkbox"
+                  checked={accessSaved}
+                  onChange={(event) => setAccessSaved(event.target.checked)}
+                />
+                I saved my access code
+              </label>
+              <button
+                className="btn btn-primary btn-block"
+                type="button"
+                disabled={!accessSaved}
+                onClick={() => onContinue({ username: issuedUsername, token: issuedToken })}
+              >
+                Continue to giveaway
+              </button>
+            </>
+          ) : (
+            <>
+              <p style={{ marginTop: 0 }}>
+                You&apos;re already signed in as <strong>{issuedUsername}</strong>. Once you&apos;ve
+                saved the token, you&apos;re ready to spin up your first link.
+              </p>
+              <div className="row">
+                <Link
+                  className="btn btn-primary"
+                  href={nextPath === "/dashboard" ? "/new-link" : nextPath}
+                >
+                  {nextPath.startsWith("/toccata-lab/giveaway")
+                    ? "Continue to my giveaway"
+                    : "Create your first link"}
+                </Link>
+                <Link className="btn" href="/dashboard">
+                  Open dashboard
+                </Link>
+              </div>
+            </>
+          )}
         </section>
-      </main>
+      </Wrapper>
     );
   }
 
   return (
-    <main className="auth-layout">
+    <Wrapper className={onContinue ? "giveaway-inline-auth" : "auth-layout"}>
       <section className="card card-accent auth-hero">
         <span className="label">Create profile</span>
-        <h1 style={{ marginBottom: 6 }}>Start sharing Kaspa links</h1>
+        <Heading style={{ marginBottom: 6 }}>
+          {onContinue ? "Create your profile" : "Start sharing Kaspa links"}
+        </Heading>
         <p className="muted" style={{ margin: 0 }}>
-          Pick a username for your public namespace (<code>/u/yourname</code>). We&apos;ll issue a
-          one-time creator token — that&apos;s your only credential, so save it carefully. We store
-          only a cryptographic hash and cannot read the token back later.
+          {onContinue ? (
+            "Choose a public username for your giveaways."
+          ) : (
+            <>
+              Pick a username for your public namespace (<code>/u/yourname</code>). We&apos;ll issue
+              a one-time creator token — that&apos;s your only credential, so save it carefully. We
+              store only a cryptographic hash and cannot read the token back later.
+            </>
+          )}
         </p>
       </section>
 
@@ -194,19 +243,22 @@ export function CreateProfileClient({ nextPath = "/dashboard" }: { nextPath?: st
               value={username}
             />
           </div>
-          <div>
-            <label className="label" htmlFor="create-display-name">
-              Display name (optional)
-            </label>
-            <input
-              id="create-display-name"
-              maxLength={80}
-              onChange={(event) => setDisplayName(event.target.value)}
-              placeholder="Your display name"
-              type="text"
-              value={displayName}
-            />
-          </div>
+          <details>
+            <summary>Add a display name (optional)</summary>
+            <div>
+              <label className="label" htmlFor="create-display-name">
+                Display name (optional)
+              </label>
+              <input
+                id="create-display-name"
+                maxLength={80}
+                onChange={(event) => setDisplayName(event.target.value)}
+                placeholder="Your display name"
+                type="text"
+                value={displayName}
+              />
+            </div>
+          </details>
           <button className="btn btn-primary btn-block" disabled={submitting} type="submit">
             {submitting ? "Creating..." : "Create profile"}
           </button>
@@ -214,11 +266,13 @@ export function CreateProfileClient({ nextPath = "/dashboard" }: { nextPath?: st
         </form>
       </section>
 
-      <section className="card card-muted auth-note">
-        <p className="muted" style={{ margin: 0 }}>
-          Already have a creator token? <Link href="/sign-in">Sign in</Link>.
-        </p>
-      </section>
-    </main>
+      {!onContinue ? (
+        <section className="card card-muted auth-note">
+          <p className="muted" style={{ margin: 0 }}>
+            Already have a creator token? <Link href="/sign-in">Sign in</Link>.
+          </p>
+        </section>
+      ) : null}
+    </Wrapper>
   );
 }

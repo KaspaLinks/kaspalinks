@@ -11061,3 +11061,263 @@ body:has(main.deck-main) {
     grid-column: auto;
   }
 }
+
+/* Focused giveaway setup: one active step, using the existing controls. */
+main.giveaway-guided-page {
+  max-width: 760px;
+  gap: 20px;
+}
+.giveaway-setup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.giveaway-setup-header h1 {
+  margin: 4px 0 0;
+  font-size: clamp(1.5rem, 5vw, 2rem);
+}
+.giveaway-setup-header h1:focus {
+  outline: none;
+}
+.giveaway-stepper {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  gap: 8px;
+}
+.giveaway-stepper li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+}
+.giveaway-stepper li > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+}
+.giveaway-stepper [aria-current="step"] {
+  color: var(--fg-strong);
+  font-weight: 700;
+}
+.giveaway-stepper [aria-current="step"] > span {
+  background: var(--accent-bright);
+  border-color: var(--accent-bright);
+  color: var(--bg-deep);
+}
+.giveaway-stepper .is-complete {
+  color: var(--accent-bright);
+}
+.giveaway-setup-card {
+  display: grid;
+  gap: 16px;
+  padding: clamp(20px, 4vw, 32px);
+  min-width: 0;
+}
+.giveaway-setup-card h2,
+.giveaway-setup-card p {
+  margin: 0;
+}
+.giveaway-setup-details,
+.giveaway-manage-details {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.giveaway-setup-details > summary,
+.giveaway-manage-details > summary {
+  cursor: pointer;
+  padding: 4px 0;
+  color: var(--fg-muted);
+}
+.giveaway-setup-details[open] > :not(summary),
+.giveaway-manage-details[open] > :not(summary) {
+  margin-top: 16px;
+}
+.giveaway-duration-presets {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  margin: 0;
+}
+.giveaway-duration-presets legend {
+  margin-bottom: 8px;
+}
+.giveaway-duration-presets .row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.giveaway-duration-presets .btn {
+  padding-inline: 8px;
+}
+.giveaway-guided-page .btn[aria-pressed="true"] {
+  color: var(--accent-bright);
+  border-color: var(--accent-bright);
+  background: rgba(73, 234, 203, 0.08);
+}
+.giveaway-step-actions {
+  display: grid;
+  gap: 10px;
+  padding-top: 8px;
+}
+.giveaway-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.9rem;
+}
+.giveaway-check input {
+  flex: none;
+  margin-top: 4px;
+}
+.giveaway-auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.giveaway-inline-auth {
+  display: grid;
+  gap: 20px;
+}
+.giveaway-inline-auth .card {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.giveaway-inline-auth .auth-hero > .label {
+  display: none;
+}
+.giveaway-inline-auth .auth-hero p {
+  margin-top: 8px !important;
+}
+.giveaway-inline-auth .value-mono {
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.giveaway-inline-auth .auth-note {
+  display: grid;
+  gap: 16px;
+}
+.giveaway-inline-auth details > div {
+  margin-top: 12px;
+}
+.giveaway-funding-summary {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.giveaway-funding-summary > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+.giveaway-funding-summary dt {
+  color: var(--fg-muted);
+}
+.giveaway-funding-summary dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+.giveaway-funding-total {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.giveaway-funding-total dd {
+  color: var(--accent-bright);
+  font-size: 1.3rem;
+}
+.giveaway-funding-wait,
+.giveaway-setup-notice {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+.giveaway-ready-check {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  color: var(--bg-deep);
+  font-size: 1.6rem;
+}
+.giveaway-ready-card section .row {
+  display: grid;
+  gap: 10px;
+}
+.giveaway-help {
+  padding-inline: 4px;
+}
+.giveaway-guided-page .giveaway-manage-card > p {
+  margin: 12px 0;
+}
+.giveaway-guided-page .giveaway-manage-details {
+  margin-top: 20px;
+}
+@media (max-width: 600px) {
+  main.giveaway-guided-page {
+    gap: 16px;
+    padding-top: 12px;
+  }
+  .giveaway-setup-header {
+    align-items: flex-start;
+  }
+  .giveaway-setup-header > .btn {
+    padding: 8px 10px;
+    min-height: 40px;
+    font-size: 0.78rem;
+  }
+  .giveaway-stepper li {
+    flex-direction: column;
+    gap: 5px;
+    font-size: 0.78rem;
+  }
+  .giveaway-setup-card {
+    padding: 18px;
+    gap: 16px;
+  }
+  .giveaway-step-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    background: var(--bg-elev);
+    padding: 12px 0 max(8px, env(safe-area-inset-bottom));
+  }
+  .giveaway-setup-card .giveaway-form {
+    gap: 14px;
+  }
+  .giveaway-inline-auth .auth-hero {
+    border: 0;
+  }
+  .giveaway-funding-summary {
+    font-size: 0.88rem;
+  }
+  .giveaway-ready-card > .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .brand-bar-actions {
+    min-width: 0;
+  }
+  .brand-bar-actions .signed-in-pill {
+    min-width: 0;
+  }
+  .brand-bar-actions .nav-menu {
+    flex: none;
+  }
+}

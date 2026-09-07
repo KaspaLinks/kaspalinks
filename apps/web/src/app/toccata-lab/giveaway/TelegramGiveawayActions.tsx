@@ -6,10 +6,12 @@ export function TelegramGiveawayActions({
   publicId,
   botUsername,
   participant = false,
+  primary = false,
 }: {
   publicId: string;
   botUsername: string;
   participant?: boolean;
+  primary?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -63,7 +65,12 @@ export function TelegramGiveawayActions({
   return (
     <section aria-label="Share giveaway and reminders">
       <div className="row">
-        <button className="btn" type="button" onClick={() => void share()} disabled={busy}>
+        <button
+          className={primary ? "btn btn-primary" : "btn"}
+          type="button"
+          onClick={() => void share()}
+          disabled={busy}
+        >
           {busy ? "Preparing card…" : "Share on Telegram"}
         </button>
         <button className="btn" type="button" onClick={() => void copyLink()}>

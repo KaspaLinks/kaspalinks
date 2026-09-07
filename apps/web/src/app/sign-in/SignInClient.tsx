@@ -34,7 +34,11 @@ function readRequestedDestination(): string {
   return sanitizeInternalNextPath(new URLSearchParams(window.location.search).get("next"));
 }
 
-export function SignInClient() {
+export function SignInClient({
+  onSignedIn,
+}: { onSignedIn?: (identity: { username: string; token: string }) => void } = {}) {
+  const Wrapper = onSignedIn ? "div" : "main";
+  const Heading = onSignedIn ? "h2" : "h1";
   const router = useRouter();
   const [signupHref, setSignupHref] = useState("/create-profile");
   useEffect(() => {
@@ -47,13 +51,13 @@ export function SignInClient() {
 
   // If already signed in, jump straight to /my-links.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || onSignedIn) return;
     const storedUsername = window.sessionStorage.getItem(USERNAME_STORAGE_KEY) ?? "";
     const storedToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
     if (storedUsername && storedToken) {
       router.replace(readRequestedDestination());
     }
-  }, [router]);
+  }, [router, onSignedIn]);
 
   const submit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -86,25 +90,32 @@ export function SignInClient() {
         writeSessionValue(USERNAME_STORAGE_KEY, body.creator.username);
         writeSessionValue(TOKEN_STORAGE_KEY, token);
         broadcastSessionChange();
-        router.push(readRequestedDestination());
+        if (onSignedIn) onSignedIn({ username: body.creator.username, token });
+        else router.push(readRequestedDestination());
       } catch {
         setError("Network error during sign in.");
       } finally {
         setSubmitting(false);
       }
     },
-    [router, token, username],
+    [router, token, username, onSignedIn],
   );
 
   return (
-    <main className="auth-layout">
+    <Wrapper className={onSignedIn ? "giveaway-inline-auth" : "auth-layout"}>
       <section className="card card-accent auth-hero">
         <span className="label">Creator sign in</span>
-        <h1 style={{ marginBottom: 6 }}>Welcome back</h1>
+        <Heading style={{ marginBottom: 6 }}>Welcome back</Heading>
         <p className="muted" style={{ margin: 0 }}>
-          Sign in with the username and one-time token you saved when you created your profile. The
-          token stays in this tab&apos;s sessionStorage only. Kaspa Links stores only a
-          cryptographic hash, so we cannot retrieve a lost token later.
+          {onSignedIn ? (
+            "Use your username and saved access code."
+          ) : (
+            <>
+              Sign in with the username and one-time token you saved when you created your profile.
+              The token stays in this tab&apos;s sessionStorage only. Kaspa Links stores only a
+              cryptographic hash, so we cannot retrieve a lost token later.
+            </>
+          )}
         </p>
       </section>
 
@@ -126,7 +137,7 @@ export function SignInClient() {
           </div>
           <div>
             <label className="label" htmlFor="signin-token">
-              Creator token
+              {onSignedIn ? "Access code" : "Creator token"}
             </label>
             <input
               autoComplete="current-password"
@@ -145,12 +156,14 @@ export function SignInClient() {
         </form>
       </section>
 
-      <section className="card card-muted auth-note">
-        <p className="muted" style={{ margin: 0 }}>
-          New here? <Link href={signupHref}>Create a creator profile</Link> — it takes seconds, no
-          email required.
-        </p>
-      </section>
-    </main>
+      {!onSignedIn ? (
+        <section className="card card-muted auth-note">
+          <p className="muted" style={{ margin: 0 }}>
+            New here? <Link href={signupHref}>Create a creator profile</Link> — it takes seconds, no
+            email required.
+          </p>
+        </section>
+      ) : null}
+    </Wrapper>
   );
 }

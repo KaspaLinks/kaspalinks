@@ -1,6 +1,6 @@
 # Telegram giveaways
 
-Implemented locally on 6 September 2026. Deployment is a separate operation.
+Implemented on 6 September 2026. BotFather Main Mini App activation remains pending.
 
 ## Participant flow
 
@@ -151,4 +151,4 @@ Completed locally on 6 September 2026:
   page errors. API responses and the Telegram bridge were mocked; no real
   Telegram messages, database writes or wallet transactions were performed.
 
-No Hetzner deployment, production migration or BotFather change was performed.
+No BotFather change or live giveaway entry/payout test was performed.

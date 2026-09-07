@@ -13,7 +13,14 @@ import {
   sendKaspaPayment,
 } from "@kaspa-actions/wallet-adapter";
 
-import { CreatorSignInGate } from "@/app/CreatorSignInGate";
+import { SignInClient } from "@/app/sign-in/SignInClient";
+import { CreateProfileClient } from "@/app/create-profile/CreateProfileClient";
+import {
+  giveawaySetupSchema,
+  validateGiveawaySetup,
+  giveawayProgress,
+  giveawayFundingDeadline,
+} from "./giveaway-setup";
 import {
   buildClaimableSpendInBrowser,
   preloadClaimableBrowserSigner,
@@ -28,7 +35,6 @@ import {
   type GiveawayPrizeRecoveryRecord,
 } from "@/lib/giveaway-prize-recovery";
 import {
-  GIVEAWAY_FUNDING_GRACE_SECONDS,
   giveawayRefundDelaySeconds,
   shouldPrepareGiveawayClaim,
 } from "@/lib/giveaway-prize-shared";
@@ -49,6 +55,7 @@ type GiveawaySummary = {
   amountKas: string;
   closesAt: string;
   createdAt?: string;
+  fundingExpiresAt?: string | null;
   description: null | string;
   drawCommitment: string;
   drawProtocol: {
@@ -68,6 +75,7 @@ type GiveawaySummary = {
     winnerIndex: null | number;
   };
   entryCount: number;
+  entryWindowSeconds?: number;
   prize: null | {
     amountSompi: string;
     claimPublicKey: string;
@@ -122,6 +130,14 @@ export function GiveawayLabClient({
   botUsername?: string;
   enabled: boolean;
 }) {
+  const [stage, setStage] = useState<"details" | "access" | "fund" | "share" | "manage">("details");
+  const [authMode, setAuthMode] = useState<"signup" | "signin">("signup");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const setupHeading = useRef<HTMLHeadingElement>(null);
+  const storageKey = `kaspa-links:giveaway-setup:${draftId ?? templateId ?? "new"}`;
+  const restoredSettingsRef = useRef(false);
+  const resumeIdRef = useRef<string | null>(null);
+  const [settingsReady, setSettingsReady] = useState(false);
   const [session, setSession] = useState<null | Session>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [giveaways, setGiveaways] = useState<GiveawaySummary[]>([]);
@@ -136,8 +152,8 @@ export function GiveawayLabClient({
   const [title, setTitle] = useState("Weekend KAS giveaway");
   const [description, setDescription] = useState("Enter your Kaspa address for a chance to win.");
   const [amountKas, setAmountKas] = useState("10");
-  const [durationValue, setDurationValue] = useState("15");
-  const [durationUnit, setDurationUnit] = useState<"days" | "hours" | "minutes">("minutes");
+  const [durationValue, setDurationValue] = useState("24");
+  const [durationUnit, setDurationUnit] = useState<"days" | "hours" | "minutes">("hours");
   const [winnerClaimValue, setWinnerClaimValue] = useState("24");
   const [winnerClaimUnit, setWinnerClaimUnit] = useState<"days" | "hours" | "minutes">("hours");
   const [qrById, setQrById] = useState<Record<string, string>>({});
@@ -162,6 +178,113 @@ export function GiveawayLabClient({
   const loadedDraftRef = useRef<null | string>(null);
 
   useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(storageKey);
+      const saved = raw ? giveawaySetupSchema.safeParse(JSON.parse(raw)) : null;
+      if (saved?.success) {
+        restoredSettingsRef.current = true;
+        const v = saved.data;
+        setTitle(v.title);
+        setDescription(v.description);
+        setAmountKas(v.amountKas);
+        setDurationValue(v.durationValue);
+        setDurationUnit(v.durationUnit);
+        setWinnerClaimValue(v.winnerClaimValue);
+        setWinnerClaimUnit(v.winnerClaimUnit);
+        setEscrowPrize(v.escrowPrize);
+        setAutoPrepareClaim(v.autoPrepareClaim);
+      }
+      resumeIdRef.current = window.sessionStorage.getItem(`${storageKey}:active`);
+    } catch {
+      /* Public draft persistence is optional. */
+    }
+    setSettingsReady(true);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!settingsReady || !restoredSettingsRef.current) return;
+    try {
+      window.sessionStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          title,
+          description,
+          amountKas,
+          durationValue,
+          durationUnit,
+          winnerClaimValue,
+          winnerClaimUnit,
+          escrowPrize,
+          autoPrepareClaim,
+        }),
+      );
+    } catch {
+      /* Keep the in-memory form usable if storage is unavailable. */
+    }
+  }, [
+    settingsReady,
+    storageKey,
+    title,
+    description,
+    amountKas,
+    durationValue,
+    durationUnit,
+    winnerClaimValue,
+    winnerClaimUnit,
+    escrowPrize,
+    autoPrepareClaim,
+  ]);
+
+  useEffect(() => {
+    setupHeading.current?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [stage, createdGiveaway?.publicId]);
+
+  const acceptIdentity = useCallback((identity: { username: string; token: string }) => {
+    setSession({ kind: "creator", ...identity });
+    setError(null);
+  }, []);
+
+  function currentSettings() {
+    return {
+      title,
+      description,
+      amountKas,
+      durationValue,
+      durationUnit,
+      winnerClaimValue,
+      winnerClaimUnit,
+      escrowPrize,
+      autoPrepareClaim,
+    };
+  }
+  function continueSetup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      validateGiveawaySetup(currentSettings());
+      setError(null);
+      setNotice(null);
+      setStage("access");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Check the giveaway details.");
+    }
+  }
+  function rememberActive(publicId: string | null) {
+    try {
+      if (publicId) window.sessionStorage.setItem(`${storageKey}:active`, publicId);
+      else window.sessionStorage.removeItem(`${storageKey}:active`);
+    } catch {
+      /* The giveaway remains accessible through its management card. */
+    }
+  }
+  function showManage() {
+    setCreatedGiveaway(null);
+    setCreatedEscrow(null);
+    rememberActive(null);
+    setStage("manage");
+  }
+
+  useEffect(() => {
     const token = window.sessionStorage.getItem(TOKEN_STORAGE_KEY)?.trim() ?? "";
     const username = window.sessionStorage.getItem(USERNAME_STORAGE_KEY)?.trim() ?? "";
     if (token && username) {
@@ -184,15 +307,14 @@ export function GiveawayLabClient({
   }, []);
 
   useEffect(() => {
-    if (!createdGiveaway && !deleteCandidate) return;
+    if (!deleteCandidate) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setCreatedGiveaway(null);
       setDeleteCandidate(null);
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [createdGiveaway, deleteCandidate]);
+  }, [deleteCandidate]);
 
   // KasWare is a desktop extension; on phones we keep the kaspa: deep link.
   useEffect(() => {
@@ -201,7 +323,10 @@ export function GiveawayLabClient({
 
   // The countdown only needs to tick while something is actually counting down.
   useEffect(() => {
-    if (!giveaways.some((giveaway) => giveaway.status === "OPEN")) return;
+    if (
+      !giveaways.some((giveaway) => ["OPEN", "PENDING_FUNDING", "DRAWN"].includes(giveaway.status))
+    )
+      return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [giveaways]);
@@ -219,7 +344,13 @@ export function GiveawayLabClient({
   }, [session]);
 
   useEffect(() => {
-    if (!draftId || !creatorHeaders || loadedDraftRef.current === draftId) return;
+    if (
+      !draftId ||
+      !creatorHeaders ||
+      loadedDraftRef.current === draftId ||
+      restoredSettingsRef.current
+    )
+      return;
     loadedDraftRef.current = draftId;
     void (async () => {
       try {
@@ -239,16 +370,19 @@ export function GiveawayLabClient({
         if (!response.ok || !body?.draft) {
           throw new Error(body?.error?.message ?? "Telegram giveaway draft could not be loaded.");
         }
+        if (restoredSettingsRef.current) return;
         const entryWindow = durationFields(body.draft.entryWindowSeconds);
         const winnerWindow = durationFields(body.draft.winnerClaimWindowSeconds);
+        restoredSettingsRef.current = true;
         setAmountKas(body.draft.amountKas);
         setDurationUnit(entryWindow.unit);
         setDurationValue(entryWindow.value);
         setTitle(body.draft.title);
         setWinnerClaimUnit(winnerWindow.unit);
         setWinnerClaimValue(winnerWindow.value);
-        setNotice("Telegram giveaway draft loaded. Review the details before creating it.");
+        setNotice("Giveaway details loaded from Telegram.");
       } catch (caught) {
+        loadedDraftRef.current = null;
         setError(
           caught instanceof Error ? caught.message : "Telegram giveaway draft could not be loaded.",
         );
@@ -257,7 +391,13 @@ export function GiveawayLabClient({
   }, [creatorHeaders, draftId]);
 
   useEffect(() => {
-    if (draftId || !templateId || !/^[a-zA-Z0-9_-]{1,48}$/.test(templateId)) return;
+    if (
+      draftId ||
+      !templateId ||
+      restoredSettingsRef.current ||
+      !/^[a-zA-Z0-9_-]{1,48}$/.test(templateId)
+    )
+      return;
     let cancelled = false;
     void (async () => {
       try {
@@ -269,16 +409,15 @@ export function GiveawayLabClient({
         }>(response);
         if (!response.ok || !body?.giveaway)
           throw new Error("Giveaway template could not be loaded.");
-        if (cancelled) return;
+        if (cancelled || restoredSettingsRef.current) return;
+        restoredSettingsRef.current = true;
         setTitle(body.giveaway.title);
         setAmountKas(body.giveaway.amountKas);
         const seconds = body.giveaway.entryWindowSeconds ?? 86400;
         const duration = durationFields(Math.min(604800, Math.max(60, seconds)));
         setDurationUnit(duration.unit);
         setDurationValue(duration.value);
-        setNotice(
-          "Template loaded. Review the prize and duration before funding your own giveaway.",
-        );
+        setNotice("Template loaded. Make it your own.");
       } catch {
         if (!cancelled) setError("Template unavailable. You can still create your own giveaway.");
       }
@@ -307,7 +446,7 @@ export function GiveawayLabClient({
         }
         if (!response.ok) throw new Error(body.error?.message ?? "Giveaways could not be loaded.");
         setGiveaways(body.giveaways ?? []);
-        setError(null);
+        if (!options.quiet) setError(null);
       } catch (caught) {
         // A failed background poll must not replace what the creator is reading.
         if (!options.quiet) {
@@ -328,8 +467,8 @@ export function GiveawayLabClient({
   // instead of making them press Refresh. Idle accounts poll nothing at all.
   const hasActiveGiveaway = useMemo(
     () =>
-      giveaways.some(
-        (giveaway) => giveaway.status === "OPEN" || giveaway.status === "PENDING_FUNDING",
+      giveaways.some((giveaway) =>
+        ["OPEN", "PENDING_FUNDING", "CLOSED", "DRAWN"].includes(giveaway.status),
       ),
     [giveaways],
   );
@@ -381,6 +520,90 @@ export function GiveawayLabClient({
       cancelled = true;
     };
   }, [giveaways, session]);
+
+  const resumeSetup = useCallback(
+    async (giveaway: GiveawaySummary) => {
+      setNow(Date.now());
+      setCreatedGiveaway(giveaway);
+      setCreatedEscrow(null);
+      setPrizeRecoveryReady(false);
+      setPrizeRecoverySkipped(false);
+      setStage("access");
+      setError(null);
+      setNotice(null);
+      try {
+        window.sessionStorage.setItem(`${storageKey}:active`, giveaway.publicId);
+      } catch {
+        /* Optional resume pointer. */
+      }
+      if (!giveaway.prize) {
+        setStage("share");
+        return;
+      }
+      try {
+        const local = (await loadClaimableRecords()).find(
+          (record) => record.id === giveaway.prize!.linkKey,
+        );
+        if (!local?.claimCode || !local.refundCode) return;
+        const prize = giveaway.prize;
+        setCreatedEscrow({
+          amountKas: sompiToKas(prize.amountSompi),
+          amountSompi: prize.amountSompi,
+          claimCode: local.claimCode,
+          claimPublicKey: prize.claimPublicKey,
+          refundCode: local.refundCode,
+          refundPublicKey: prize.refundPublicKey,
+          createdAt: local.createdAt,
+          createdAtMs: local.createdAtMs,
+          description: local.description,
+          feeKas: sompiToKas(prize.feeSompi),
+          feeSompi: prize.feeSompi,
+          fundingAddress: prize.fundingAddress,
+          linkKey: prize.linkKey,
+          netClaimKas: giveaway.amountKas,
+          redeemScriptHex: prize.redeemScriptHex,
+          refundLockTime: prize.refundLockTime,
+          title: giveaway.title,
+        });
+        setPrizeRecoveryReady(Boolean(local.recoveryExportedAt));
+        setPrizeRecoverySkipped(Boolean(local.recoveryBackupSkippedAt));
+        if (local.recoveryExportedAt || local.recoveryBackupSkippedAt) setStage("fund");
+      } catch {
+        setError("Restore your recovery file to continue on this device.");
+      }
+    },
+    [storageKey],
+  );
+
+  useEffect(() => {
+    const id = resumeIdRef.current;
+    if (!id || !giveaways.length) return;
+    const giveaway = giveaways.find((item) => item.publicId === id);
+    resumeIdRef.current = null;
+    if (giveaway?.status === "PENDING_FUNDING") void resumeSetup(giveaway);
+    else if (giveaway) {
+      setStage("manage");
+      setExpandedId(giveaway.publicId);
+    }
+  }, [giveaways, resumeSetup]);
+
+  useEffect(() => {
+    if (!createdGiveaway) return;
+    const current =
+      giveaways.find((item) => item.publicId === createdGiveaway.publicId) ?? createdGiveaway;
+    if (
+      current.status === "OPEN" &&
+      (!current.prize ||
+        (current.prize.funded &&
+          !["claimed", "refunded", "spent_unknown"].includes(current.prize.status)))
+    ) {
+      setStage("share");
+    } else if (current.status !== "PENDING_FUNDING") {
+      setCreatedGiveaway(null);
+      setStage("manage");
+      setExpandedId(current.publicId);
+    }
+  }, [giveaways, createdGiveaway]);
 
   // Parks the prize in a claimable link before the giveaway exists. Both codes
   // are generated here and only ever leave this browser inside the encrypted
@@ -480,38 +703,20 @@ export function GiveawayLabClient({
     return recoveryRecord;
   }
 
-  async function createGiveaway(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function createGiveaway() {
     if (!creatorHeaders) return;
     setSubmitting(true);
     setError(null);
     setNotice(null);
     try {
-      const reward = Number(amountKas);
-      if (!Number.isFinite(reward) || reward <= 0) {
-        throw new Error("Enter the reward as a number, for example 10 or 2.5.");
-      }
-      const duration = Number(durationValue);
-      if (!Number.isFinite(duration) || duration <= 0) throw new Error("Enter a valid duration.");
-      const unitMs =
-        durationUnit === "days" ? 86_400_000 : durationUnit === "hours" ? 3_600_000 : 60_000;
-      const closesAt = new Date(Date.now() + duration * unitMs).toISOString();
-      const winnerClaimDuration = Number(winnerClaimValue);
-      if (!Number.isFinite(winnerClaimDuration) || winnerClaimDuration <= 0) {
-        throw new Error("Enter a valid winner claim duration.");
-      }
-      const winnerClaimUnitMs =
-        winnerClaimUnit === "days" ? 86_400_000 : winnerClaimUnit === "hours" ? 3_600_000 : 60_000;
-      const winnerClaimWindowSeconds = Math.ceil((winnerClaimDuration * winnerClaimUnitMs) / 1_000);
+      const { entryWindowSeconds, winnerClaimWindowSeconds } =
+        validateGiveawaySetup(currentSettings());
+      const closesAt = new Date(Date.now() + entryWindowSeconds * 1000).toISOString();
 
       // Escrow first: if parking the prize fails, no giveaway is advertised.
       let escrow: null | PrizeEscrow = null;
       if (escrowPrize) {
-        escrow = await createPrizeEscrow(
-          amountKas,
-          (duration * unitMs) / 1000,
-          winnerClaimWindowSeconds,
-        );
+        escrow = await createPrizeEscrow(amountKas, entryWindowSeconds, winnerClaimWindowSeconds);
       }
 
       const response = await fetch("/api/toccata-lab/giveaways", {
@@ -556,8 +761,11 @@ export function GiveawayLabClient({
         }
       }
       setGiveaways((current) => [body.giveaway!, ...current]);
+      setNow(Date.now());
       setCreatedGiveaway(body.giveaway);
       setCreatedEscrow(escrow);
+      rememberActive(body.giveaway.publicId);
+      setStage(escrow ? "access" : "share");
       setPrizeRecoveryReady(false);
       setPrizeRecoverySkipped(false);
     } catch (caught) {
@@ -819,7 +1027,12 @@ export function GiveawayLabClient({
           restoredRecords.find((record) => record.id === prize.linkKey)
             ?.giveawayAutoPayoutEnabled === true,
       }));
-      setNotice("Private prize recovery restored in this browser.");
+      if (createdGiveaway?.publicId === giveaway.publicId) {
+        setCreatedEscrow(prize);
+        setPrizeRecoveryReady(true);
+        setPrizeRecoverySkipped(false);
+      }
+      setNotice("Recovery file restored.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Prize recovery could not be restored.");
     } finally {
@@ -1130,39 +1343,23 @@ export function GiveawayLabClient({
         <p>Loading…</p>
       </main>
     );
-  if (!session) {
-    return (
-      <main className="main giveaway-lab-page">
-        <CreatorSignInGate
-          description={
-            draftId
-              ? "Open the Finish giveaway setup button in your connected Telegram chat, or sign in here as a fallback."
-              : "Sign in or create a profile to set up and fund your own giveaway."
-          }
-          label="Private Lab"
-          nextPath={
-            draftId
-              ? `/toccata-lab/giveaway?draft=${encodeURIComponent(draftId)}`
-              : templateId
-                ? `/toccata-lab/giveaway?template=${encodeURIComponent(templateId)}`
-                : "/toccata-lab/giveaway"
-          }
-          title="Creator sign-in required"
-        />
-      </main>
-    );
-  }
 
   const createdGiveawayState = createdGiveaway
     ? (giveaways.find((giveaway) => giveaway.publicId === createdGiveaway.publicId) ??
       createdGiveaway)
     : null;
   const prizeFundingUnlocked = prizeRecoveryReady || prizeRecoverySkipped;
-  const createdPrizeFundingConfirmed = Boolean(
-    createdGiveawayState &&
-    (createdGiveawayState.status !== "PENDING_FUNDING" ||
-      createdGiveawayState.prize?.funded === true),
-  );
+  const fundingDeadline = createdGiveawayState ? giveawayFundingDeadline(createdGiveawayState) : 0;
+  const createdFundingExpired =
+    now >= fundingDeadline ||
+    !Number.isFinite(fundingDeadline) ||
+    ["claimed", "refunded", "spent_unknown"].includes(createdGiveawayState?.prize?.status ?? "");
+  const fundingTimeRemaining = `${Math.min(60, Math.max(1, Math.ceil((fundingDeadline - now) / 60000)))} min`;
+  const durationForCreated = formatDuration(
+    createdGiveawayState?.entryWindowSeconds ??
+      Number(durationValue) *
+        (durationUnit === "days" ? 86400 : durationUnit === "hours" ? 3600 : 60),
+  ).replace("after draw", "after funding");
   const createdEscrowFundingUri = createdEscrow
     ? buildWalletLaunchUri({
         amountKas: createdEscrow.amountKas,
@@ -1171,237 +1368,471 @@ export function GiveawayLabClient({
     : null;
 
   return (
-    <main className="main-wide giveaway-lab-page">
-      <section className="hero giveaway-lab-hero">
-        <span className="hero-eyebrow">
-          {session.kind === "telegram" ? "Telegram Mini App" : "Private Lab"}
-        </span>
-        <h1 className="hero-title">Address giveaway.</h1>
-        <p className="hero-sub">
-          Collect mainnet addresses, close entries at a fixed time, and draw one auditable winner.
-          Fund the prize before entries open, then let the winner claim it during a fixed window.
-        </p>
-      </section>
-
-      <section className="giveaway-lab-safety" aria-label="Non-custodial model">
-        <strong>No funds or wallet keys are stored.</strong>
-        <span>
-          Prize and refund keys stay in your browser. After the draw, this browser signs only a
-          payout fixed to the selected address; the winner triggers it during the claim window.
-        </span>
-      </section>
-
-      <section className="giveaway-draw-disclosure" aria-label="Giveaway draw trust model">
+    <main className="main-wide giveaway-lab-page giveaway-guided-page">
+      <header className="giveaway-setup-header">
         <div>
-          <strong>Merkle freeze + future Kaspa entropy</strong>
-          <p>
-            Entries are frozen into one root before the selected future chain block exists. The
-            confirmed block hash then determines the reproducible winner.
-          </p>
+          <span className="label">Kaspa giveaways</span>
+          <h1 ref={setupHeading} tabIndex={-1}>
+            {stage === "manage" ? "Your giveaways" : "Create a giveaway"}
+          </h1>
         </div>
-        <p>
-          Entrants can verify inclusion from their receipt. Multiple addresses controlled by one
-          person remain possible, so this is tamper-evident rather than identity-proof.
-        </p>
-      </section>
-
-      {error ? (
-        <div className="notice notice-error giveaway-notice" role="alert">
-          <span>{error}</span>
-          <button
-            aria-label="Dismiss message"
-            className="giveaway-notice-close"
-            onClick={() => setError(null)}
-            type="button"
-          >
-            ×
+        {session && stage !== "manage" ? (
+          <button type="button" className="btn" onClick={showManage} disabled={submitting}>
+            Your giveaways
           </button>
+        ) : null}
+        {stage === "manage" ? (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setCreatedGiveaway(null);
+              setCreatedEscrow(null);
+              setStage("details");
+              setError(null);
+              setNotice(null);
+            }}
+          >
+            New giveaway
+          </button>
+        ) : null}
+      </header>
+      {stage !== "manage" ? (
+        <ol className="giveaway-stepper" aria-label="Giveaway setup progress">
+          {["Details", "Secure", "Fund", "Share"].map((label, index) => {
+            const current =
+              stage === "details" ? 0 : stage === "access" ? 1 : stage === "fund" ? 2 : 3;
+            return (
+              <li
+                key={label}
+                aria-current={current === index ? "step" : undefined}
+                className={index < current ? "is-complete" : ""}
+              >
+                <span aria-hidden="true">{index < current ? "✓" : index + 1}</span>
+                {label}
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+      {error ? (
+        <div className="notice notice-error" role="alert">
+          {error}
         </div>
       ) : null}
       {notice ? (
-        <div className="notice notice-success giveaway-notice" role="status">
-          <span>{notice}</span>
-          <button
-            aria-label="Dismiss message"
-            className="giveaway-notice-close"
-            onClick={() => setNotice(null)}
-            type="button"
-          >
-            ×
-          </button>
-        </div>
+        <p className="giveaway-setup-notice" role="status">
+          {notice}
+        </p>
       ) : null}
 
-      {createdGiveawayState ? (
-        <div
-          aria-labelledby="giveaway-created-title"
-          aria-modal="true"
-          className="giveaway-dialog-backdrop"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setCreatedGiveaway(null);
-          }}
-          role="dialog"
-        >
-          <div className="card giveaway-dialog">
-            <span className="label">
-              {createdGiveawayState.status === "PENDING_FUNDING"
-                ? "Giveaway prepared"
-                : "Giveaway created"}
-            </span>
-            <h2 id="giveaway-created-title">{createdGiveawayState.title}</h2>
-            <p className="muted">
-              {createdGiveawayState.status === "PENDING_FUNDING"
-                ? "Entries stay closed until the exact prize funding is confirmed on-chain."
-                : `Entries are open for ${formatDeadline(createdGiveawayState.closesAt, now)}.`}
-            </p>
-            {createdGiveawayState.status !== "PENDING_FUNDING" ? (
-              <code className="giveaway-dialog-url">{absoluteEntryUrl(createdGiveawayState)}</code>
-            ) : null}
-
-            {createdEscrow ? (
-              <div className="giveaway-escrow-panel">
-                <span className="label">1. Save private recovery</span>
-                <p>
-                  This private file is needed to pay the winner from the parked output or refund it
-                  later from another device. Kaspa Links never receives it.
-                  {session.kind === "telegram"
-                    ? " In the device menu, choose Save to Files and never send it in a chat."
-                    : ""}
-                </p>
-                <div className="row">
+      {stage === "details" ? (
+        <section className="card giveaway-setup-card">
+          <h2>Make it yours</h2>
+          <form
+            className="giveaway-form"
+            onSubmit={continueSetup}
+            onChange={() => {
+              restoredSettingsRef.current = true;
+            }}
+          >
+            <label className="field">
+              <span className="label">Title</span>
+              <input
+                maxLength={80}
+                required
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="label">Winner receives (KAS)</span>
+              <input
+                inputMode="decimal"
+                required
+                value={amountKas}
+                onChange={(event) => setAmountKas(event.target.value.replace(",", "."))}
+              />
+            </label>
+            <fieldset className="giveaway-duration-presets">
+              <legend className="label">Entries stay open for</legend>
+              <div className="row">
+                {[
+                  { label: "1 hour", value: "1", unit: "hours" },
+                  { label: "24 hours", value: "24", unit: "hours" },
+                  { label: "7 days", value: "7", unit: "days" },
+                ].map((option) => (
                   <button
-                    className="btn"
-                    onClick={() => void downloadPrizeRecovery()}
                     type="button"
+                    className="btn"
+                    key={option.label}
+                    aria-pressed={durationValue === option.value && durationUnit === option.unit}
+                    onClick={() => {
+                      setDurationValue(option.value);
+                      setDurationUnit(option.unit as "hours" | "days");
+                    }}
                   >
-                    {prizeRecoveryReady ? "Download again" : "Download recovery bundle"}
+                    {option.label}
                   </button>
-                </div>
-                <label className="giveaway-recovery-skip">
+                ))}
+              </div>
+            </fieldset>
+            <details className="giveaway-setup-details">
+              <summary>
+                Custom duration · {durationValue} {durationUnit}
+              </summary>
+              <div className="giveaway-duration-control">
+                <input
+                  aria-label="Entry duration"
+                  inputMode="numeric"
+                  value={durationValue}
+                  onChange={(event) => setDurationValue(event.target.value)}
+                />
+                <select
+                  aria-label="Entry duration unit"
+                  value={durationUnit}
+                  onChange={(event) => setDurationUnit(event.target.value as typeof durationUnit)}
+                >
+                  <option value="minutes">Minutes</option>
+                  <option value="hours">Hours</option>
+                  <option value="days">Days</option>
+                </select>
+              </div>
+            </details>
+            <details className="giveaway-setup-details">
+              <summary>Add a description</summary>
+              <label className="field">
+                <span className="label">Description (optional)</span>
+                <textarea
+                  maxLength={280}
+                  rows={2}
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                />
+              </label>
+            </details>
+            <details className="giveaway-setup-details">
+              <summary>More settings</summary>
+              <label className="field">
+                <span className="label">Winner claim window</span>
+                <div className="giveaway-duration-control">
                   <input
-                    checked={prizeRecoverySkipped}
-                    onChange={(event) => void markPrizeRecoveryRiskAccepted(event.target.checked)}
+                    aria-label="Winner claim duration"
+                    inputMode="numeric"
+                    value={winnerClaimValue}
+                    onChange={(event) => setWinnerClaimValue(event.target.value)}
+                  />
+                  <select
+                    aria-label="Winner claim duration unit"
+                    value={winnerClaimUnit}
+                    onChange={(event) =>
+                      setWinnerClaimUnit(event.target.value as typeof winnerClaimUnit)
+                    }
+                  >
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Hours</option>
+                    <option value="days">Days</option>
+                  </select>
+                </div>
+              </label>
+              <label className="giveaway-check">
+                <input
+                  type="checkbox"
+                  checked={escrowPrize}
+                  onChange={(event) => setEscrowPrize(event.target.checked)}
+                />
+                <span>Fund the prize before entries open</span>
+              </label>
+              {!escrowPrize ? (
+                <p className="muted">You will pay the selected winner manually from your wallet.</p>
+              ) : null}
+              {escrowPrize ? (
+                <label className="giveaway-check">
+                  <input
                     type="checkbox"
+                    checked={autoPrepareClaim}
+                    onChange={(event) => setAutoPrepareClaim(event.target.checked)}
                   />
                   <span>
-                    I understand that losing this browser data can make the prize unrecoverable.
+                    Automatically prepare the winner payout when this browser is open after the draw
                   </span>
                 </label>
-                <span className="label">2. Fund the prize</span>
-                <p>
-                  Send exactly <strong>{createdEscrow.amountKas} KAS</strong> to this one-time
-                  address. The winner receives {createdEscrow.netClaimKas} KAS;{" "}
-                  {createdEscrow.feeKas} KAS covers the network fee.
-                </p>
-                <code className="giveaway-dialog-url">{createdEscrow.fundingAddress}</code>
-                {prizeFundingUnlocked && createdEscrowFundingUri ? (
-                  <div className="claimable-funding-qr giveaway-prize-funding-qr">
-                    <FundingQrCode
-                      ariaLabel={`Funding QR code for ${createdEscrow.amountKas} KAS`}
-                      paymentUri={createdEscrowFundingUri}
-                    />
-                    <div className="claimable-funding-qr-copy">
-                      <strong>Scan with Kaspium</strong>
-                      <p>Exact one-time address and {createdEscrow.amountKas} KAS included.</p>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="row">
-                  <button
-                    className="btn"
-                    disabled={!prizeFundingUnlocked}
-                    onClick={() => {
-                      if (!prizeFundingUnlocked) {
-                        setError(
-                          "Download the private recovery bundle or confirm the recovery risk first.",
-                        );
-                        return;
-                      }
-                      void copyText(createdEscrow.fundingAddress, "Funding address copied.");
-                    }}
-                    type="button"
-                  >
-                    Copy address
-                  </button>
-                  <a
-                    aria-disabled={!prizeFundingUnlocked}
-                    className={`btn${prizeFundingUnlocked ? "" : " is-disabled"}`}
-                    href={prizeFundingUnlocked ? (createdEscrowFundingUri ?? undefined) : undefined}
-                    onClick={(event) => {
-                      if (!prizeFundingUnlocked) {
-                        event.preventDefault();
-                        setError(
-                          "Download the private recovery bundle or confirm the recovery risk first.",
-                        );
-                      }
-                    }}
-                  >
-                    Open in wallet
-                  </a>
-                </div>
-                <div
-                  aria-live="polite"
-                  className={`giveaway-funding-monitor ${
-                    createdPrizeFundingConfirmed ? "is-confirmed" : "is-watching"
-                  }`}
-                  role="status"
-                >
-                  <span aria-hidden="true" className="giveaway-funding-monitor-dot" />
-                  <span>
-                    <strong>
-                      {createdPrizeFundingConfirmed ? "Funding confirmed" : "Watching for funding"}
-                    </strong>
-                    <span>
-                      {createdPrizeFundingConfirmed
-                        ? "The prize is locked on-chain. Entries are open and the giveaway link is ready to share."
-                        : "Checking the one-time address automatically every 5 seconds."}
-                    </span>
-                  </span>
-                </div>
-                <p className="giveaway-dialog-hint">
-                  Fund within 1 hour; the entry window starts only after confirmation.
-                </p>
-              </div>
-            ) : null}
-            <div className="row">
-              {createdGiveawayState.status !== "PENDING_FUNDING" ? (
-                <>
-                  <button
-                    autoFocus
-                    className="btn btn-primary"
-                    onClick={() =>
-                      void copyText(absoluteEntryUrl(createdGiveawayState), "Entry link copied.")
-                    }
-                    type="button"
-                  >
-                    Copy entry link
-                  </button>
-                  <Link className="btn" href={createdGiveawayState.publicUrl} target="_blank">
-                    Open entry page
-                  </Link>
-                </>
-              ) : (
-                <button className="btn" onClick={() => void loadGiveaways()} type="button">
-                  Check funding now
-                </button>
-              )}
-              <button className="btn" onClick={() => setCreatedGiveaway(null)} type="button">
-                Done
+              ) : null}
+            </details>
+            <div className="giveaway-step-actions">
+              <button type="submit" className="btn btn-primary btn-block">
+                Continue
               </button>
             </div>
-            {createdGiveawayState.status !== "PENDING_FUNDING" ? (
-              <TelegramGiveawayActions
-                publicId={createdGiveawayState.publicId}
-                botUsername={botUsername}
-              />
-            ) : null}
-            <p className="giveaway-dialog-hint">
-              {createdEscrow
-                ? "After the draw, this browser prepares a fixed-address claim for the winner."
-                : "The prize is paid from your own wallet after the draw."}
-            </p>
-          </div>
-        </div>
+          </form>
+        </section>
+      ) : null}
+
+      {stage === "access" ? (
+        <section className="card giveaway-setup-card">
+          {!session ? (
+            <>
+              <div className="giveaway-auth-tabs" aria-label="Choose account access">
+                <button
+                  type="button"
+                  className="btn"
+                  aria-pressed={authMode === "signup"}
+                  onClick={() => setAuthMode("signup")}
+                >
+                  New profile
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  aria-pressed={authMode === "signin"}
+                  onClick={() => setAuthMode("signin")}
+                >
+                  Sign in
+                </button>
+              </div>
+              {authMode === "signup" ? (
+                <CreateProfileClient onContinue={acceptIdentity} />
+              ) : (
+                <SignInClient onSignedIn={acceptIdentity} />
+              )}
+              <button type="button" className="btn" onClick={() => setStage("details")}>
+                Back to details
+              </button>
+            </>
+          ) : !createdGiveawayState ? (
+            <>
+              <h2>{escrowPrize ? "Secure your prize" : "Review your giveaway"}</h2>
+              <p className="muted">
+                {title} · {amountKas} KAS · {durationValue} {durationUnit}
+              </p>
+              <p>
+                {escrowPrize
+                  ? "Next, save a private recovery file. You need it to pay or recover the prize from another device."
+                  : "Entries open immediately. You pay the selected winner from your wallet after the draw."}
+              </p>
+              {escrowPrize ? (
+                <p className="muted">
+                  {autoPrepareClaim
+                    ? "After the draw, reopen this browser to prepare the winner payout automatically."
+                    : "After the draw, return here to prepare the winner payout."}
+                </p>
+              ) : null}
+              <div className="giveaway-step-actions">
+                <button
+                  className="btn btn-primary btn-block"
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => void createGiveaway()}
+                >
+                  {submitting
+                    ? "Preparing…"
+                    : escrowPrize
+                      ? "Prepare recovery file"
+                      : "Create giveaway"}
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => setStage("details")}
+                >
+                  Back
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2>{createdEscrow ? "Save your recovery file" : "Restore your recovery file"}</h2>
+              <p>
+                Keep this file private. Without it, losing this browser’s data can make the prize
+                unrecoverable.
+              </p>
+              {session.kind === "telegram" ? (
+                <p className="muted">
+                  Choose “Save to Files” in the device menu. Never send it in a chat.
+                </p>
+              ) : null}
+              {createdEscrow ? (
+                <button
+                  className={`btn ${prizeFundingUnlocked ? "" : "btn-primary btn-block"}`}
+                  type="button"
+                  onClick={() => void downloadPrizeRecovery()}
+                >
+                  {prizeRecoveryReady ? "Save file again" : "Save recovery file"}
+                </button>
+              ) : (
+                <label className="btn btn-primary giveaway-file-button">
+                  {restoringPrize ? "Restoring…" : "Choose recovery file"}
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    disabled={restoringPrize}
+                    onChange={(event) =>
+                      void restorePrizeRecovery(createdGiveawayState, event.target.files?.[0])
+                    }
+                  />
+                </label>
+              )}
+              {createdEscrow && !prizeRecoveryReady ? (
+                <details className="giveaway-setup-details">
+                  <summary>Continue without a backup</summary>
+                  <label className="giveaway-check">
+                    <input
+                      type="checkbox"
+                      checked={prizeRecoverySkipped}
+                      onChange={(event) => void markPrizeRecoveryRiskAccepted(event.target.checked)}
+                    />
+                    <span>
+                      I accept that losing this browser’s data may permanently lose access to the
+                      prize.
+                    </span>
+                  </label>
+                </details>
+              ) : null}
+              {prizeFundingUnlocked ? (
+                <div className="giveaway-step-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-block"
+                    onClick={() => {
+                      setNotice(null);
+                      setStage("fund");
+                    }}
+                  >
+                    Continue to funding
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
+      ) : null}
+
+      {stage === "fund" && createdGiveawayState ? (
+        <section className="card giveaway-setup-card">
+          <h2>{createdFundingExpired ? "Funding unavailable" : "Fund your giveaway"}</h2>
+          {createdFundingExpired ? (
+            <>
+              <p>
+                Do not send new funds. If you already paid, check the giveaway status and recovery
+                options.
+              </p>
+              <button type="button" className="btn btn-primary" onClick={showManage}>
+                View giveaway
+              </button>
+            </>
+          ) : createdEscrow && prizeFundingUnlocked ? (
+            <>
+              <p className="muted">{createdGiveawayState.title}</p>
+              <dl className="giveaway-funding-summary">
+                <div>
+                  <dt>Winner receives</dt>
+                  <dd>{createdEscrow.netClaimKas} KAS</dd>
+                </div>
+                <div>
+                  <dt>Reserved claim fee</dt>
+                  <dd>{createdEscrow.feeKas} KAS</dd>
+                </div>
+                <div className="giveaway-funding-total">
+                  <dt>Send exactly</dt>
+                  <dd>{createdEscrow.amountKas} KAS</dd>
+                </div>
+                <div>
+                  <dt>Entry window</dt>
+                  <dd>{durationForCreated}</dd>
+                </div>
+                <div>
+                  <dt>Winner claim window</dt>
+                  <dd>{formatDuration(createdGiveawayState.winnerClaim.windowSeconds)}</dd>
+                </div>
+              </dl>
+              <label className="label">Recipient</label>
+              <code className="giveaway-dialog-url">{createdEscrow.fundingAddress}</code>
+              <p className="muted">
+                Your wallet shows its sending fee before you confirm. Entries open once funding is
+                confirmed.
+              </p>
+              <div className="giveaway-step-actions">
+                <a
+                  className="btn btn-primary btn-block"
+                  href={createdEscrowFundingUri ?? undefined}
+                >
+                  Open wallet
+                </a>
+              </div>
+              <details className="giveaway-setup-details">
+                <summary>Use a QR code or copy the address</summary>
+                {createdEscrowFundingUri ? (
+                  <FundingQrCode
+                    ariaLabel={`Fund ${createdEscrow.amountKas} KAS`}
+                    paymentUri={createdEscrowFundingUri}
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() =>
+                    void copyText(createdEscrow.fundingAddress, "Funding address copied.")
+                  }
+                >
+                  Copy address
+                </button>
+              </details>
+              <p className="giveaway-funding-wait" role="status">
+                Waiting for payment confirmation…
+              </p>
+              <p className="muted">
+                Fund within {fundingTimeRemaining}. You can return here after opening your wallet.
+              </p>
+              <button className="btn" type="button" onClick={() => setStage("access")}>
+                Back to recovery
+              </button>
+            </>
+          ) : (
+            <>
+              <p>Restore your recovery file before funding.</p>
+              <button className="btn btn-primary" type="button" onClick={() => setStage("access")}>
+                Restore recovery
+              </button>
+            </>
+          )}
+        </section>
+      ) : null}
+
+      {stage === "share" && createdGiveawayState ? (
+        <section className="card giveaway-setup-card giveaway-ready-card">
+          <span className="giveaway-ready-check" aria-hidden="true">
+            ✓
+          </span>
+          <h2>Your giveaway is live</h2>
+          <p>
+            {createdGiveawayState.title} · {createdGiveawayState.amountKas} KAS
+          </p>
+          <p className="muted">{formatDeadline(createdGiveawayState.closesAt, now)} to enter.</p>
+          <TelegramGiveawayActions
+            publicId={createdGiveawayState.publicId}
+            botUsername={botUsername}
+            primary
+          />
+          <Link className="btn" href={createdGiveawayState.publicUrl} target="_blank">
+            View giveaway
+          </Link>
+          <button className="btn" type="button" onClick={showManage}>
+            Manage giveaway
+          </button>
+        </section>
+      ) : null}
+
+      {stage === "details" ? (
+        <details className="giveaway-setup-details giveaway-help">
+          <summary>How does it work?</summary>
+          <p>The prize stays on Kaspa. Wallet signing and private recovery stay on your device.</p>
+          <p>
+            After entries close, a future Kaspa block determines the winner from the frozen
+            participant list. The public result includes the proof.
+          </p>
+          <p>One entry per address does not guarantee one entry per person.</p>
+        </details>
       ) : null}
 
       {deleteCandidate ? (
@@ -1445,629 +1876,577 @@ export function GiveawayLabClient({
         </div>
       ) : null}
 
-      <section className="card giveaway-create-card">
-        <div className="section-heading">
-          <div>
-            <span className="label">Create</span>
-            <h2>New giveaway</h2>
-          </div>
-        </div>
-        <form className="giveaway-form" onSubmit={createGiveaway}>
-          <label className="field">
-            <span className="label">Title</span>
-            <input
-              maxLength={80}
-              onChange={(event) => setTitle(event.target.value)}
-              required
-              value={title}
-            />
-          </label>
-          <label className="field">
-            <span className="label">Description</span>
-            <textarea
-              maxLength={280}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={3}
-              value={description}
-            />
-          </label>
-          <div className="giveaway-form-grid">
-            <label className="field">
-              <span className="label">Reward in KAS</span>
-              <input
-                inputMode="decimal"
-                onChange={(event) => setAmountKas(event.target.value.replace(",", "."))}
-                required
-                value={amountKas}
-              />
-            </label>
-            <div className="field">
-              <span className="label">Entry window</span>
-              <div className="giveaway-duration-control">
-                <input
-                  inputMode="numeric"
-                  min="1"
-                  onChange={(event) => setDurationValue(event.target.value)}
-                  required
-                  type="number"
-                  value={durationValue}
-                />
-                <select
-                  onChange={(event) => setDurationUnit(event.target.value as typeof durationUnit)}
-                  value={durationUnit}
-                >
-                  <option value="minutes">Minutes</option>
-                  <option value="hours">Hours</option>
-                  <option value="days">Days</option>
-                </select>
-              </div>
+      {stage === "manage" ? (
+        <section className="giveaway-list-section">
+          <div className="section-heading">
+            <div>
+              <span className="label">Manage</span>
+              <h2>Overview</h2>
             </div>
-            <div className="field">
-              <span className="label">Winner claim window</span>
-              <div className="giveaway-duration-control">
-                <input
-                  inputMode="numeric"
-                  min="1"
-                  onChange={(event) => setWinnerClaimValue(event.target.value)}
-                  required
-                  type="number"
-                  value={winnerClaimValue}
-                />
-                <select
-                  onChange={(event) =>
-                    setWinnerClaimUnit(event.target.value as typeof winnerClaimUnit)
-                  }
-                  value={winnerClaimUnit}
-                >
-                  <option value="minutes">Minutes</option>
-                  <option value="hours">Hours</option>
-                  <option value="days">Days</option>
-                </select>
-              </div>
-            </div>
+            <button
+              className="btn"
+              disabled={loading}
+              onClick={() => void loadGiveaways()}
+              type="button"
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
           </div>
-          <label className="giveaway-escrow-toggle">
-            <input
-              checked={escrowPrize}
-              onChange={(event) => setEscrowPrize(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              <strong>Park the prize on-chain before entries open</strong>
-              <span className="muted">
-                You fund a one-time address, so entrants can verify the prize really exists. The
-                codes stay in this browser. If nobody enters, you pull it back shortly after entries
-                close.
-              </span>
-            </span>
-          </label>
-          {escrowPrize ? (
-            <label className="giveaway-escrow-toggle giveaway-auto-payout-toggle">
-              <input
-                checked={autoPrepareClaim}
-                onChange={(event) => setAutoPrepareClaim(event.target.checked)}
-                type="checkbox"
-              />
-              <span>
-                <strong>Prepare the winner claim automatically</strong>
-                <span className="muted">
-                  After the draw, this browser signs a payout fixed to the winner address. The
-                  winner decides when to release it during the claim window.
-                </span>
-              </span>
-            </label>
+          {giveaways.length === 0 && !loading ? (
+            <div className="empty-state">
+              <p>Your giveaways will appear here.</p>
+            </div>
           ) : null}
-          <button className="btn btn-primary" disabled={submitting} type="submit">
-            {submitting
-              ? escrowPrize
-                ? "Preparing prize…"
-                : "Creating…"
-              : escrowPrize
-                ? "Create and fund giveaway"
-                : "Create giveaway"}
-          </button>
-        </form>
-      </section>
-
-      <section className="giveaway-list-section">
-        <div className="section-heading">
-          <div>
-            <span className="label">Manage</span>
-            <h2>Your Lab giveaways</h2>
-          </div>
-          <button
-            className="btn"
-            disabled={loading}
-            onClick={() => void loadGiveaways()}
-            type="button"
-          >
-            {loading ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
-        {giveaways.length === 0 && !loading ? (
-          <div className="empty-state">
-            <p>No Lab giveaways yet.</p>
-          </div>
-        ) : null}
-        <div className="giveaway-list">
-          {giveaways.map((giveaway) => {
-            const effectiveStatus =
-              giveaway.status === "OPEN" && new Date(giveaway.closesAt).getTime() <= now
-                ? "CLOSED"
-                : giveaway.status;
-            const publicUrl =
-              typeof window === "undefined"
-                ? giveaway.publicUrl
-                : new URL(giveaway.publicUrl, window.location.origin).toString();
-            const payoutUri = giveaway.winnerAddress
-              ? buildWalletLaunchUri({
-                  amountKas: giveaway.amountKas,
-                  recipientAddress: giveaway.winnerAddress,
-                })
-              : null;
-            const payoutQr = qrById[giveaway.publicId];
-            const payoutTxId = payoutTxById[giveaway.publicId] ?? giveaway.prize?.claimTxId ?? null;
-            const prizeFundingUnlockedForLink = giveaway.prize
-              ? Boolean(prizeRecoveryAccessByLink[giveaway.prize.linkKey])
-              : false;
-            const prizeFundingWindowExpired = Boolean(
-              effectiveStatus === "PENDING_FUNDING" &&
-              giveaway.createdAt &&
-              new Date(giveaway.createdAt).getTime() + GIVEAWAY_FUNDING_GRACE_SECONDS * 1_000 < now,
-            );
-            return (
-              <article className="card giveaway-manage-card" key={giveaway.publicId}>
-                <div className="giveaway-card-head">
-                  <div>
-                    <span className={`status-chip status-${effectiveStatus.toLowerCase()}`}>
-                      {statusLabel(effectiveStatus)}
-                    </span>
-                    <h3>{giveaway.title}</h3>
-                  </div>
-                  <strong className="giveaway-amount">{giveaway.amountKas} KAS</strong>
-                </div>
-                {giveaway.description ? <p className="muted">{giveaway.description}</p> : null}
-                {giveaway.prize ? (
-                  <p className={`giveaway-prize-state${giveaway.prize.funded ? " is-funded" : ""}`}>
-                    {giveaway.prize.status === "claimed"
-                      ? "Prize paid out from escrow"
-                      : giveaway.prize.status === "refunded"
-                        ? "Prize pulled back"
-                        : giveaway.prize.funded
-                          ? "Prize parked on-chain · entrants can verify it"
-                          : "Waiting for your funding payment — entrants see no prize yet"}
-                  </p>
-                ) : null}
-                {giveaway.prize &&
-                !giveaway.winnerClaim.preparedTransactionId &&
-                !["refunded", "spent_unknown"].includes(giveaway.prize.status) ? (
-                  <label className="giveaway-auto-payout-toggle giveaway-card-auto-payout">
-                    <input
-                      checked={prizeAutoPrepareByLink[giveaway.prize.linkKey] === true}
-                      onChange={(event) =>
-                        void setPrizeAutoPreparePreference(giveaway, event.target.checked)
-                      }
-                      type="checkbox"
-                    />
-                    <span>
-                      <strong>Automatic preparation on this device</strong>
-                      <span className="muted">
-                        {prizeAutoPrepareByLink[giveaway.prize.linkKey] === true
-                          ? "Enabled in this browser. Keep it available after the draw."
-                          : "Off in this browser. Another device may still have it enabled."}
+          <div className="giveaway-list">
+            {giveaways.map((giveaway) => {
+              const effectiveStatus =
+                giveaway.status === "OPEN" && new Date(giveaway.closesAt).getTime() <= now
+                  ? "CLOSED"
+                  : giveaway.status;
+              const publicUrl =
+                typeof window === "undefined"
+                  ? giveaway.publicUrl
+                  : new URL(giveaway.publicUrl, window.location.origin).toString();
+              const payoutUri = giveaway.winnerAddress
+                ? buildWalletLaunchUri({
+                    amountKas: giveaway.amountKas,
+                    recipientAddress: giveaway.winnerAddress,
+                  })
+                : null;
+              const payoutQr = qrById[giveaway.publicId];
+              const payoutTxId =
+                payoutTxById[giveaway.publicId] ?? giveaway.prize?.claimTxId ?? null;
+              const prizeFundingUnlockedForLink = giveaway.prize
+                ? Boolean(prizeRecoveryAccessByLink[giveaway.prize.linkKey])
+                : false;
+              const prizeFundingWindowExpired =
+                effectiveStatus === "PENDING_FUNDING" &&
+                (giveawayFundingDeadline(giveaway) <= now ||
+                  ["claimed", "refunded", "spent_unknown"].includes(giveaway.prize?.status ?? ""));
+              const progress = giveawayProgress(giveaway, now);
+              return (
+                <article className="card giveaway-manage-card" key={giveaway.publicId}>
+                  <div className="giveaway-card-head">
+                    <div>
+                      <span className={`status-chip status-${effectiveStatus.toLowerCase()}`}>
+                        {progress.label}
                       </span>
-                    </span>
-                  </label>
-                ) : null}
-                <div className="giveaway-metrics">
-                  <div>
-                    <span>Entries</span>
-                    <strong>{giveaway.entryCount}</strong>
-                  </div>
-                  <div>
-                    <span>Closes</span>
-                    <strong>
-                      {effectiveStatus === "PENDING_FUNDING"
-                        ? "Starts after funding"
-                        : formatDeadline(giveaway.closesAt, now)}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Winner claim</span>
-                    <strong>
-                      {giveaway.winnerClaim.expiresAt
-                        ? formatDeadline(giveaway.winnerClaim.expiresAt, now)
-                        : formatDuration(giveaway.winnerClaim.windowSeconds)}
-                    </strong>
-                  </div>
-                  <div title="Published before entries close. After the draw, the seed must match this value — that is how entrants verify nothing was swapped.">
-                    <span>Commitment</span>
-                    <code>{compactHash(giveaway.drawCommitment)}</code>
-                  </div>
-                </div>
-                {giveaway.drawProtocol.version >= 2 && giveaway.drawProtocol.entriesRoot ? (
-                  <div className="giveaway-verifiable-state">
-                    <span className="label">
-                      {giveaway.drawProtocol.entropyBlockHash
-                        ? "Future-chain proof complete"
-                        : "Participant list frozen"}
-                    </span>
-                    <p>
-                      {giveaway.drawProtocol.entropyBlockHash
-                        ? "The selected Kaspa chain block and final draw proof are now public."
-                        : `Waiting for a confirmed Kaspa chain block at or after blue score ${giveaway.drawProtocol.entropyTargetBlueScore}.`}
-                    </p>
-                    <code>{giveaway.drawProtocol.entriesRoot}</code>
-                  </div>
-                ) : null}
-                {effectiveStatus === "PENDING_FUNDING" && giveaway.prize ? (
-                  <div className="giveaway-escrow-panel giveaway-funding-panel">
-                    <span className="label">Prize funding required</span>
-                    <p>
-                      {prizeFundingWindowExpired ? (
-                        <>
-                          The funding window closed. Do not send new funds to this address. If a
-                          late payment arrived, use the private recovery file to refund it.
-                        </>
-                      ) : (
-                        <>
-                          Save the private recovery file, then send exactly{" "}
-                          <strong>{sompiToKas(giveaway.prize.amountSompi)} KAS</strong> to the
-                          one-time address within 1 hour. Entries open automatically after
-                          confirmation.
-                        </>
-                      )}
-                    </p>
-                    <code className="giveaway-dialog-url">{giveaway.prize.fundingAddress}</code>
-                    <div className="row">
-                      <button
-                        className="btn"
-                        onClick={() => void downloadExistingPrizeRecovery(giveaway)}
-                        type="button"
-                      >
-                        Download recovery bundle
-                      </button>
-                      <label className="btn giveaway-file-button">
-                        {restoringPrize ? "Restoring…" : "Restore recovery bundle"}
-                        <input
-                          accept="application/json,.json"
-                          disabled={restoringPrize}
-                          onChange={(event) =>
-                            void restorePrizeRecovery(giveaway, event.target.files?.[0])
-                          }
-                          type="file"
-                        />
-                      </label>
+                      <h3>{giveaway.title}</h3>
                     </div>
-                    <div className="row">
-                      <button
-                        className="btn"
-                        disabled={!prizeFundingUnlockedForLink || prizeFundingWindowExpired}
-                        onClick={() =>
-                          void copyText(giveaway.prize!.fundingAddress, "Funding address copied.")
-                        }
-                        type="button"
-                      >
-                        Copy funding address
-                      </button>
-                      <a
-                        aria-disabled={!prizeFundingUnlockedForLink || prizeFundingWindowExpired}
-                        className={`btn btn-primary${
-                          prizeFundingUnlockedForLink && !prizeFundingWindowExpired
-                            ? ""
-                            : " is-disabled"
-                        }`}
-                        href={
-                          prizeFundingUnlockedForLink && !prizeFundingWindowExpired
-                            ? buildWalletLaunchUri({
-                                amountKas: sompiToKas(giveaway.prize.amountSompi),
-                                recipientAddress: giveaway.prize.fundingAddress,
-                              })
-                            : undefined
-                        }
-                        onClick={(event) => {
-                          if (!prizeFundingUnlockedForLink || prizeFundingWindowExpired) {
-                            event.preventDefault();
-                            setError(
-                              prizeFundingWindowExpired
-                                ? "The prize funding window has closed. Do not send new funds."
-                                : "Download or restore the private recovery bundle before funding.",
-                            );
-                          }
-                        }}
-                      >
-                        Open funding in wallet
-                      </a>
-                      {prizeFundingWindowExpired && giveaway.prize.fundingTxId ? (
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => void openPrizeRefund(giveaway)}
-                          type="button"
-                        >
-                          Open late-funding refund
-                        </button>
-                      ) : null}
-                    </div>
+                    <strong className="giveaway-amount">{giveaway.amountKas} KAS</strong>
                   </div>
-                ) : null}
-                <div className="row giveaway-actions">
-                  {effectiveStatus !== "PENDING_FUNDING" ? (
-                    <>
-                      <Link className="btn" href={giveaway.publicUrl} target="_blank">
-                        Open entry page
-                      </Link>
-                      <button
-                        className="btn"
-                        onClick={() => void copyText(publicUrl, "Entry link copied.")}
-                        type="button"
-                      >
-                        Copy entry link
-                      </button>
-                      <TelegramGiveawayActions
-                        publicId={giveaway.publicId}
-                        botUsername={botUsername}
-                      />
-                    </>
-                  ) : null}
-                  {effectiveStatus === "CLOSED" ? (
+                  <p>{progress.hint}</p>
+                  <p className="muted">
+                    {giveaway.entryCount} entries · {giveaway.amountKas} KAS
+                  </p>
+                  {progress.step === "fund" ? (
                     <button
                       className="btn btn-primary"
+                      type="button"
+                      onClick={() => void resumeSetup(giveaway)}
+                    >
+                      Continue setup
+                    </button>
+                  ) : progress.step === "open" ? (
+                    <TelegramGiveawayActions
+                      publicId={giveaway.publicId}
+                      botUsername={botUsername}
+                      primary
+                    />
+                  ) : progress.step === "draw" ? (
+                    <button
+                      className="btn btn-primary"
+                      type="button"
                       disabled={drawingId === giveaway.publicId}
                       onClick={() => void drawWinner(giveaway.publicId)}
-                      type="button"
                     >
-                      {drawingId === giveaway.publicId ? "Drawing…" : "Draw winner"}
+                      {drawingId === giveaway.publicId ? "Checking draw…" : "Check draw result"}
                     </button>
-                  ) : null}
-                </div>
-
-                {effectiveStatus === "DRAWN" && giveaway.winnerAddress && payoutUri ? (
-                  <div className="giveaway-winner-panel">
-                    <span className="label">Winner</span>
-                    <h4>{compactAddress(giveaway.winnerAddress)}</h4>
-                    <code>{giveaway.winnerAddress}</code>
-                    <p>
-                      {giveaway.prize
-                        ? giveaway.winnerClaim.preparedTransactionId
-                          ? `The ${giveaway.amountKas} KAS winner claim is ready and cannot be redirected to another address.`
-                          : `Prepare the ${giveaway.amountKas} KAS winner claim. Signing happens in this browser and fixes the selected address.`
-                        : `Send exactly ${giveaway.amountKas} KAS. The wallet remains the final confirmation step.`}
-                    </p>
-                    <div className="row">
-                      {giveaway.prize ? (
-                        <button
-                          className="btn btn-primary"
-                          disabled={
-                            payingId === giveaway.publicId ||
-                            Boolean(payoutTxId) ||
-                            Boolean(giveaway.winnerClaim.preparedTransactionId) ||
-                            Boolean(
-                              giveaway.winnerClaim.expiresAt &&
-                              new Date(giveaway.winnerClaim.expiresAt).getTime() <= now,
-                            )
-                          }
-                          onClick={() => void prepareWinnerClaim(giveaway)}
-                          type="button"
-                        >
-                          {payingId === giveaway.publicId
-                            ? "Preparing winner claim…"
-                            : payoutTxId
-                              ? "Prize claimed"
-                              : giveaway.winnerClaim.preparedTransactionId
-                                ? "Winner claim ready"
-                                : "Prepare winner claim"}
-                        </button>
-                      ) : kaswareAvailable ? (
-                        <button
-                          className="btn btn-primary"
-                          disabled={payingId === giveaway.publicId}
-                          onClick={() => void payWinnerWithKasware(giveaway)}
-                          type="button"
-                        >
-                          {payingId === giveaway.publicId
-                            ? "Waiting for KasWare…"
-                            : `Pay ${giveaway.amountKas} KAS with KasWare`}
-                        </button>
-                      ) : (
-                        <a className="btn btn-primary" href={payoutUri}>
-                          Open payout in wallet
-                        </a>
-                      )}
-                      <button
-                        className="btn"
-                        onClick={() =>
-                          void copyText(giveaway.winnerAddress!, "Winner address copied.")
-                        }
-                        type="button"
-                      >
-                        Copy address
-                      </button>
-                      {!giveaway.prize ? (
-                        <button
-                          className="btn"
-                          onClick={() => void showPayoutQr(giveaway)}
-                          type="button"
-                        >
-                          Show payout QR
-                        </button>
-                      ) : null}
-                      {giveaway.prize && !payoutTxId ? (
-                        <label className="btn giveaway-file-button">
-                          {restoringPrize ? "Restoring…" : "Restore prize recovery"}
-                          <input
-                            accept="application/json,.json"
-                            disabled={restoringPrize}
-                            onChange={(event) =>
-                              void restorePrizeRecovery(giveaway, event.target.files?.[0])
-                            }
-                            type="file"
-                          />
-                        </label>
-                      ) : null}
-                      <button
-                        className="btn"
-                        onClick={() =>
-                          void copyText(
-                            buildResultAnnouncement(giveaway, publicUrl),
-                            "Result and proof copied — ready to post.",
-                          )
-                        }
-                        type="button"
-                      >
-                        Copy result + proof
-                      </button>
-                      <button
-                        className="btn"
-                        onClick={() => shareWinnerOnX(giveaway, publicUrl)}
-                        type="button"
-                      >
-                        Share winner on X
-                      </button>
-                      <button
-                        className="btn"
-                        onClick={() =>
-                          void copyText(
-                            buildWinnerTweet(giveaway, publicUrl, Date.now()),
-                            "Winner announcement copied.",
-                          )
-                        }
-                        type="button"
-                      >
-                        Copy announcement
-                      </button>
-                    </div>
-                    {giveaway.prize &&
-                    giveaway.winnerClaim.expiresAt &&
-                    new Date(giveaway.winnerClaim.expiresAt).getTime() <= now &&
-                    !payoutTxId ? (
-                      <div className="row">
-                        <span className="muted">
-                          Winner claim expired. The private refund becomes available at the contract
-                          lock time.
-                        </span>
-                        <button
-                          className="btn"
-                          onClick={() => void openPrizeRefund(giveaway)}
-                          type="button"
-                        >
-                          Open prize refund
-                        </button>
-                      </div>
-                    ) : null}
-                    {payoutTxId ? (
-                      <p className="giveaway-payout-sent">
-                        Prize sent ·{" "}
-                        <a
-                          href={kaspaStreamTransactionUrl(payoutTxId)}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          View transaction
-                        </a>
-                      </p>
-                    ) : null}
-                    {payoutQr ? (
-                      <Image
-                        alt={`Payout QR for ${giveaway.title}`}
-                        className="giveaway-payout-qr"
-                        height={420}
-                        src={payoutQr}
-                        unoptimized
-                        width={420}
-                      />
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {effectiveStatus === "NO_ENTRIES" ? (
-                  giveaway.prize &&
-                  !["claimed", "refunded", "spent_unknown"].includes(giveaway.prize.status) ? (
-                    <div className="giveaway-winner-panel">
-                      <span className="label">Unclaimed prize</span>
-                      <h4>No addresses were entered</h4>
-                      <p>
-                        Open the browser-signed refund flow. Kaspa enforces the refund lock time.
-                      </p>
-                      <div className="row">
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => void openPrizeRefund(giveaway)}
-                          type="button"
-                        >
-                          Open prize refund
-                        </button>
-                        <label className="btn giveaway-file-button">
-                          {restoringPrize ? "Restoring…" : "Restore prize recovery"}
-                          <input
-                            accept="application/json,.json"
-                            disabled={restoringPrize}
-                            onChange={(event) =>
-                              void restorePrizeRecovery(giveaway, event.target.files?.[0])
-                            }
-                            type="file"
-                          />
-                        </label>
-                      </div>
-                    </div>
+                  ) : ["payout", "refund", "attention"].includes(progress.step) ? (
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      onClick={() => setExpandedId(giveaway.publicId)}
+                    >
+                      {progress.step === "payout"
+                        ? "Review winner payout"
+                        : progress.step === "refund"
+                          ? "Review refund"
+                          : "Check prize details"}
+                    </button>
                   ) : (
-                    <div className="notice">
-                      No addresses were entered. Nothing needs to be paid.
-                    </div>
-                  )
-                ) : null}
-                {giveaway.drawProof ? (
-                  <details className="giveaway-proof">
-                    <summary>Draw proof</summary>
-                    <dl>
-                      <dt>Seed</dt>
-                      <dd>
-                        <code>{giveaway.drawProof.seed}</code>
-                      </dd>
-                      <dt>Digest</dt>
-                      <dd>
-                        <code>{giveaway.drawProof.digest}</code>
-                      </dd>
-                      <dt>Winner index</dt>
-                      <dd>{giveaway.drawProof.winnerIndex ?? "—"}</dd>
-                    </dl>
-                  </details>
-                ) : null}
-                <div className="giveaway-delete-row">
-                  {giveaway.prize &&
-                  giveaway.prize.funded &&
-                  !["claimed", "refunded"].includes(giveaway.prize.status) ? (
-                    <p className="giveaway-delete-hint">
-                      Pay the winner or refund the parked prize before deleting this giveaway.
-                    </p>
-                  ) : null}
-                  <button
-                    className="btn btn-danger"
-                    disabled={
-                      deletingId !== null ||
-                      Boolean(
-                        giveaway.prize &&
-                        giveaway.prize.funded &&
-                        !["claimed", "refunded"].includes(giveaway.prize.status),
-                      )
-                    }
-                    onClick={() => setDeleteCandidate(giveaway)}
-                    title={
-                      giveaway.prize &&
-                      giveaway.prize.funded &&
-                      !["claimed", "refunded"].includes(giveaway.prize.status)
-                        ? "Resolve the parked prize before deleting"
-                        : undefined
-                    }
-                    type="button"
+                    <Link className="btn btn-primary" href={giveaway.publicUrl} target="_blank">
+                      View result
+                    </Link>
+                  )}
+                  <details
+                    className="giveaway-manage-details"
+                    open={expandedId === giveaway.publicId}
+                    onToggle={(event) => {
+                      const open = event.currentTarget.open;
+                      setExpandedId((current) =>
+                        open ? giveaway.publicId : current === giveaway.publicId ? null : current,
+                      );
+                    }}
                   >
-                    Delete giveaway
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
+                    <summary>Manage, recovery and proof</summary>
+                    {giveaway.description ? <p className="muted">{giveaway.description}</p> : null}
+                    {giveaway.prize ? (
+                      <p
+                        className={`giveaway-prize-state${giveaway.prize.funded ? " is-funded" : ""}`}
+                      >
+                        {giveaway.prize.status === "spent_unknown"
+                          ? "Unrecognized prize spend — verify the transaction"
+                          : giveaway.prize.status === "claimed"
+                            ? "Prize paid out from escrow"
+                            : giveaway.prize.status === "refunded"
+                              ? "Prize pulled back"
+                              : giveaway.prize.funded
+                                ? "Prize parked on-chain · entrants can verify it"
+                                : "Waiting for your funding payment — entrants see no prize yet"}
+                      </p>
+                    ) : null}
+                    {giveaway.prize &&
+                    !giveaway.winnerClaim.preparedTransactionId &&
+                    !["refunded", "spent_unknown"].includes(giveaway.prize.status) ? (
+                      <label className="giveaway-auto-payout-toggle giveaway-card-auto-payout">
+                        <input
+                          checked={prizeAutoPrepareByLink[giveaway.prize.linkKey] === true}
+                          onChange={(event) =>
+                            void setPrizeAutoPreparePreference(giveaway, event.target.checked)
+                          }
+                          type="checkbox"
+                        />
+                        <span>
+                          <strong>Automatic preparation on this device</strong>
+                          <span className="muted">
+                            {prizeAutoPrepareByLink[giveaway.prize.linkKey] === true
+                              ? "Enabled in this browser. Keep it available after the draw."
+                              : "Off in this browser. Another device may still have it enabled."}
+                          </span>
+                        </span>
+                      </label>
+                    ) : null}
+                    <div className="giveaway-metrics">
+                      <div>
+                        <span>Entries</span>
+                        <strong>{giveaway.entryCount}</strong>
+                      </div>
+                      <div>
+                        <span>Closes</span>
+                        <strong>
+                          {effectiveStatus === "PENDING_FUNDING"
+                            ? "Starts after funding"
+                            : formatDeadline(giveaway.closesAt, now)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Winner claim</span>
+                        <strong>
+                          {giveaway.winnerClaim.expiresAt
+                            ? formatDeadline(giveaway.winnerClaim.expiresAt, now)
+                            : formatDuration(giveaway.winnerClaim.windowSeconds)}
+                        </strong>
+                      </div>
+                      <div title="Published before entries close. After the draw, the seed must match this value — that is how entrants verify nothing was swapped.">
+                        <span>Commitment</span>
+                        <code>{compactHash(giveaway.drawCommitment)}</code>
+                      </div>
+                    </div>
+                    {giveaway.drawProtocol.version >= 2 && giveaway.drawProtocol.entriesRoot ? (
+                      <div className="giveaway-verifiable-state">
+                        <span className="label">
+                          {giveaway.drawProtocol.entropyBlockHash
+                            ? "Future-chain proof complete"
+                            : "Participant list frozen"}
+                        </span>
+                        <p>
+                          {giveaway.drawProtocol.entropyBlockHash
+                            ? "The selected Kaspa chain block and final draw proof are now public."
+                            : `Waiting for a confirmed Kaspa chain block at or after blue score ${giveaway.drawProtocol.entropyTargetBlueScore}.`}
+                        </p>
+                        <code>{giveaway.drawProtocol.entriesRoot}</code>
+                      </div>
+                    ) : null}
+                    {effectiveStatus === "PENDING_FUNDING" && giveaway.prize ? (
+                      <div className="giveaway-escrow-panel giveaway-funding-panel">
+                        <span className="label">Prize funding required</span>
+                        <p>
+                          {prizeFundingWindowExpired ? (
+                            <>
+                              Funding is unavailable. Do not send new funds to this address. If a
+                              late payment arrived, use the private recovery file to refund it.
+                            </>
+                          ) : (
+                            <>
+                              Save the private recovery file, then send exactly{" "}
+                              <strong>{sompiToKas(giveaway.prize.amountSompi)} KAS</strong> to the
+                              one-time address within 1 hour. Entries open automatically after
+                              confirmation.
+                            </>
+                          )}
+                        </p>
+                        <code className="giveaway-dialog-url">{giveaway.prize.fundingAddress}</code>
+                        <div className="row">
+                          <button
+                            className="btn"
+                            onClick={() => void downloadExistingPrizeRecovery(giveaway)}
+                            type="button"
+                          >
+                            Download recovery bundle
+                          </button>
+                          <label className="btn giveaway-file-button">
+                            {restoringPrize ? "Restoring…" : "Restore recovery bundle"}
+                            <input
+                              accept="application/json,.json"
+                              disabled={restoringPrize}
+                              onChange={(event) =>
+                                void restorePrizeRecovery(giveaway, event.target.files?.[0])
+                              }
+                              type="file"
+                            />
+                          </label>
+                        </div>
+                        <div className="row">
+                          <button
+                            className="btn"
+                            disabled={!prizeFundingUnlockedForLink || prizeFundingWindowExpired}
+                            onClick={() =>
+                              void copyText(
+                                giveaway.prize!.fundingAddress,
+                                "Funding address copied.",
+                              )
+                            }
+                            type="button"
+                          >
+                            Copy funding address
+                          </button>
+                          <a
+                            aria-disabled={
+                              !prizeFundingUnlockedForLink || prizeFundingWindowExpired
+                            }
+                            className={`btn btn-primary${
+                              prizeFundingUnlockedForLink && !prizeFundingWindowExpired
+                                ? ""
+                                : " is-disabled"
+                            }`}
+                            href={
+                              prizeFundingUnlockedForLink && !prizeFundingWindowExpired
+                                ? buildWalletLaunchUri({
+                                    amountKas: sompiToKas(giveaway.prize.amountSompi),
+                                    recipientAddress: giveaway.prize.fundingAddress,
+                                  })
+                                : undefined
+                            }
+                            onClick={(event) => {
+                              if (!prizeFundingUnlockedForLink || prizeFundingWindowExpired) {
+                                event.preventDefault();
+                                setError(
+                                  prizeFundingWindowExpired
+                                    ? "The prize funding window has closed. Do not send new funds."
+                                    : "Download or restore the private recovery bundle before funding.",
+                                );
+                              }
+                            }}
+                          >
+                            Open funding in wallet
+                          </a>
+                          {prizeFundingWindowExpired && giveaway.prize.fundingTxId ? (
+                            <button
+                              className="btn btn-primary"
+                              onClick={() => void openPrizeRefund(giveaway)}
+                              type="button"
+                            >
+                              Open late-funding refund
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="row giveaway-actions">
+                      {effectiveStatus !== "PENDING_FUNDING" ? (
+                        <>
+                          <Link className="btn" href={giveaway.publicUrl} target="_blank">
+                            Open entry page
+                          </Link>
+                          <button
+                            className="btn"
+                            onClick={() => void copyText(publicUrl, "Entry link copied.")}
+                            type="button"
+                          >
+                            Copy entry link
+                          </button>
+                          <TelegramGiveawayActions
+                            publicId={giveaway.publicId}
+                            botUsername={botUsername}
+                          />
+                        </>
+                      ) : null}
+                      {effectiveStatus === "CLOSED" ? (
+                        <button
+                          className="btn btn-primary"
+                          disabled={drawingId === giveaway.publicId}
+                          onClick={() => void drawWinner(giveaway.publicId)}
+                          type="button"
+                        >
+                          {drawingId === giveaway.publicId ? "Drawing…" : "Draw winner"}
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {effectiveStatus === "DRAWN" &&
+                    giveaway.winnerAddress &&
+                    payoutUri &&
+                    !["refunded", "spent_unknown"].includes(giveaway.prize?.status ?? "") ? (
+                      <div className="giveaway-winner-panel">
+                        <span className="label">Winner</span>
+                        <h4>{compactAddress(giveaway.winnerAddress)}</h4>
+                        <code>{giveaway.winnerAddress}</code>
+                        <p>
+                          {giveaway.prize
+                            ? giveaway.winnerClaim.preparedTransactionId
+                              ? `The ${giveaway.amountKas} KAS winner claim is ready and cannot be redirected to another address.`
+                              : `Prepare the ${giveaway.amountKas} KAS winner claim. Signing happens in this browser and fixes the selected address.`
+                            : `Send exactly ${giveaway.amountKas} KAS. The wallet remains the final confirmation step.`}
+                        </p>
+                        <div className="row">
+                          {giveaway.prize ? (
+                            <button
+                              className="btn btn-primary"
+                              disabled={
+                                payingId === giveaway.publicId ||
+                                Boolean(payoutTxId) ||
+                                Boolean(giveaway.winnerClaim.preparedTransactionId) ||
+                                Boolean(
+                                  giveaway.winnerClaim.expiresAt &&
+                                  new Date(giveaway.winnerClaim.expiresAt).getTime() <= now,
+                                )
+                              }
+                              onClick={() => void prepareWinnerClaim(giveaway)}
+                              type="button"
+                            >
+                              {payingId === giveaway.publicId
+                                ? "Preparing winner claim…"
+                                : payoutTxId
+                                  ? "Prize claimed"
+                                  : giveaway.winnerClaim.preparedTransactionId
+                                    ? "Winner claim ready"
+                                    : "Prepare winner claim"}
+                            </button>
+                          ) : kaswareAvailable ? (
+                            <button
+                              className="btn btn-primary"
+                              disabled={payingId === giveaway.publicId}
+                              onClick={() => void payWinnerWithKasware(giveaway)}
+                              type="button"
+                            >
+                              {payingId === giveaway.publicId
+                                ? "Waiting for KasWare…"
+                                : `Pay ${giveaway.amountKas} KAS with KasWare`}
+                            </button>
+                          ) : (
+                            <a className="btn btn-primary" href={payoutUri}>
+                              Open payout in wallet
+                            </a>
+                          )}
+                          <button
+                            className="btn"
+                            onClick={() =>
+                              void copyText(giveaway.winnerAddress!, "Winner address copied.")
+                            }
+                            type="button"
+                          >
+                            Copy address
+                          </button>
+                          {!giveaway.prize ? (
+                            <button
+                              className="btn"
+                              onClick={() => void showPayoutQr(giveaway)}
+                              type="button"
+                            >
+                              Show payout QR
+                            </button>
+                          ) : null}
+                          {giveaway.prize && !payoutTxId ? (
+                            <label className="btn giveaway-file-button">
+                              {restoringPrize ? "Restoring…" : "Restore prize recovery"}
+                              <input
+                                accept="application/json,.json"
+                                disabled={restoringPrize}
+                                onChange={(event) =>
+                                  void restorePrizeRecovery(giveaway, event.target.files?.[0])
+                                }
+                                type="file"
+                              />
+                            </label>
+                          ) : null}
+                          <button
+                            className="btn"
+                            onClick={() =>
+                              void copyText(
+                                buildResultAnnouncement(giveaway, publicUrl),
+                                "Result and proof copied — ready to post.",
+                              )
+                            }
+                            type="button"
+                          >
+                            Copy result + proof
+                          </button>
+                          <button
+                            className="btn"
+                            onClick={() => shareWinnerOnX(giveaway, publicUrl)}
+                            type="button"
+                          >
+                            Share winner on X
+                          </button>
+                          <button
+                            className="btn"
+                            onClick={() =>
+                              void copyText(
+                                buildWinnerTweet(giveaway, publicUrl, Date.now()),
+                                "Winner announcement copied.",
+                              )
+                            }
+                            type="button"
+                          >
+                            Copy announcement
+                          </button>
+                        </div>
+                        {giveaway.prize &&
+                        giveaway.winnerClaim.expiresAt &&
+                        new Date(giveaway.winnerClaim.expiresAt).getTime() <= now &&
+                        !payoutTxId ? (
+                          <div className="row">
+                            <span className="muted">
+                              Winner claim expired. The private refund becomes available at the
+                              contract lock time.
+                            </span>
+                            <button
+                              className="btn"
+                              onClick={() => void openPrizeRefund(giveaway)}
+                              type="button"
+                            >
+                              Open prize refund
+                            </button>
+                          </div>
+                        ) : null}
+                        {payoutTxId ? (
+                          <p className="giveaway-payout-sent">
+                            Prize sent ·{" "}
+                            <a
+                              href={kaspaStreamTransactionUrl(payoutTxId)}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              View transaction
+                            </a>
+                          </p>
+                        ) : null}
+                        {payoutQr ? (
+                          <Image
+                            alt={`Payout QR for ${giveaway.title}`}
+                            className="giveaway-payout-qr"
+                            height={420}
+                            src={payoutQr}
+                            unoptimized
+                            width={420}
+                          />
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {effectiveStatus === "NO_ENTRIES" || effectiveStatus === "CANCELLED" ? (
+                      giveaway.prize &&
+                      !["claimed", "refunded", "spent_unknown"].includes(giveaway.prize.status) ? (
+                        <div className="giveaway-winner-panel">
+                          <span className="label">Unclaimed prize</span>
+                          <h4>No addresses were entered</h4>
+                          <p>
+                            Open the browser-signed refund flow. Kaspa enforces the refund lock
+                            time.
+                          </p>
+                          <div className="row">
+                            <button
+                              className="btn btn-primary"
+                              onClick={() => void openPrizeRefund(giveaway)}
+                              type="button"
+                            >
+                              Open prize refund
+                            </button>
+                            <label className="btn giveaway-file-button">
+                              {restoringPrize ? "Restoring…" : "Restore prize recovery"}
+                              <input
+                                accept="application/json,.json"
+                                disabled={restoringPrize}
+                                onChange={(event) =>
+                                  void restorePrizeRecovery(giveaway, event.target.files?.[0])
+                                }
+                                type="file"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="notice">
+                          No addresses were entered. Nothing needs to be paid.
+                        </div>
+                      )
+                    ) : null}
+                    {giveaway.drawProof ? (
+                      <details className="giveaway-proof">
+                        <summary>Draw proof</summary>
+                        <dl>
+                          <dt>Seed</dt>
+                          <dd>
+                            <code>{giveaway.drawProof.seed}</code>
+                          </dd>
+                          <dt>Digest</dt>
+                          <dd>
+                            <code>{giveaway.drawProof.digest}</code>
+                          </dd>
+                          <dt>Winner index</dt>
+                          <dd>{giveaway.drawProof.winnerIndex ?? "—"}</dd>
+                        </dl>
+                      </details>
+                    ) : null}
+                    <div className="giveaway-delete-row">
+                      {giveaway.prize &&
+                      giveaway.prize.funded &&
+                      !["claimed", "refunded"].includes(giveaway.prize.status) ? (
+                        <p className="giveaway-delete-hint">
+                          Pay the winner or refund the parked prize before deleting this giveaway.
+                        </p>
+                      ) : null}
+                      <button
+                        className="btn btn-danger"
+                        disabled={
+                          deletingId !== null ||
+                          Boolean(
+                            giveaway.prize &&
+                            giveaway.prize.funded &&
+                            !["claimed", "refunded"].includes(giveaway.prize.status),
+                          )
+                        }
+                        onClick={() => setDeleteCandidate(giveaway)}
+                        title={
+                          giveaway.prize &&
+                          giveaway.prize.funded &&
+                          !["claimed", "refunded"].includes(giveaway.prize.status)
+                            ? "Resolve the parked prize before deleting"
+                            : undefined
+                        }
+                        type="button"
+                      >
+                        Delete giveaway
+                      </button>
+                    </div>
+                  </details>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }
@@ -2090,20 +2469,6 @@ function sompiToKas(amountSompi: string): string {
   const whole = amount / 100_000_000n;
   const fraction = (amount % 100_000_000n).toString().padStart(8, "0").replace(/0+$/, "");
   return fraction ? `${whole}.${fraction}` : whole.toString();
-}
-
-function absoluteEntryUrl(giveaway: GiveawaySummary): string {
-  if (typeof window === "undefined") return giveaway.publicUrl;
-  return new URL(giveaway.publicUrl, window.location.origin).toString();
-}
-
-function statusLabel(status: GiveawayStatus): string {
-  if (status === "PENDING_FUNDING") return "Waiting for prize funding";
-  if (status === "OPEN") return "Entries open";
-  if (status === "CLOSED") return "Ready to draw";
-  if (status === "DRAWN") return "Winner drawn";
-  if (status === "NO_ENTRIES") return "No entries";
-  return "Cancelled";
 }
 
 function safeFilePart(value: string): string {
