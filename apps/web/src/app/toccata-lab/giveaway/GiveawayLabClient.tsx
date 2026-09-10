@@ -125,14 +125,18 @@ export function GiveawayLabClient({
   draftId,
   templateId,
   botUsername = "",
+  initialView = "details",
   enabled,
 }: {
   draftId?: string;
   templateId?: string;
   botUsername?: string;
+  initialView?: "details" | "manage";
   enabled: boolean;
 }) {
-  const [stage, setStage] = useState<"details" | "access" | "fund" | "share" | "manage">("details");
+  const [stage, setStage] = useState<"details" | "access" | "fund" | "share" | "manage">(
+    initialView,
+  );
   const [authMode, setAuthMode] = useState<"signup" | "signin">("signup");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const setupHeading = useRef<HTMLHeadingElement>(null);
@@ -198,12 +202,13 @@ export function GiveawayLabClient({
         setEscrowPrize(v.escrowPrize);
         setAutoPrepareClaim(v.autoPrepareClaim);
       }
-      resumeIdRef.current = window.sessionStorage.getItem(`${storageKey}:active`);
+      resumeIdRef.current =
+        initialView === "manage" ? null : window.sessionStorage.getItem(`${storageKey}:active`);
     } catch {
       /* Public draft persistence is optional. */
     }
     setSettingsReady(true);
-  }, [storageKey]);
+  }, [storageKey, initialView]);
 
   useEffect(() => {
     if (!settingsReady || !restoredSettingsRef.current) return;
@@ -285,8 +290,17 @@ export function GiveawayLabClient({
     setCreatedGiveaway(null);
     setCreatedEscrow(null);
     rememberActive(null);
+    resumeIdRef.current = null;
+    window.history.replaceState(null, "", "/toccata-lab/giveaway?view=manage");
     setStage("manage");
   }
+
+  useEffect(() => {
+    setCreatedGiveaway(null);
+    setCreatedEscrow(null);
+    if (initialView === "manage") resumeIdRef.current = null;
+    setStage(initialView);
+  }, [initialView]);
 
   useEffect(() => {
     const token = window.sessionStorage.getItem(TOKEN_STORAGE_KEY)?.trim() ?? "";
@@ -1390,6 +1404,9 @@ export function GiveawayLabClient({
             onClick={() => {
               setCreatedGiveaway(null);
               setCreatedEscrow(null);
+              rememberActive(null);
+              resumeIdRef.current = null;
+              window.history.replaceState(null, "", "/toccata-lab/giveaway");
               setStage("details");
               setError(null);
               setNotice(null);
@@ -1885,7 +1902,12 @@ export function GiveawayLabClient({
         </div>
       ) : null}
 
-      {stage === "manage" ? (
+      {stage === "manage" && !session ? (
+        <section className="card giveaway-setup-card">
+          <SignInClient onSignedIn={acceptIdentity} />
+        </section>
+      ) : null}
+      {stage === "manage" && session ? (
         <section className="giveaway-list-section">
           <div className="section-heading">
             <div>
@@ -2420,38 +2442,38 @@ export function GiveawayLabClient({
                         </dl>
                       </details>
                     ) : null}
-                    <div className="giveaway-delete-row">
-                      {giveaway.prize &&
-                      giveaway.prize.funded &&
-                      !["claimed", "refunded"].includes(giveaway.prize.status) ? (
-                        <p className="giveaway-delete-hint">
-                          Pay the winner or refund the parked prize before deleting this giveaway.
-                        </p>
-                      ) : null}
-                      <button
-                        className="btn btn-danger"
-                        disabled={
-                          deletingId !== null ||
-                          Boolean(
-                            giveaway.prize &&
-                            giveaway.prize.funded &&
-                            !["claimed", "refunded"].includes(giveaway.prize.status),
-                          )
-                        }
-                        onClick={() => setDeleteCandidate(giveaway)}
-                        title={
+                  </details>
+                  <div className="giveaway-delete-row">
+                    {giveaway.prize &&
+                    giveaway.prize.funded &&
+                    !["claimed", "refunded"].includes(giveaway.prize.status) ? (
+                      <p className="giveaway-delete-hint">
+                        Pay the winner or refund the parked prize before deleting this giveaway.
+                      </p>
+                    ) : null}
+                    <button
+                      className="btn btn-danger"
+                      disabled={
+                        deletingId !== null ||
+                        Boolean(
                           giveaway.prize &&
                           giveaway.prize.funded &&
-                          !["claimed", "refunded"].includes(giveaway.prize.status)
-                            ? "Resolve the parked prize before deleting"
-                            : undefined
-                        }
-                        type="button"
-                      >
-                        Delete giveaway
-                      </button>
-                    </div>
-                  </details>
+                          !["claimed", "refunded"].includes(giveaway.prize.status),
+                        )
+                      }
+                      onClick={() => setDeleteCandidate(giveaway)}
+                      title={
+                        giveaway.prize &&
+                        giveaway.prize.funded &&
+                        !["claimed", "refunded"].includes(giveaway.prize.status)
+                          ? "Resolve the parked prize before deleting"
+                          : undefined
+                      }
+                      type="button"
+                    >
+                      Delete giveaway
+                    </button>
+                  </div>
                 </article>
               );
             })}

@@ -232,10 +232,6 @@ function typeLabel(type: string): string {
   return TYPE_LABELS[type] ?? type.replace(/^kaspa\./, "");
 }
 
-function isGiveawayFinished(status: CreatorGiveaway["status"]): boolean {
-  return status === "DRAWN" || status === "NO_ENTRIES" || status === "CANCELLED";
-}
-
 function giveawayHasUnresolvedPrize(giveaway: CreatorGiveaway): boolean {
   return Boolean(
     giveaway.prize?.funded && !["claimed", "refunded"].includes(giveaway.prize.status),
@@ -3078,7 +3074,7 @@ export function MyLinksClient() {
               <span className="label">Giveaways</span>
               <h2>Your giveaways</h2>
             </div>
-            <Link className="btn" href="/toccata-lab/giveaway">
+            <Link className="btn" href="/toccata-lab/giveaway?view=manage">
               Manage giveaways
             </Link>
           </div>
@@ -3207,24 +3203,22 @@ export function MyLinksClient() {
                         </button>
                       </>
                     ) : null}
-                    {isGiveawayFinished(giveaway.status) ? (
-                      <button
-                        className="btn btn-danger"
-                        disabled={giveawayHasUnresolvedPrize(giveaway)}
-                        onClick={() => {
-                          setGiveawayDeleteError(null);
-                          setGiveawayDeleteTarget(giveaway);
-                        }}
-                        title={
-                          giveawayHasUnresolvedPrize(giveaway)
-                            ? "Pay the winner or refund the parked prize before deleting"
-                            : undefined
-                        }
-                        type="button"
-                      >
-                        {giveawayHasUnresolvedPrize(giveaway) ? "Resolve prize first" : "Delete"}
-                      </button>
-                    ) : null}
+                    <button
+                      className="btn btn-danger"
+                      disabled={giveawayHasUnresolvedPrize(giveaway)}
+                      onClick={() => {
+                        setGiveawayDeleteError(null);
+                        setGiveawayDeleteTarget(giveaway);
+                      }}
+                      title={
+                        giveawayHasUnresolvedPrize(giveaway)
+                          ? "Pay the winner or refund the parked prize before deleting"
+                          : undefined
+                      }
+                      type="button"
+                    >
+                      {giveawayHasUnresolvedPrize(giveaway) ? "Resolve prize first" : "Delete"}
+                    </button>
                   </div>
                   <GiveawayAnalyticsDetails
                     analyticsState={giveawayAnalyticsState}

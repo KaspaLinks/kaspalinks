@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type { Metadata } from "next";
 
 import { GiveawayLabClient } from "./GiveawayLabClient";
@@ -14,12 +16,17 @@ export const metadata: Metadata = {
 export default async function GiveawayLabPage({
   searchParams,
 }: {
-  searchParams: Promise<{ draft?: string | string[]; template?: string | string[] }>;
+  searchParams: Promise<{
+    draft?: string | string[];
+    template?: string | string[];
+    view?: string | string[];
+  }>;
 }) {
   const query = await searchParams;
   const draftId = typeof query.draft === "string" ? query.draft : undefined;
   return (
     <GiveawayLabClient
+      initialView={z.literal("manage").safeParse(query.view).success ? "manage" : "details"}
       draftId={draftId}
       templateId={typeof query.template === "string" ? query.template : undefined}
       botUsername={process.env.TELEGRAM_BOT_USERNAME ?? ""}

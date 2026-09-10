@@ -123,7 +123,7 @@ function helpButtons() {
 }
 
 function giveawayAppButtons() {
-  return [[{ text: "Manage giveaways", web_app: { url: giveawayMiniAppUrl() } }]];
+  return [[{ text: "Manage giveaways", web_app: { url: `${giveawayMiniAppUrl()}?view=manage` } }]];
 }
 
 const helpText = [
