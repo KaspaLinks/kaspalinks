@@ -1,5 +1,7 @@
 "use client";
 
+import { savePrivateRecoveryFile, usesMobileRecoveryMenu } from "@/lib/private-recovery-download";
+
 import { TelegramGiveawayActions } from "./TelegramGiveawayActions";
 
 import Image from "next/image";
@@ -165,6 +167,8 @@ export function GiveawayLabClient({
   const [autoPrepareClaim, setAutoPrepareClaim] = useState(true);
   const [kaswareAvailable, setKaswareAvailable] = useState(false);
   const [prizeRecoveryReady, setPrizeRecoveryReady] = useState(false);
+  const [savingPrizeRecovery, setSavingPrizeRecovery] = useState(false);
+  const savingPrizeRecoveryRef = useRef(false);
   const [prizeRecoverySkipped, setPrizeRecoverySkipped] = useState(false);
   const [prizeRecoveryAccessByLink, setPrizeRecoveryAccessByLink] = useState<
     Record<string, boolean>
@@ -894,29 +898,18 @@ export function GiveawayLabClient({
   }, [drawWinner, giveaways, now]);
 
   async function downloadPrizeRecovery(prize: PrizeEscrow | null = createdEscrow) {
-    if (!prize) return;
+    if (!prize || savingPrizeRecoveryRef.current) return;
+    savingPrizeRecoveryRef.current = true;
+    setSavingPrizeRecovery(true);
+    setError(null);
+    setNotice(null);
     try {
       const bundle = createGiveawayPrizeRecoveryBundle(prize);
       const filename = `${safeFilePart(prize.title)}-prize-recovery.json`;
       const file = new File([JSON.stringify(bundle, null, 2)], filename, {
         type: "application/json",
       });
-      if (
-        session?.kind === "telegram" &&
-        typeof navigator.share === "function" &&
-        navigator.canShare?.({ files: [file] })
-      ) {
-        await navigator.share({ files: [file], title: "KaspaLinks prize recovery" });
-      } else {
-        const href = URL.createObjectURL(file);
-        const anchor = document.createElement("a");
-        anchor.href = href;
-        anchor.download = filename;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        URL.revokeObjectURL(href);
-      }
+      const method = await savePrivateRecoveryFile(file, session?.kind === "telegram");
       setPrizeRecoveryReady(true);
       setPrizeRecoverySkipped(false);
       const records = await loadClaimableRecords();
@@ -930,12 +923,21 @@ export function GiveawayLabClient({
         });
       }
       setPrizeRecoveryAccessByLink((current) => ({ ...current, [prize.linkKey]: true }));
-      setNotice("Private prize recovery bundle saved.");
+      setNotice(
+        method === "download"
+          ? "Download started. Check that the recovery file is in your Downloads folder before continuing."
+          : "Keep the recovery file in a private folder on your device.",
+      );
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") return;
       setError(
-        caught instanceof Error ? caught.message : "Prize recovery could not be downloaded.",
+        caught instanceof DOMException && caught.name === "InvalidStateError"
+          ? "Close the open device menu, then try saving again."
+          : "The recovery file could not be saved. Please try again.",
       );
+    } finally {
+      savingPrizeRecoveryRef.current = false;
+      setSavingPrizeRecovery(false);
     }
   }
 
@@ -1647,9 +1649,10 @@ export function GiveawayLabClient({
                 Keep this file private. Without it, losing this browser’s data can make the prize
                 unrecoverable.
               </p>
-              {session.kind === "telegram" ? (
+              {session.kind === "telegram" &&
+              usesMobileRecoveryMenu(window.Telegram?.WebApp?.platform, navigator) ? (
                 <p className="muted">
-                  Choose “Save to Files” in the device menu. Never send it in a chat.
+                  Save the file to a private folder in the device menu. Never send it in a chat.
                 </p>
               ) : null}
               {createdEscrow ? (
@@ -1657,8 +1660,14 @@ export function GiveawayLabClient({
                   className={`btn ${prizeFundingUnlocked ? "" : "btn-primary btn-block"}`}
                   type="button"
                   onClick={() => void downloadPrizeRecovery()}
+                  disabled={savingPrizeRecovery}
+                  aria-busy={savingPrizeRecovery}
                 >
-                  {prizeRecoveryReady ? "Save file again" : "Save recovery file"}
+                  {savingPrizeRecovery
+                    ? "Saving…"
+                    : prizeRecoveryReady
+                      ? "Save file again"
+                      : "Save recovery file"}
                 </button>
               ) : (
                 <label className="btn btn-primary giveaway-file-button">
@@ -2092,8 +2101,10 @@ export function GiveawayLabClient({
                             className="btn"
                             onClick={() => void downloadExistingPrizeRecovery(giveaway)}
                             type="button"
+                            disabled={savingPrizeRecovery}
+                            aria-busy={savingPrizeRecovery}
                           >
-                            Download recovery bundle
+                            {savingPrizeRecovery ? "Saving…" : "Download recovery bundle"}
                           </button>
                           <label className="btn giveaway-file-button">
                             {restoringPrize ? "Restoring…" : "Restore recovery bundle"}
