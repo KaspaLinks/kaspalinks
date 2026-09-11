@@ -541,6 +541,13 @@ const KASPA_WRPC_RELAY_TIMEOUT_MS = 55_000;
 export async function broadcastToccataClaimableTransaction(
   input: z.infer<typeof toccataClaimableBroadcastInputSchema>,
 ): Promise<ToccataClaimableBroadcastResult> {
+  return broadcastToccataPreparedTransaction(input);
+}
+
+/** Server-only submission after the caller verifies its registered covenant intent. */
+export async function broadcastToccataPreparedTransaction(
+  input: { transactionSafeJson: string; expectedTransactionId?: string },
+): Promise<ToccataClaimableBroadcastResult> {
   const transactionId = validateClaimableBroadcastSafeJson(input.transactionSafeJson);
 
   if (

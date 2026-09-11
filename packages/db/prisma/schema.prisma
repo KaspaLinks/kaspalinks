@@ -69,6 +69,15 @@ enum NotificationRuleKind {
   ACTION_MINIMUM_AMOUNT
 }
 
+// Phase of a covenant-enforced prize. Mirrors the state commitment the script
+// carries, so a row and its on-chain address can be checked against each other.
+enum GiveawayPrizeCovenantPhase {
+  OPEN
+  FROZEN
+  SETTLED
+  REFUNDED
+}
+
 enum GiveawayStatus {
   OPEN
   DRAWN
@@ -88,6 +97,10 @@ model Creator {
   defaultRecipientAddress String?
   timezone                String                @default("UTC")
   telegramBetaEnabled     Boolean               @default(false)
+  // Gates the covenant-enforced giveaway prize (protocol v3) while it is
+  // only exercised on one account.
+  prizeCovenantEnabled    Boolean               @default(false)
+  covenantPrototypes     CovenantPrototype[]
   agentAiEnabled          Boolean               @default(false)
   agentAiConsentAt        DateTime?
   agentWaitlistAt         DateTime?
@@ -117,6 +130,7 @@ model Creator {
   aiUsageEvents           AiUsageEvent[]
   notificationRules       NotificationRule[]
 
+  @@index([tipActionId])
   @@index([createdAt])
 }
 
@@ -564,6 +578,23 @@ model Giveaway {
   prizeClaimPreparedAt          DateTime?
   prizeClaimTransactionId       String?                        @unique
   prizeClaimTransactionSafeJson String?
+  // Covenant-enforced prize (protocol v3). Null on every earlier giveaway.
+  //
+  // These carry everything needed to re-derive the redeem script and its
+  // address from the row alone, so a route never trusts a client-supplied
+  // script. The platform and creator keys are stored per giveaway rather than
+  // read from configuration, because rotating the platform key must not change
+  // the address of a giveaway that is already funded.
+  prizeCovenantVersion          Int?
+  prizeCovenantPhase            GiveawayPrizeCovenantPhase?
+  prizeCovenantPlatformKey      String?
+  prizeCovenantCreatorKey       String?
+  prizeCovenantDrawFeeSompi     BigInt?
+  prizeCovenantClosesAtDaa      BigInt?
+  prizeCovenantRefundDaa        BigInt?
+  prizeCovenantAddress          String?                        @unique
+  prizeCovenantFreezeTxId       String?                        @unique
+  prizeCovenantDrawTxId         String?                        @unique
   // Optional escrow: the prize is parked in a claimable link whose claim code
   // stays in the creator's browser. Proves the prize exists without custody.
   prizeLinkKey                  String?                        @unique
@@ -610,4 +641,17 @@ model TelegramGiveawaySubscription {
   @@unique([giveawayId, telegramUserId])
   @@index([telegramUserId, revokedAt])
   @@index([resultQueuedAt, revokedAt])
+}
+
+// Isolated mainnet trials; never processed by the public giveaway worker.
+// Only public covenant material and signed transaction IDs belong here.
+model CovenantPrototype {
+  id               String   @id @default(cuid())
+  creatorId        String
+  creator          Creator  @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  fundingAddress   String   @unique
+  manifest         Json
+  entropy          Json?
+  createdAt        DateTime @default(now())
+  @@index([creatorId, createdAt])
 }

@@ -1,0 +1,105 @@
+pragma silverscript ^0.1.0;
+
+// Ein Artefakt fuer alle Giveaways: nur der Plattform-Schluessel ist
+// Konstante. Die Giveaway-Parameter reisen im Witness und sind ueber
+// paramsHash an den Zustand gebunden.
+//
+//   paramsHash = sha256(prize ‖ drawFee ‖ closesAt ‖ refundAt ‖ creatorPk)
+//   OPEN       = sha256(0x00 ‖ paramsHash ‖ 32 Nullbytes)
+//   FROZEN     = sha256(0x01 ‖ paramsHash ‖ entriesRoot)
+//
+// Die Form ist in beiden Zustaenden gleich lang, damit refund sie mit einem
+// einzigen Vergleich abdeckt statt mit einer Fallunterscheidung.
+contract GiveawayPrizeV3(pubkey platformPk, byte[32] initStateHash) {
+    byte[32] stateHash = initStateHash;
+
+    function params(
+        byte[8] prize, byte[8] drawFee, byte[8] closesAt, byte[8] refundAt, byte[32] creatorPk
+    ) : byte[32] {
+        return sha256(byte[](prize) + byte[](drawFee) + byte[](closesAt)
+            + byte[](refundAt) + byte[](creatorPk));
+    }
+
+    entry freeze(
+        datasig platformSig,
+        byte[8] prize, byte[8] drawFee, byte[8] closesAt, byte[8] refundAt, byte[32] creatorPk,
+        byte[32] entriesRoot,
+        byte[32] emptyRoot
+    ) {
+        byte[32] paramsHash = params(prize, drawFee, closesAt, refundAt, creatorPk);
+        require(stateHash == sha256(byte[1](0x00) + byte[](paramsHash) + byte[](emptyRoot)));
+
+        int closesAtDaa = OpBin2Num(byte[](closesAt));
+        require(closesAtDaa > 0);
+        require(tx.daa >= closesAtDaa);
+
+        require(checkMsgSig(
+            platformSig,
+            sha256(byte[1](0x11) + byte[](paramsHash) + byte[](entriesRoot)),
+            platformPk
+        ));
+
+        int prizeAmount = OpBin2Num(byte[](prize));
+        int fee = OpBin2Num(byte[](drawFee));
+        require(prizeAmount > 0);
+        require(fee > 0);
+
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].value == prizeAmount + fee);
+        validateOutputState(0, State {
+            stateHash: sha256(byte[1](0x01) + byte[](paramsHash) + byte[](entriesRoot))
+        });
+    }
+
+    entry draw(
+        datasig platformSig,
+        byte[8] prize, byte[8] drawFee, byte[8] closesAt, byte[8] refundAt, byte[32] creatorPk,
+        byte[32] entriesRoot, byte[32] blockHash, byte[] entries, byte[] winnerSpk
+    ) {
+        byte[32] paramsHash = params(prize, drawFee, closesAt, refundAt, creatorPk);
+        require(stateHash == sha256(byte[1](0x01) + byte[](paramsHash) + byte[](entriesRoot)));
+
+        require(checkMsgSig(
+            platformSig,
+            sha256(byte[1](0x12) + byte[](paramsHash) + byte[](blockHash)),
+            platformPk
+        ));
+
+        require(entries.length > 0);
+        require(entries.length % 32 == 0);
+        require(sha256(entries) == entriesRoot);
+        int entryCount = entries.length / 32;
+
+        byte[32] seed = OpChainblockSeqCommit(blockHash);
+        byte[32] digest = sha256(byte[1](0x03) + byte[](seed) + byte[](entriesRoot));
+
+        int winnerIndex = OpBin2Num(digest.slice(0, 4) + byte[1](0x00)) % entryCount;
+        require(winnerIndex >= 0);
+        require(winnerIndex < entryCount);
+
+        int start = winnerIndex * 32;
+        require(byte[32](entries.slice(start, start + 32)) == sha256(winnerSpk));
+
+        int prizeAmount = OpBin2Num(byte[](prize));
+        require(prizeAmount > 0);
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].value == prizeAmount);
+        require(tx.outputs[0].scriptPubKey == winnerSpk);
+    }
+
+    entry refund(
+        sig creatorSig,
+        byte[8] prize, byte[8] drawFee, byte[8] closesAt, byte[8] refundAt, byte[32] creatorPk,
+        byte[1] phase,
+        byte[32] entriesRoot
+    ) {
+        byte[32] paramsHash = params(prize, drawFee, closesAt, refundAt, creatorPk);
+        // Deckt OPEN und FROZEN ab: nur die echten Werte hashen auf stateHash.
+        require(stateHash == sha256(byte[](phase) + byte[](paramsHash) + byte[](entriesRoot)));
+
+        int refundDaa = OpBin2Num(byte[](refundAt));
+        require(refundDaa > 0);
+        require(tx.daa >= refundDaa);
+        require(checkSig(creatorSig, pubkey(creatorPk)));
+    }
+}

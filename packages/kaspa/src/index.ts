@@ -16,6 +16,12 @@ export {
   stringifyWithBigInts,
   type JsonSafe,
 } from "./serialization";
+export {
+  buildGiveawayPrizeV3Address,
+  buildGiveawayPrizeV3RedeemScriptHex,
+  GIVEAWAY_PRIZE_V3_DISPATCH_TAGS,
+  GIVEAWAY_PRIZE_V3_SOURCE_SHA256,
+} from "./giveaway-prize-v3";
 export { buildKaspaPaymentUri, type BuildKaspaPaymentUriInput } from "./payment-uri";
 export { buildKaspaQrPayload, type BuildKaspaQrPayloadInput } from "./qr";
 export {

@@ -11321,3 +11321,10 @@ main.giveaway-guided-page {
     flex: none;
   }
 }
+
+/* Restricted covenant trials reuse the mobile giveaway controls. */
+.covenant-prototype-page .btn { margin: 4px 8px 4px 0; }
+.covenant-prototype-page h2 { margin-top: 24px; }
+.covenant-prototype-page input:not([type="checkbox"]),
+.covenant-prototype-page select,
+.covenant-prototype-page textarea { max-width: 100%; }
