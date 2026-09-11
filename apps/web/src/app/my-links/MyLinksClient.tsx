@@ -773,8 +773,8 @@ function canDeleteClaimable(status: string): boolean {
   return status === "awaiting_funding" || isClaimableTerminal(status);
 }
 
-function canRequestClaimableDeletion(record: Pick<MergedClaimable, "status">): boolean {
-  return canDeleteClaimable(record.status);
+function canRequestClaimableDeletion(record: Pick<MergedClaimable, "status" | "hasDb">): boolean {
+  return record.hasDb || canDeleteClaimable(record.status);
 }
 
 function formatClaimableEndTime(timestampMs: number): string {
@@ -1203,7 +1203,7 @@ export function MyLinksClient() {
       try {
         if (record.hasDb) {
           const response = await fetch(
-            `/api/creator/claimable-links?linkKey=${encodeURIComponent(record.linkKey)}`,
+            `/api/creator/claimable-links?linkKey=${encodeURIComponent(record.linkKey)}&removeFromList=true`,
             {
               headers: authHeaders,
               method: "DELETE",
@@ -1238,8 +1238,8 @@ export function MyLinksClient() {
           }
         }
 
-        // Server deletion hides the record; retain encrypted recovery because
-        // another payment may reach the address after the final UTXO check.
+        // List removal does not spend funds. Keep encrypted recovery for
+        // database-backed links, including any still-funded address.
         if (record.hasLocal && !record.hasDb) {
           setClaimableRecords(await removeClaimableRecord(record.linkKey));
         }
@@ -1277,7 +1277,7 @@ export function MyLinksClient() {
     }
 
     setClaimableDeleteTarget(null);
-    setStatus("Claimable link deleted.");
+    setStatus("Claimable link removed from My Links.");
   }, [claimableDeleteTarget, deletingClaimable, removeClaimableLink]);
 
   const confirmClaimableBatchDeletion = useCallback(async () => {
@@ -2815,11 +2815,12 @@ export function MyLinksClient() {
             <h2 id="claimable-delete-dialog-title">Are you sure?</h2>
             <p>
               Delete {selectedDeletableClaimables.length} selected claimable link
-              {selectedDeletableClaimables.length === 1 ? "" : "s"} from My Links and this browser?
+              {selectedDeletableClaimables.length === 1 ? "" : "s"} from My Links?
             </p>
             <p className="notice notice-critical">
-              Every selected link is checked on-chain. Only verified-unfunded or closed links are
-              removed. This action does not move any KAS or initiate refunds.
+              Saved links are removed from your list even if they still hold KAS. Existing recovery
+              data is kept. Local-only links are checked before removal. This action does not move
+              any KAS or initiate refunds.
             </p>
             <div className="batch-wallet-modal-actions">
               <button
@@ -2871,14 +2872,21 @@ export function MyLinksClient() {
             <span className="label">Remove claimable link</span>
             <h2 id="single-claimable-delete-dialog-title">Check before deleting</h2>
             <p>
-              {claimableDeleteTarget.status === "awaiting_funding"
-                ? "Kaspa Links will verify that this address was never funded before removing the link."
-                : isClaimableTerminal(claimableDeleteTarget.status)
-                  ? "This removes the closed link from My Links. It does not move any KAS on-chain."
-                  : "Kaspa Links will check the funding output on-chain and delete the link only when it no longer holds KAS."}
+              {claimableDeleteTarget.hasDb
+                ? "This removes the link from My Links, even if it still holds KAS. Existing recovery data is kept."
+                : claimableDeleteTarget.status === "awaiting_funding"
+                  ? "Kaspa Links will verify that this address was never funded before removing the link."
+                  : isClaimableTerminal(claimableDeleteTarget.status)
+                    ? "This removes the closed link from My Links. It does not move any KAS on-chain."
+                    : "Kaspa Links will check the funding output on-chain and delete the link only when it no longer holds KAS."}
             </p>
-            {!isClaimableTerminal(claimableDeleteTarget.status) &&
-            claimableDeleteTarget.status !== "awaiting_funding" ? (
+            {claimableDeleteTarget.hasDb ? (
+              <p className="notice notice-critical">
+                Removing this entry does not refund KAS or cancel the on-chain link.
+                A refund still requires the private recovery data.
+              </p>
+            ) : !isClaimableTerminal(claimableDeleteTarget.status) &&
+              claimableDeleteTarget.status !== "awaiting_funding" ? (
               <p className="notice notice-critical">
                 This check does not refund KAS. Complete the refund first, wait for the transaction
                 to be accepted, then run this check again.
@@ -2932,10 +2940,12 @@ export function MyLinksClient() {
                 type="button"
               >
                 {deletingClaimable
-                  ? "Checking…"
-                  : isClaimableTerminal(claimableDeleteTarget.status)
-                    ? "Delete link"
-                    : "Check & delete"}
+                  ? "Removing…"
+                  : claimableDeleteTarget.hasDb
+                    ? "Remove from My Links"
+                    : isClaimableTerminal(claimableDeleteTarget.status)
+                      ? "Delete link"
+                      : "Check & delete"}
               </button>
             </div>
           </section>
@@ -3317,7 +3327,7 @@ export function MyLinksClient() {
             <div className="claimable-selection-toolbar" role="region" aria-label="Link selection">
               <div>
                 <strong>{selectedDeletableClaimables.length} selected</strong>
-                <span>Only unfunded or closed links can be deleted.</span>
+                <span>Removing entries does not refund KAS.</span>
               </div>
               <div className="claimable-selection-actions">
                 <button

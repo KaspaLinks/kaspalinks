@@ -491,6 +491,13 @@ export async function DELETE(request: Request) {
 
   const limited = enforceRateLimit(RateBuckets.CREATOR_PROFILE_UPDATE, guard.creator.id);
   if (!limited.allowed) return limited.response;
+  const removeFromList = z
+    .enum(["true", "false"])
+    .nullable()
+    .safeParse(new URL(request.url).searchParams.get("removeFromList"));
+  if (!removeFromList.success)
+    return apiError(ErrorCodes.INVALID_BODY, "removeFromList is invalid.", 400);
+  const listOnly = removeFromList.data === "true";
   const parsedKey = z
     .string()
     .trim()
@@ -506,42 +513,44 @@ export async function DELETE(request: Request) {
   }
 
   let onChain: Awaited<ReturnType<typeof resolveClaimableOnChain>> = null;
-  try {
-    if (!(await isClaimableFundingAddressEmpty(link.fundingAddress))) {
+  if (!listOnly) {
+    try {
+      if (!(await isClaimableFundingAddressEmpty(link.fundingAddress))) {
+        return apiError(
+          ErrorCodes.INVALID_STATE,
+          "This funding address still holds KAS. Recover every output before deleting the link.",
+          409,
+        );
+      }
+      if (!DELETABLE_STATUSES.has(link.status)) {
+        onChain = await resolveClaimableOnChain({
+          amountSompi: link.amountSompi.toString(),
+          claimTxId: link.claimTxId,
+          createdAtMs: link.createdAt.getTime(),
+          fundingAddress: link.fundingAddress,
+          fundingOutputIndex: link.fundingOutputIndex,
+          fundingTxId: link.fundingTxId,
+          refundLockTime: link.refundLockTime,
+          refundTxId: link.refundTxId,
+          status: link.status,
+        });
+      }
+    } catch {
+      return apiError(
+        ErrorCodes.SERVER_ERROR,
+        "Could not verify this claimable link on-chain. Try again later.",
+        503,
+      );
+    }
+    const resolvedStatus = onChain?.status ?? link.status;
+    const verifiedUnfunded = resolvedStatus === "awaiting_funding" && link.fundingTxId === null;
+    if (!verifiedUnfunded && !DELETABLE_STATUSES.has(resolvedStatus)) {
       return apiError(
         ErrorCodes.INVALID_STATE,
-        "This funding address still holds KAS. Recover every output before deleting the link.",
+        "Funding state is not yet settled. Wait for confirmation before deleting this link.",
         409,
       );
     }
-    if (!DELETABLE_STATUSES.has(link.status)) {
-      onChain = await resolveClaimableOnChain({
-        amountSompi: link.amountSompi.toString(),
-        claimTxId: link.claimTxId,
-        createdAtMs: link.createdAt.getTime(),
-        fundingAddress: link.fundingAddress,
-        fundingOutputIndex: link.fundingOutputIndex,
-        fundingTxId: link.fundingTxId,
-        refundLockTime: link.refundLockTime,
-        refundTxId: link.refundTxId,
-        status: link.status,
-      });
-    }
-  } catch {
-    return apiError(
-      ErrorCodes.SERVER_ERROR,
-      "Could not verify this claimable link on-chain. Try again later.",
-      503,
-    );
-  }
-  const resolvedStatus = onChain?.status ?? link.status;
-  const verifiedUnfunded = resolvedStatus === "awaiting_funding" && link.fundingTxId === null;
-  if (!verifiedUnfunded && !DELETABLE_STATUSES.has(resolvedStatus)) {
-    return apiError(
-      ErrorCodes.INVALID_STATE,
-      "Funding state is not yet settled. Wait for confirmation before deleting this link.",
-      409,
-    );
   }
   const deleted = await prisma.claimableLink.updateMany({
     data: { ...onChain, deletedAt: new Date() },
@@ -565,7 +574,7 @@ export async function DELETE(request: Request) {
     creatorId: guard.creator.id,
     event: "claimable_link.deleted",
     ipHash: guard.ipHash,
-    metadata: { linkKey: link.linkKey },
+    metadata: { linkKey: link.linkKey, ...(listOnly ? { listOnly: true } : {}) },
   });
 
   return apiJson({ deleted: true });

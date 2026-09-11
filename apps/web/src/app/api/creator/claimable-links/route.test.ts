@@ -361,6 +361,77 @@ describe("creator claimable link API", () => {
     );
   });
 
+  it.each(["refundable", "funded", "shared"])(
+    "removes a %s entry from the list without requiring recovery or spending funds",
+    async (status) => {
+      mockPrisma.claimableLink.findUnique.mockResolvedValue(row({ status }));
+      mockIsClaimableFundingAddressEmpty.mockRejectedValue(new Error("Indexer unavailable"));
+      const response = await DELETE(
+        new Request(
+          "https://kaspalinks.com/api/creator/claimable-links?linkKey=lab-safe-link&removeFromList=true",
+          { method: "DELETE" },
+        ),
+      );
+      expect(response.status).toBe(200);
+      expect(mockIsClaimableFundingAddressEmpty).not.toHaveBeenCalled();
+      expect(mockPrisma.claimableLink.findUnique).toHaveBeenCalledWith({
+        where: { creatorId_linkKey: { creatorId: "creator-1", linkKey: "lab-safe-link" } },
+      });
+      expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith({
+        data: { deletedAt: expect.any(Date) },
+        where: {
+          id: "claimable-1",
+          creatorId: "creator-1",
+          updatedAt: CREATED_AT,
+          status,
+          deletedAt: null,
+        },
+      });
+      expect(mockWriteAuditLog).toHaveBeenCalledWith(
+        mockPrisma,
+        expect.objectContaining({
+          event: "claimable_link.deleted",
+          metadata: { linkKey: "lab-safe-link", listOnly: true },
+        }),
+      );
+    },
+  );
+
+  it("validates explicit list-removal intent", async () => {
+    const response = await DELETE(
+      new Request(
+        "https://kaspalinks.com/api/creator/claimable-links?linkKey=lab-safe-link&removeFromList=anything",
+        { method: "DELETE" },
+      ),
+    );
+    expect(response.status).toBe(400);
+    expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not remove an entry outside the authenticated creator lookup", async () => {
+    mockPrisma.claimableLink.findUnique.mockResolvedValue(null);
+    const response = await DELETE(
+      new Request(
+        "https://kaspalinks.com/api/creator/claimable-links?linkKey=other-link&removeFromList=true",
+        { method: "DELETE" },
+      ),
+    );
+    expect(response.status).toBe(404);
+    expect(mockPrisma.claimableLink.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects concurrent changes during list removal", async () => {
+    mockPrisma.claimableLink.findUnique.mockResolvedValue(row({ status: "refundable" }));
+    mockPrisma.claimableLink.updateMany.mockResolvedValue({ count: 0 });
+    const response = await DELETE(
+      new Request(
+        "https://kaspalinks.com/api/creator/claimable-links?linkKey=lab-safe-link&removeFromList=true",
+        { method: "DELETE" },
+      ),
+    );
+    expect(response.status).toBe(409);
+  });
+
   it("hides an unfunded link only after checking the entire address", async () => {
     mockPrisma.claimableLink.findUnique.mockResolvedValue(row());
     const response = await DELETE(deleteRequest());
