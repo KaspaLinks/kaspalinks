@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { savePrivateRecoveryFile } from "@/lib/private-recovery-download";
 import type { PrototypeManifest } from "@/lib/giveaway-prize-v3-prototype";
 import {
@@ -11,6 +13,7 @@ import {
 
 type Trial = { id: string; manifest: PrototypeManifest };
 type Detail = Trial & {
+  payout?: { transactionId: string; confirmed: boolean; winnerAddress: string | null } | null;
   terms: { fundingSompi: string; open: { address: string }; frozen: { address: string } };
   chain: { daa: string; blueScore: string };
   open: { amount: string }[];
@@ -51,6 +54,8 @@ export default function PrototypeClient() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [chainFresh, setChainFresh] = useState(false);
   const [addresses, setAddresses] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState(15);
+  const [qr, setQr] = useState<{ uri: string; src: string } | null>(null);
   const [prize, setPrize] = useState("20000000");
   const [recovery, setRecovery] = useState<{ id: string; privateKeyHex: string } | null>(null);
   const [saved, setSaved] = useState(false);
@@ -111,6 +116,7 @@ export default function PrototypeClient() {
         input: {
           creatorPublicKeyHex: key.publicKeyHex,
           prizeSompi: prize,
+          durationMinutes,
           addresses: addresses.split(/\s+/).filter(Boolean),
         },
       });
@@ -160,21 +166,48 @@ export default function PrototypeClient() {
     });
   const daa = BigInt(detail?.chain.daa ?? "0");
   const refundable = detail ? daa > BigInt(detail.manifest.refundDaa) : false;
+  const fundingUri = detail
+    ? buildWalletLaunchUri({
+        recipientAddress: detail.terms.open.address,
+        amountKas: kas(detail.terms.fundingSompi).replace(" KAS", ""),
+      })
+    : "";
+  useEffect(() => {
+    if (!fundingUri) return;
+    let active = true;
+    void import("qrcode")
+      .then((q) => q.toDataURL(fundingUri, { width: 280, margin: 2, errorCorrectionLevel: "M" }))
+      .then((src) => {
+        if (active) setQr({ uri: fundingUri, src });
+      })
+      .catch(() => {
+        if (active) setQr(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [fundingUri]);
+  const remaining = (target: string, current: bigint) =>
+    Math.max(0, Math.ceil(Number(BigInt(target) - current) / 600));
+  const frozen = Boolean(detail?.frozen.length);
+  const funded = Boolean(detail?.open.length);
+  const complete = Boolean(detail?.payout?.confirmed);
   return (
     <main
       className="main giveaway-lab-page covenant-prototype-page"
       style={{ maxWidth: 680, margin: "0 auto", padding: "24px 16px" }}
     >
       <Link href="/toccata-lab/giveaway?view=manage">← Giveaways</Link>
-      <h1>Prize covenant · Mainnet prototype</h1>
-      <p>
-        Real KAS. Fixed test participants. The platform attests the list and entropy block; the
-        covenant enforces the payout.
-      </p>
-      <p>
-        Two transaction fees of 0.01 KAS each are reserved. Wallet funding has its own fee. Recovery
-        unlocks after roughly one hour.
-      </p>
+      <h1>Giveaway studio</h1>
+      <p>Private Mainnet preview · 2–8 fixed participants</p>
+      <details>
+        <summary>Fees and how this preview works</summary>
+        <p>
+          The platform attests the participant list and randomness block. Funding goes directly into
+          the covenant. Two fees of 0.01 KAS are reserved; your wallet adds its funding fee.
+          Recovery becomes available about 55 minutes after entries close.
+        </p>
+      </details>
       <p role="status" aria-live="polite">
         {message}
       </p>
@@ -187,7 +220,7 @@ export default function PrototypeClient() {
       )}
       {!detail ? (
         <section className="card">
-          <h2>Create a trial</h2>
+          <h2>Create your giveaway</h2>
           <label htmlFor="prize">Prize</label>
           <select
             id="prize"
@@ -199,6 +232,25 @@ export default function PrototypeClient() {
             <option value="50000000">0.5 KAS</option>
             <option value="100000000">1 KAS</option>
           </select>
+          <label htmlFor="duration" style={{ display: "block", marginTop: 16 }}>
+            Entries close in
+          </label>
+          <select
+            id="duration"
+            value={durationMinutes}
+            disabled={busy}
+            onChange={(e) => setDurationMinutes(Number(e.target.value))}
+          >
+            {[5, 15, 30, 60].map((minutes) => (
+              <option key={minutes} value={minutes}>
+                {minutes} minutes
+              </option>
+            ))}
+          </select>
+          <p>
+            The timer starts when you prepare the giveaway. Fund before it closes. Drawing becomes
+            available about one minute after closing.
+          </p>
           <label htmlFor="entrants" style={{ display: "block", marginTop: 16 }}>
             2–8 payout addresses · one per line
           </label>
@@ -215,9 +267,9 @@ export default function PrototypeClient() {
             disabled={busy || !addresses.trim()}
             onClick={() => void create()}
           >
-            Prepare trial
+            Prepare giveaway
           </button>
-          <h2>Your trials</h2>
+          <h2>Your giveaways</h2>
           {trials.map((trial) => (
             <p key={trial.id}>
               <button
@@ -229,12 +281,12 @@ export default function PrototypeClient() {
               </button>
             </p>
           ))}
-          <Link href="/sign-in">Creator sign-in</Link>
+          <Link href="/sign-in?next=%2Ftoccata-lab%2Fprize-covenant">Creator sign-in</Link>
         </section>
       ) : (
         <section className="card">
           <button className="btn" disabled={busy} onClick={() => setDetail(null)}>
-            All trials
+            All giveaways
           </button>
           <button
             className="btn"
@@ -243,140 +295,207 @@ export default function PrototypeClient() {
           >
             Refresh chain state
           </button>
-          <h2>1. Save recovery</h2>
-          {recovery?.id === detail.id && (
-            <button
-              className="btn"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  await savePrivateRecoveryFile(
-                    new File(
-                      [
-                        JSON.stringify(
-                          {
-                            format: "kaspalinks-covenant-prototype-v3",
-                            id: detail.id,
-                            privateKeyHex: recovery.privateKeyHex,
-                            manifest: detail.manifest,
-                            terms: detail.terms,
-                          },
-                          null,
-                          2,
-                        ),
-                      ],
-                      `covenant-${detail.id}-recovery.json`,
-                      { type: "application/json" },
-                    ),
-                    false,
-                  );
-                })
-              }
-            >
-              Save recovery file
-            </button>
-          )}
-          <label style={{ display: "block", marginTop: 12 }}>
-            Import prototype recovery
-            <input
-              type="file"
-              accept="application/json,.json"
-              disabled={busy}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (!file) return;
-                void run(async () => {
-                  if (file.size > 30_000) throw new Error("Recovery file is too large.");
-                  const data = JSON.parse(await file.text());
-                  if (
-                    data.format !== "kaspalinks-covenant-prototype-v3" ||
-                    data.id !== detail.id ||
-                    !/^[0-9a-f]{64}$/.test(data.privateKeyHex)
-                  )
-                    throw new Error("Choose the recovery file for this trial.");
-                  await verifyPrototypeRecoveryKey(
-                    data.privateKeyHex,
-                    detail.manifest.creatorPublicKeyHex,
-                  );
-                  setRecovery({ id: data.id, privateKeyHex: data.privateKeyHex });
-                  setSaved(true);
-                });
-              }}
-            />
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={saved && recovery?.id === detail.id}
-              disabled={recovery?.id !== detail.id}
-              onChange={(e) => setSaved(e.target.checked)}
-            />{" "}
-            I saved this trial's recovery file privately.
-          </label>
-          <h2>2. Fund</h2>
-          {chainFresh &&
-          saved &&
-          recovery?.id === detail.id &&
-          daa < BigInt(detail.manifest.closesAtDaa) &&
-          detail.open.length === 0 &&
-          detail.frozen.length === 0 ? (
-            <>
+          <div role="status" aria-live="polite" className="prototype-progress">
+            <h2>
+              {complete
+                ? "Winner paid"
+                : frozen
+                  ? "Ready for the draw"
+                  : funded
+                    ? "Funding received"
+                    : "Prepare your funding"}
+            </h2>
+            <p>
+              {complete
+                ? `${kas(detail.manifest.prizeSompi)} paid · confirmed on Mainnet`
+                : !chainFresh
+                  ? "Updating chain status — please wait."
+                  : refundable
+                    ? "Draw window ended. Use recovery below for remaining funds."
+                    : frozen
+                      ? remaining(
+                          (BigInt(detail.manifest.entropyTargetBlueScore) + 100n).toString(),
+                          BigInt(detail.chain.blueScore),
+                        ) > 0
+                        ? `Waiting for the randomness block: approximately ${remaining((BigInt(detail.manifest.entropyTargetBlueScore) + 100n).toString(), BigInt(detail.chain.blueScore))} min.`
+                        : "Draw is ready. Tap below to pay the winner."
+                      : `Entries close in approximately ${remaining(detail.manifest.closesAtDaa, daa)} min. Times follow blockchain progress.`}
+            </p>
+            {detail.payout && (
               <p>
-                Send exactly <strong>{kas(detail.terms.fundingSompi)}</strong> in one payment.
+                <a
+                  href={`https://explorer.kaspa.org/txs/${detail.payout.transactionId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {complete ? "View confirmed payout" : "Payout submitted — check confirmation"}
+                </a>
               </p>
-              <p style={{ overflowWrap: "anywhere" }}>{detail.terms.open.address}</p>
+            )}
+            {complete && (
+              <p style={{ overflowWrap: "anywhere" }}>Winner: {detail.payout?.winnerAddress}</p>
+            )}
+          </div>
+          <details open={!funded && !frozen && !detail.payout}>
+            <summary>1. Save recovery</summary>
+            {recovery?.id === detail.id && (
               <button
                 className="btn"
+                disabled={busy}
                 onClick={() =>
                   void run(async () => {
-                    await navigator.clipboard.writeText(detail.terms.open.address);
-                    setMessage("Funding address copied.");
+                    await savePrivateRecoveryFile(
+                      new File(
+                        [
+                          JSON.stringify(
+                            {
+                              format: "kaspalinks-covenant-prototype-v3",
+                              id: detail.id,
+                              privateKeyHex: recovery.privateKeyHex,
+                              manifest: detail.manifest,
+                              terms: detail.terms,
+                            },
+                            null,
+                            2,
+                          ),
+                        ],
+                        `covenant-${detail.id}-recovery.json`,
+                        { type: "application/json" },
+                      ),
+                      false,
+                    );
                   })
                 }
               >
-                Copy funding address
+                Save recovery file
+              </button>
+            )}
+            <label style={{ display: "block", marginTop: 12 }}>
+              Import prototype recovery
+              <input
+                type="file"
+                accept="application/json,.json"
+                disabled={busy}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  void run(async () => {
+                    if (file.size > 30_000) throw new Error("Recovery file is too large.");
+                    const data = JSON.parse(await file.text());
+                    if (
+                      data.format !== "kaspalinks-covenant-prototype-v3" ||
+                      data.id !== detail.id ||
+                      !/^[0-9a-f]{64}$/.test(data.privateKeyHex)
+                    )
+                      throw new Error("Choose the recovery file for this trial.");
+                    await verifyPrototypeRecoveryKey(
+                      data.privateKeyHex,
+                      detail.manifest.creatorPublicKeyHex,
+                    );
+                    setRecovery({ id: data.id, privateKeyHex: data.privateKeyHex });
+                    setSaved(true);
+                  });
+                }}
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={saved && recovery?.id === detail.id}
+                disabled={recovery?.id !== detail.id}
+                onChange={(e) => setSaved(e.target.checked)}
+              />{" "}
+              I saved this trial's recovery file privately.
+            </label>
+          </details>
+          {!complete && (
+            <>
+              <h2>2. Fund</h2>
+              {chainFresh &&
+              saved &&
+              recovery?.id === detail.id &&
+              daa < BigInt(detail.manifest.closesAtDaa) &&
+              detail.open.length === 0 &&
+              detail.frozen.length === 0 ? (
+                <>
+                  <p>
+                    Send exactly <strong>{kas(detail.terms.fundingSompi)}</strong> in one payment.
+                  </p>
+                  {qr?.uri === fundingUri && (
+                    <Image
+                      src={qr.src}
+                      alt={`Scan to fund ${kas(detail.terms.fundingSompi)}`}
+                      width={280}
+                      height={280}
+                      unoptimized
+                      style={{ maxWidth: "100%", height: "auto", borderRadius: 12 }}
+                    />
+                  )}
+                  <p>
+                    <a className="btn btn-primary" href={fundingUri}>
+                      Open wallet
+                    </a>
+                  </p>
+                  <p style={{ overflowWrap: "anywhere" }}>{detail.terms.open.address}</p>
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      void run(async () => {
+                        await navigator.clipboard.writeText(detail.terms.open.address);
+                        setMessage("Funding address copied.");
+                      })
+                    }
+                  >
+                    Copy funding address
+                  </button>
+                </>
+              ) : (
+                <p>
+                  {detail.open.length > 0
+                    ? "Funding received. Next: freeze participants after entries close."
+                    : detail.frozen.length > 0
+                      ? "Participants are locked. Next: draw and pay the winner."
+                      : "Save recovery first. Funding is available only before entries close."}
+                </p>
+              )}
+              <h2>3. Freeze and draw</h2>
+              <p>Each step costs 0.01 KAS from the reserved fees.</p>
+              <button
+                className="btn btn-primary"
+                disabled={
+                  busy ||
+                  !chainFresh ||
+                  Boolean(detail.payout) ||
+                  refundable ||
+                  !detail.open.some((entry) => entry.amount === detail.terms.fundingSompi) ||
+                  daa <= BigInt(detail.manifest.closesAtDaa)
+                }
+                onClick={() => void submit("freeze")}
+              >
+                Freeze participants
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={
+                  busy ||
+                  !chainFresh ||
+                  Boolean(detail.payout) ||
+                  refundable ||
+                  !detail.frozen.some(
+                    (entry) =>
+                      BigInt(entry.amount) ===
+                      BigInt(detail.manifest.prizeSompi) + BigInt(detail.manifest.drawFeeSompi),
+                  ) ||
+                  BigInt(detail.chain.blueScore) <
+                    BigInt(detail.manifest.entropyTargetBlueScore) + 100n
+                }
+                onClick={() => void submit("draw")}
+              >
+                Draw and pay winner
               </button>
             </>
-          ) : (
-            <p>
-              {detail.open.length > 0
-                ? "Unspent open-state output detected."
-                : detail.frozen.length > 0
-                  ? "Unspent frozen-state output detected."
-                  : "Save recovery first. Funding is available only before entries close."}
-            </p>
           )}
-          <h2>3. Freeze and draw</h2>
-          <p>Each step costs 0.01 KAS from the reserved fees.</p>
-          <button
-            className="btn btn-primary"
-            disabled={
-              busy ||
-              refundable ||
-              !detail.open.some((entry) => entry.amount === detail.terms.fundingSompi) ||
-              daa <= BigInt(detail.manifest.closesAtDaa)
-            }
-            onClick={() => void submit("freeze")}
-          >
-            Freeze participants
-          </button>
-          <button
-            className="btn btn-primary"
-            disabled={
-              busy ||
-              refundable ||
-              !detail.frozen.some(
-                (entry) =>
-                  BigInt(entry.amount) ===
-                  BigInt(detail.manifest.prizeSompi) + BigInt(detail.manifest.drawFeeSompi),
-              ) ||
-              BigInt(detail.chain.blueScore) < BigInt(detail.manifest.entropyTargetBlueScore) + 100n
-            }
-            onClick={() => void submit("draw")}
-          >
-            Draw and pay winner
-          </button>
           <details style={{ marginTop: 20 }}>
             <summary>Recovery and committed details</summary>
             <p>

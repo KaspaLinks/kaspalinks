@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { verifyPrototypeEntropy, readPrototypeUtxos } from "./giveaway-prize-v3-chain";
+import {
+  readPrototypePayout,
+  verifyPrototypeEntropy,
+  readPrototypeUtxos,
+} from "./giveaway-prize-v3-chain";
 const hash = "ab".repeat(32),
   seed = "cd".repeat(32);
 function mockChain(overrides: Record<string, unknown> = {}) {
@@ -61,5 +65,39 @@ describe("prototype chain entropy", () => {
       vi.fn(async () => Response.json({ error: "upstream" })),
     );
     await expect(readPrototypeUtxos("kaspa:test")).rejects.toThrow();
+  });
+});
+
+describe("confirmed prototype payout", () => {
+  const manifest = { prizeSompi: "100000000", entries: [{ address: "kaspa:winner" }] };
+  it("requires accepted identity, exact prize and a participant destination", async () => {
+    const valid = {
+      transaction_id: hash,
+      is_accepted: true,
+      outputs: [{ amount: "100000000", script_public_key_address: "kaspa:winner" }],
+    };
+    for (const [tx, confirmed] of [
+      [valid, true],
+      [{ ...valid, is_accepted: false }, false],
+      [{ ...valid, transaction_id: seed }, false],
+      [{ ...valid, outputs: [{ amount: "1", script_public_key_address: "kaspa:winner" }] }, false],
+      [
+        { ...valid, outputs: [{ amount: "100000000", script_public_key_address: "kaspa:other" }] },
+        false,
+      ],
+    ] as const) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json(tx)),
+      );
+      expect((await readPrototypePayout(hash, manifest)).confirmed).toBe(confirmed);
+    }
+  });
+  it("does not label unavailable transaction data as confirmed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
+    expect((await readPrototypePayout(hash, manifest)).confirmed).toBe(false);
   });
 });

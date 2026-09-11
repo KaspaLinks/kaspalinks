@@ -20,6 +20,7 @@ import {
   validatePrototypeRefundTransaction,
 } from "@/lib/giveaway-prize-v3-prototype";
 import {
+  readPrototypePayout,
   readPrototypeChain,
   readPrototypeEntropy,
   readPrototypeUtxos,
@@ -78,7 +79,26 @@ export async function GET(request: Request) {
       readPrototypeUtxos(terms.open.address),
       readPrototypeUtxos(terms.frozen.address),
     ]);
+    const submitted = await prisma.auditLog.findFirst({
+      where: {
+        creatorId: guard.creator.id,
+        event: "giveaway.covenant_prototype_submitted",
+        AND: [
+          { metadata: { path: ["prototypeId"], equals: row.id } },
+          { metadata: { path: ["mode"], equals: "draw" } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      select: { metadata: true },
+    });
+    const submission = z
+      .object({ transactionId: z.string().regex(/^[0-9a-f]{64}$/) })
+      .safeParse(submitted?.metadata);
+    const payout = submission.success
+      ? await readPrototypePayout(submission.data.transactionId, manifest)
+      : null;
     return apiJson({
+      payout,
       id: row.id,
       manifest,
       terms,

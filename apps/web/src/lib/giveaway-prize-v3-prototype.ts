@@ -19,6 +19,9 @@ export const PROTOTYPE_COMPUTE_BUDGET = 50;
 export const PROTOTYPE_FEE_SOMPI = 1_000_000n;
 export const prototypeCreateSchema = z
   .object({
+    durationMinutes: z
+      .union([z.literal(5), z.literal(15), z.literal(30), z.literal(60)])
+      .optional(),
     creatorPublicKeyHex: hex32,
     prizeSompi: decimal.refine(
       (v) => BigInt(v) >= 20_000_000n && BigInt(v) <= 100_000_000n,
@@ -91,6 +94,7 @@ export function createPrototypeManifest(
     .sort((a, b) => a.hash.localeCompare(b.hash));
   if (new Set(entries.map((e) => e.hash)).size !== entries.length)
     throw new Error("Each payout address may enter only once.");
+  const duration = BigInt(input.durationMinutes ?? 5) * 600n;
   return prototypeManifestSchema.parse({
     creatorPublicKeyHex: input.creatorPublicKeyHex,
     prizeSompi: input.prizeSompi,
@@ -100,9 +104,9 @@ export function createPrototypeManifest(
     entries,
     drawFeeSompi: PROTOTYPE_FEE_SOMPI.toString(),
     freezeFeeSompi: PROTOTYPE_FEE_SOMPI.toString(),
-    closesAtDaa: (chain.daa + 3000n).toString(),
-    refundDaa: (chain.daa + 36_000n).toString(),
-    entropyTargetBlueScore: (chain.blueScore + 3600n).toString(),
+    closesAtDaa: (chain.daa + duration).toString(),
+    refundDaa: (chain.daa + duration + 33_000n).toString(),
+    entropyTargetBlueScore: (chain.blueScore + duration + 600n).toString(),
   });
 }
 

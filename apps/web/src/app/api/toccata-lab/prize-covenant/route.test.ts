@@ -4,12 +4,14 @@ const mocks = vi.hoisted(() => ({
   guard: vi.fn(),
   limit: vi.fn(),
   audit: vi.fn(),
+  payout: vi.fn(),
   chain: vi.fn(),
   utxos: vi.fn(),
   entropy: vi.fn(),
   verifyEntropy: vi.fn(),
   broadcast: vi.fn(),
   db: {
+    auditLog: { findFirst: vi.fn() },
     covenantPrototype: {
       findFirst: vi.fn(),
       findMany: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("@/lib/rate-limit-helpers", () => ({
 }));
 vi.mock("@/lib/audit", () => ({ writeAuditLog: mocks.audit }));
 vi.mock("@/lib/giveaway-prize-v3-chain", () => ({
+  readPrototypePayout: mocks.payout,
   readPrototypeChain: mocks.chain,
   readPrototypeUtxos: mocks.utxos,
   readPrototypeEntropy: mocks.entropy,
@@ -90,6 +93,21 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 describe("prototype access and transitions", () => {
+  it("restores a confirmed payout from creator-scoped audit history", async () => {
+    const row = trial();
+    mocks.db.covenantPrototype.findFirst.mockResolvedValue(row);
+    mocks.db.auditLog.findFirst.mockResolvedValue({ metadata: { transactionId: "ab".repeat(32) } });
+    const payout = {
+      transactionId: "ab".repeat(32),
+      confirmed: true,
+      winnerAddress: row.manifest.entries[0].address,
+    };
+    mocks.payout.mockResolvedValue(payout);
+    const response = await GET(new Request(`https://example.com?id=${id}`));
+    expect(response.status).toBe(200);
+    expect((await response.json()).payout).toEqual(payout);
+    expect(mocks.db.auditLog.findFirst.mock.calls[0][0].where.creatorId).toBe("creator");
+  });
   it("does not expose prototypes without the explicit feature gate", async () => {
     vi.stubEnv("GIVEAWAY_COVENANT_PROTOTYPE_ENABLED", "false");
     expect((await GET(new Request("https://example.com"))).status).toBe(404);

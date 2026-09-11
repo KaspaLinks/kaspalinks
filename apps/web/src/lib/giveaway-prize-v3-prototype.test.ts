@@ -160,3 +160,27 @@ describe("mainnet covenant prototype", () => {
     ).toThrow(/exactly/);
   });
 });
+
+describe("prototype duration", () => {
+  it("preserves the legacy five-minute default and rejects unsupported durations", () => {
+    expect(make().closesAtDaa).toBe("536003000");
+    const input = {
+      creatorPublicKeyHex: publicKey.toString(),
+      prizeSompi: "100000000",
+      addresses: [address("33"), address("44")],
+    };
+    for (const durationMinutes of [0, -5, 6, 1440, "15"])
+      expect(prototypeCreateSchema.safeParse({ ...input, durationMinutes }).success).toBe(false);
+    for (const durationMinutes of [5, 15, 30, 60] as const) {
+      const manifest = createPrototypeManifest(
+        { ...input, durationMinutes },
+        { daa: 100n, blueScore: 200n, platformPublicKeyHex: publicKey.toString() },
+      );
+      expect(BigInt(manifest.closesAtDaa)).toBe(100n + BigInt(durationMinutes) * 600n);
+      expect(BigInt(manifest.refundDaa) - BigInt(manifest.closesAtDaa)).toBe(33000n);
+      expect(BigInt(manifest.entropyTargetBlueScore)).toBe(
+        200n + BigInt(durationMinutes) * 600n + 600n,
+      );
+    }
+  });
+});

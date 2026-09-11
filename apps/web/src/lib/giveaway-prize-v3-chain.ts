@@ -96,3 +96,28 @@ export async function verifyPrototypeEntropy(
     seedHex: block.header.acceptedIdMerkleRoot,
   };
 }
+
+export async function readPrototypePayout(
+  transactionId: string,
+  manifest: { prizeSompi: string; entries: { address: string }[] },
+) {
+  try {
+    const tx = z
+      .object({
+        transaction_id: hash,
+        is_accepted: z.boolean(),
+        outputs: z.array(z.object({ amount: decimal, script_public_key_address: z.string() })),
+      })
+      .parse(await read(`/transactions/${transactionId}`));
+    const output = tx.outputs[0];
+    return tx.transaction_id === transactionId &&
+      tx.is_accepted &&
+      tx.outputs.length === 1 &&
+      output?.amount === manifest.prizeSompi &&
+      manifest.entries.some((e) => e.address === output.script_public_key_address)
+      ? { transactionId, confirmed: true, winnerAddress: output.script_public_key_address }
+      : { transactionId, confirmed: false, winnerAddress: null };
+  } catch {
+    return { transactionId, confirmed: false, winnerAddress: null };
+  }
+}
