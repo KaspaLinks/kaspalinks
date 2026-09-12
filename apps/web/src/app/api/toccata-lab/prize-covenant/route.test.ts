@@ -100,7 +100,7 @@ describe("prototype access and transitions", () => {
     const payout = {
       transactionId: "ab".repeat(32),
       confirmed: true,
-      winnerAddress: row.manifest.entries[0].address,
+      winnerAddress: row.manifest.entries[0]!.address,
     };
     mocks.payout.mockResolvedValue(payout);
     const response = await GET(new Request(`https://example.com?id=${id}`));

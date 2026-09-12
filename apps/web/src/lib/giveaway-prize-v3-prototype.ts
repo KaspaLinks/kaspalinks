@@ -20,7 +20,15 @@ export const PROTOTYPE_FEE_SOMPI = 1_000_000n;
 export const prototypeCreateSchema = z
   .object({
     durationMinutes: z
-      .union([z.literal(5), z.literal(15), z.literal(30), z.literal(60)])
+      .union([
+        z.literal(5),
+        z.literal(15),
+        z.literal(30),
+        z.literal(60),
+        z.literal(360),
+        z.literal(720),
+        z.literal(1440),
+      ])
       .optional(),
     creatorPublicKeyHex: hex32,
     prizeSompi: decimal.refine(

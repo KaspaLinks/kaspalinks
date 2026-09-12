@@ -169,9 +169,9 @@ describe("prototype duration", () => {
       prizeSompi: "100000000",
       addresses: [address("33"), address("44")],
     };
-    for (const durationMinutes of [0, -5, 6, 1440, "15"])
+    for (const durationMinutes of [0, -5, 6, 1441, 2880, "15"])
       expect(prototypeCreateSchema.safeParse({ ...input, durationMinutes }).success).toBe(false);
-    for (const durationMinutes of [5, 15, 30, 60] as const) {
+    for (const durationMinutes of [5, 15, 30, 60, 360, 720, 1440] as const) {
       const manifest = createPrototypeManifest(
         { ...input, durationMinutes },
         { daa: 100n, blueScore: 200n, platformPublicKeyHex: publicKey.toString() },

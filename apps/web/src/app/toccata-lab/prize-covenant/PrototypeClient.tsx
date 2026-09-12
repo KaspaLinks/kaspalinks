@@ -241,9 +241,11 @@ export default function PrototypeClient() {
             disabled={busy}
             onChange={(e) => setDurationMinutes(Number(e.target.value))}
           >
-            {[5, 15, 30, 60].map((minutes) => (
+            {[5, 15, 30, 60, 360, 720, 1440].map((minutes) => (
               <option key={minutes} value={minutes}>
-                {minutes} minutes
+                {minutes < 60
+                  ? `${minutes} minutes`
+                  : `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`}
               </option>
             ))}
           </select>
