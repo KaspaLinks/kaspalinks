@@ -11,8 +11,9 @@ import {
   verifyPrototypeRecoveryKey,
 } from "./browser";
 
-type Trial = { id: string; manifest: PrototypeManifest };
+type Trial = { id: string; manifest: PrototypeManifest; publicTitle?: string | null };
 type Detail = Trial & {
+  entryCount?: number;
   payout?: { transactionId: string; confirmed: boolean; winnerAddress: string | null } | null;
   terms: { fundingSompi: string; open: { address: string }; frozen: { address: string } };
   chain: { daa: string; blueScore: string };
@@ -53,6 +54,8 @@ export default function PrototypeClient() {
   const [trials, setTrials] = useState<Trial[]>([]);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [chainFresh, setChainFresh] = useState(false);
+  const [publicEntry, setPublicEntry] = useState(true);
+  const [title, setTitle] = useState("");
   const [addresses, setAddresses] = useState("");
   const [durationMinutes, setDurationMinutes] = useState(15);
   const [qr, setQr] = useState<{ uri: string; src: string } | null>(null);
@@ -117,7 +120,8 @@ export default function PrototypeClient() {
           creatorPublicKeyHex: key.publicKeyHex,
           prizeSompi: prize,
           durationMinutes,
-          addresses: addresses.split(/\s+/).filter(Boolean),
+          addresses: publicEntry ? [] : addresses.split(/\s+/).filter(Boolean),
+          ...(publicEntry ? { publicTitle: title } : {}),
         },
       });
       setTrials((current) => [created, ...current]);
@@ -199,7 +203,7 @@ export default function PrototypeClient() {
     >
       <Link href="/toccata-lab/giveaway?view=manage">← Giveaways</Link>
       <h1>Giveaway studio</h1>
-      <p>Private Mainnet preview · 2–8 fixed participants</p>
+      <p>Mainnet preview · up to 100 participants</p>
       <details>
         <summary>Fees and how this preview works</summary>
         <p>
@@ -221,6 +225,28 @@ export default function PrototypeClient() {
       {!detail ? (
         <section className="card">
           <h2>Create your giveaway</h2>
+          <label>
+            <input
+              type="checkbox"
+              checked={publicEntry}
+              disabled={busy}
+              onChange={(e) => setPublicEntry(e.target.checked)}
+            />{" "}
+            Public participation link
+          </label>
+          {publicEntry && (
+            <>
+              <label htmlFor="giveaway-title">Giveaway title</label>
+              <input
+                id="giveaway-title"
+                maxLength={100}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                disabled={busy}
+                style={{ width: "100%" }}
+              />
+            </>
+          )}
           <label htmlFor="prize">Prize</label>
           <select
             id="prize"
@@ -253,20 +279,24 @@ export default function PrototypeClient() {
             The timer starts when you prepare the giveaway. Fund before it closes. Drawing becomes
             available about one minute after closing.
           </p>
-          <label htmlFor="entrants" style={{ display: "block", marginTop: 16 }}>
-            2–8 payout addresses · one per line
-          </label>
-          <textarea
-            id="entrants"
-            rows={6}
-            value={addresses}
-            onChange={(e) => setAddresses(e.target.value)}
-            disabled={busy}
-            style={{ width: "100%" }}
-          />
+          {!publicEntry && (
+            <>
+              <label htmlFor="entrants" style={{ display: "block", marginTop: 16 }}>
+                2–100 payout addresses · one per line
+              </label>
+              <textarea
+                id="entrants"
+                rows={6}
+                value={addresses}
+                onChange={(e) => setAddresses(e.target.value)}
+                disabled={busy}
+                style={{ width: "100%" }}
+              />
+            </>
+          )}
           <button
             className="btn btn-primary"
-            disabled={busy || !addresses.trim()}
+            disabled={busy || (publicEntry ? title.trim().length < 3 : !addresses.trim())}
             onClick={() => void create()}
           >
             Prepare giveaway
@@ -279,7 +309,7 @@ export default function PrototypeClient() {
                 disabled={busy}
                 onClick={() => void run(() => refresh(trial.id))}
               >
-                {trial.id.slice(-8)} · {kas(trial.manifest.prizeSompi)}
+                {trial.publicTitle ?? trial.id.slice(-8)} · {kas(trial.manifest.prizeSompi)}
               </button>
             </p>
           ))}
@@ -338,6 +368,28 @@ export default function PrototypeClient() {
               <p style={{ overflowWrap: "anywhere" }}>Winner: {detail.payout?.winnerAddress}</p>
             )}
           </div>
+          {detail.publicTitle && (
+            <section>
+              <h3>{detail.publicTitle}</h3>
+              <p>{detail.entryCount ?? 0} / 100 participants</p>
+              <Link href={`/giveaways/${detail.id}`}>Open participation page</Link>
+              <button
+                className="btn"
+                disabled={busy || (!funded && !frozen && !complete)}
+                onClick={() =>
+                  void run(async () => {
+                    await navigator.clipboard.writeText(
+                      `${window.location.origin}/giveaways/${detail.id}`,
+                    );
+                    setMessage("Participation link copied. Ready to share on X.");
+                  })
+                }
+              >
+                Copy participation link
+              </button>
+              {!funded && !frozen && !complete && <p>Confirm prize funding before sharing.</p>}
+            </section>
+          )}
           <details open={!funded && !frozen && !detail.payout}>
             <summary>1. Save recovery</summary>
             {recovery?.id === detail.id && (
@@ -383,7 +435,7 @@ export default function PrototypeClient() {
                   e.target.value = "";
                   if (!file) return;
                   void run(async () => {
-                    if (file.size > 30_000) throw new Error("Recovery file is too large.");
+                    if (file.size > 100_000) throw new Error("Recovery file is too large.");
                     const data = JSON.parse(await file.text());
                     if (
                       data.format !== "kaspalinks-covenant-prototype-v3" ||

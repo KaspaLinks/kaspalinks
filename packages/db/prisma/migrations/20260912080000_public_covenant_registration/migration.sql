@@ -1,0 +1,3 @@
+ALTER TABLE "CovenantPrototype" ADD COLUMN "publicTitle" TEXT, ADD COLUMN "entriesFrozenAt" TIMESTAMP(3);
+CREATE TABLE "CovenantRegistration" ("id" TEXT NOT NULL, "prototypeId" TEXT NOT NULL, "address" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "CovenantRegistration_pkey" PRIMARY KEY ("id"), CONSTRAINT "CovenantRegistration_prototypeId_fkey" FOREIGN KEY ("prototypeId") REFERENCES "CovenantPrototype"("id") ON DELETE RESTRICT ON UPDATE CASCADE);
+CREATE UNIQUE INDEX "CovenantRegistration_prototypeId_address_key" ON "CovenantRegistration"("prototypeId", "address");

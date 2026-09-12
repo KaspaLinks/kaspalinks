@@ -20,8 +20,8 @@ async function main() {
     {
       creatorPublicKeyHex: creator.toPublicKey().toXOnlyPublicKey().toString(),
       prizeSompi: "100000000",
-      addresses: ["33", "44", "55", "66", "77", "88", "99", "aa"].map((k) =>
-        new sdk.PrivateKey(k.repeat(32)).toPublicKey().toAddress("mainnet").toString(),
+      addresses: Array.from({ length: 100 }, (_, i) => (i + 1).toString(16).padStart(64, "0")).map(
+        (k) => new sdk.PrivateKey(k).toPublicKey().toAddress("mainnet").toString(),
       ),
     },
     {

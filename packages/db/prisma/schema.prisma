@@ -646,6 +646,9 @@ model TelegramGiveawaySubscription {
 // Isolated mainnet trials; never processed by the public giveaway worker.
 // Only public covenant material and signed transaction IDs belong here.
 model CovenantPrototype {
+  publicTitle String?
+  entriesFrozenAt DateTime?
+  registrations CovenantRegistration[]
   id               String   @id @default(cuid())
   creatorId        String
   creator          Creator  @relation(fields: [creatorId], references: [id], onDelete: Restrict)
@@ -654,4 +657,13 @@ model CovenantPrototype {
   entropy          Json?
   createdAt        DateTime @default(now())
   @@index([creatorId, createdAt])
+}
+
+model CovenantRegistration {
+  id String @id @default(cuid())
+  prototypeId String
+  prototype CovenantPrototype @relation(fields: [prototypeId], references: [id], onDelete: Restrict)
+  address String
+  createdAt DateTime @default(now())
+  @@unique([prototypeId, address])
 }

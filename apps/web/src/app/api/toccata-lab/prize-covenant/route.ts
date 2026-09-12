@@ -1,3 +1,4 @@
+import { freezePublicCovenant, publicCovenantVerificationReady } from "@/lib/public-covenant";
 import { z } from "zod";
 import { AuditActorType, Prisma, prisma } from "@kaspa-actions/db";
 import { requireCreator } from "@/lib/creator-guard";
@@ -64,7 +65,11 @@ export async function GET(request: Request) {
         take: 20,
       });
       return apiJson({
-        prototypes: rows.map((r) => ({ id: r.id, manifest: r.manifest })),
+        prototypes: rows.map((r) => ({
+          id: r.id,
+          manifest: r.manifest,
+          publicTitle: r.publicTitle,
+        })),
         signingAvailable: isGiveawayPrizeV3AttestationConfigured(),
       });
     }
@@ -99,6 +104,10 @@ export async function GET(request: Request) {
       : null;
     return apiJson({
       payout,
+      publicTitle: row.publicTitle,
+      entryCount: row.publicTitle
+        ? await prisma.covenantRegistration.count({ where: { prototypeId: row.id } })
+        : manifest.entries.length,
       id: row.id,
       manifest,
       terms,
@@ -142,6 +151,12 @@ export async function POST(request: Request) {
   const input = parsed.data;
   try {
     if (input.action === "create") {
+      if (input.input.publicTitle && !publicCovenantVerificationReady())
+        return apiError(
+          ErrorCodes.SERVER_ERROR,
+          "Public registration requires configured human verification.",
+          503,
+        );
       const chain = await readPrototypeChain();
       const manifest = createPrototypeManifest(input.input, {
         ...chain,
@@ -149,7 +164,12 @@ export async function POST(request: Request) {
       });
       const terms = prototypeTerms(manifest);
       const row = await prisma.covenantPrototype.create({
-        data: { creatorId: guard.creator.id, fundingAddress: terms.open.address, manifest },
+        data: {
+          creatorId: guard.creator.id,
+          fundingAddress: terms.open.address,
+          manifest,
+          publicTitle: input.input.publicTitle,
+        },
       });
       await writeAuditLog(prisma, {
         actorType: AuditActorType.CREATOR,
@@ -157,11 +177,13 @@ export async function POST(request: Request) {
         event: "giveaway.covenant_prototype_created",
         metadata: { prototypeId: row.id },
       });
-      return apiJson({ id: row.id, manifest, terms }, 201);
+      return apiJson({ id: row.id, manifest, terms, publicTitle: row.publicTitle }, 201);
     }
-    const row = await prisma.covenantPrototype.findFirst({
+    let row = await prisma.covenantPrototype.findFirst({
       where: { id: input.id, creatorId: guard.creator.id },
     });
+    if (row?.publicTitle && input.action === "freeze")
+      row = await freezePublicCovenant(row.id, guard.creator.id);
     if (!row) return apiError(ErrorCodes.NOT_FOUND, "Prototype not found.", 404);
     const manifest = prototypeManifestSchema.parse(row.manifest);
     const terms = prototypeTerms(manifest);

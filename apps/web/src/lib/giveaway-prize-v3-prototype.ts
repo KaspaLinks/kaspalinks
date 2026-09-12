@@ -30,14 +30,19 @@ export const prototypeCreateSchema = z
         z.literal(1440),
       ])
       .optional(),
+    publicTitle: z.string().trim().min(3).max(100).optional(),
     creatorPublicKeyHex: hex32,
     prizeSompi: decimal.refine(
       (v) => BigInt(v) >= 20_000_000n && BigInt(v) <= 100_000_000n,
       "Prototype prize must be between 0.2 and 1 KAS.",
     ),
-    addresses: z.array(z.string().trim().min(20).max(150)).min(2).max(8),
+    addresses: z.array(z.string().trim().min(20).max(150)).max(100),
   })
-  .strict();
+  .strict()
+  .refine(
+    (v) => (v.publicTitle ? v.addresses.length === 0 : v.addresses.length >= 2),
+    "Public giveaways start with an empty list; fixed trials need at least two addresses.",
+  );
 export const prototypeManifestSchema = z
   .object({
     version: z.literal(3),
@@ -60,8 +65,7 @@ export const prototypeManifestSchema = z
           })
           .strict(),
       )
-      .min(2)
-      .max(8),
+      .max(100),
   })
   .strict();
 export type PrototypeManifest = z.infer<typeof prototypeManifestSchema>;
@@ -94,14 +98,7 @@ export function createPrototypeManifest(
 ): PrototypeManifest {
   // Parsing as an x-only curve point prevents funding a permanently unrefundable key.
   new kaspa.XOnlyPublicKey(input.creatorPublicKeyHex);
-  const entries = input.addresses
-    .map((address) => {
-      const scriptPublicKeyHex = addressScript(address);
-      return { address, scriptPublicKeyHex, hash: giveawayV3EntryHash(scriptPublicKeyHex) };
-    })
-    .sort((a, b) => a.hash.localeCompare(b.hash));
-  if (new Set(entries.map((e) => e.hash)).size !== entries.length)
-    throw new Error("Each payout address may enter only once.");
+  const entries = prototypeEntries(input.addresses);
   const duration = BigInt(input.durationMinutes ?? 5) * 600n;
   return prototypeManifestSchema.parse({
     creatorPublicKeyHex: input.creatorPublicKeyHex,
@@ -118,6 +115,18 @@ export function createPrototypeManifest(
   });
 }
 
+export function prototypeEntries(addresses: string[]) {
+  const entries = addresses
+    .map((address) => {
+      const scriptPublicKeyHex = addressScript(address);
+      return { address, scriptPublicKeyHex, hash: giveawayV3EntryHash(scriptPublicKeyHex) };
+    })
+    .sort((a, b) => a.hash.localeCompare(b.hash));
+  if (new Set(entries.map((e) => e.hash)).size !== entries.length)
+    throw new Error("Each payout address may enter only once.");
+  return entries;
+}
+
 export function prototypeTerms(m: PrototypeManifest) {
   const paramsHashHex = giveawayV3ParamsHash({
     prizeSompi: BigInt(m.prizeSompi),
@@ -126,7 +135,9 @@ export function prototypeTerms(m: PrototypeManifest) {
     refundDaa: BigInt(m.refundDaa),
     creatorPublicKeyHex: m.creatorPublicKeyHex,
   });
-  const entriesRootHex = giveawayV3EntriesRoot(m.entries.map((e) => e.hash));
+  const entriesRootHex = m.entries.length
+    ? giveawayV3EntriesRoot(m.entries.map((e) => e.hash))
+    : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
   const open = buildGiveawayPrizeV3Address({
     platformPublicKeyHex: m.platformPublicKeyHex,
     stateHashHex: giveawayV3OpenStateHash(paramsHashHex),
