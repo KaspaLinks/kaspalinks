@@ -54,9 +54,7 @@ export default function PrototypeClient() {
   const [trials, setTrials] = useState<Trial[]>([]);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [chainFresh, setChainFresh] = useState(false);
-  const [publicEntry, setPublicEntry] = useState(true);
   const [title, setTitle] = useState("");
-  const [addresses, setAddresses] = useState("");
   const [durationMinutes, setDurationMinutes] = useState(15);
   const [qr, setQr] = useState<{ uri: string; src: string } | null>(null);
   const [prize, setPrize] = useState("20000000");
@@ -120,8 +118,8 @@ export default function PrototypeClient() {
           creatorPublicKeyHex: key.publicKeyHex,
           prizeSompi: prize,
           durationMinutes,
-          addresses: publicEntry ? [] : addresses.split(/\s+/).filter(Boolean),
-          ...(publicEntry ? { publicTitle: title } : {}),
+          addresses: [],
+          publicTitle: title,
         },
       });
       setTrials((current) => [created, ...current]);
@@ -225,28 +223,18 @@ export default function PrototypeClient() {
       {!detail ? (
         <section className="card">
           <h2>Create your giveaway</h2>
-          <label>
-            <input
-              type="checkbox"
-              checked={publicEntry}
-              disabled={busy}
-              onChange={(e) => setPublicEntry(e.target.checked)}
-            />{" "}
-            Public participation link
-          </label>
-          {publicEntry && (
-            <>
-              <label htmlFor="giveaway-title">Giveaway title</label>
-              <input
-                id="giveaway-title"
-                maxLength={100}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                disabled={busy}
-                style={{ width: "100%" }}
-              />
-            </>
-          )}
+          <p>
+            Share one link. Participants enter their own Kaspa address and complete the human check.
+          </p>
+          <label htmlFor="giveaway-title">Giveaway title</label>
+          <input
+            id="giveaway-title"
+            maxLength={100}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            disabled={busy}
+            style={{ width: "100%" }}
+          />
           <label htmlFor="prize">Prize</label>
           <select
             id="prize"
@@ -279,27 +267,12 @@ export default function PrototypeClient() {
             The timer starts when you prepare the giveaway. Fund before it closes. Drawing becomes
             available about one minute after closing.
           </p>
-          {!publicEntry && (
-            <>
-              <label htmlFor="entrants" style={{ display: "block", marginTop: 16 }}>
-                2–100 payout addresses · one per line
-              </label>
-              <textarea
-                id="entrants"
-                rows={6}
-                value={addresses}
-                onChange={(e) => setAddresses(e.target.value)}
-                disabled={busy}
-                style={{ width: "100%" }}
-              />
-            </>
-          )}
           <button
             className="btn btn-primary"
-            disabled={busy || (publicEntry ? title.trim().length < 3 : !addresses.trim())}
+            disabled={busy || title.trim().length < 3}
             onClick={() => void create()}
           >
-            Prepare giveaway
+            Create giveaway & get link
           </button>
           <h2>Your giveaways</h2>
           {trials.map((trial) => (
@@ -375,7 +348,7 @@ export default function PrototypeClient() {
               <Link href={`/giveaways/${detail.id}`}>Open participation page</Link>
               <button
                 className="btn"
-                disabled={busy || (!funded && !frozen && !complete)}
+                disabled={busy}
                 onClick={() =>
                   void run(async () => {
                     await navigator.clipboard.writeText(
@@ -387,7 +360,9 @@ export default function PrototypeClient() {
               >
                 Copy participation link
               </button>
-              {!funded && !frozen && !complete && <p>Confirm prize funding before sharing.</p>}
+              {!funded && !frozen && !complete && (
+                <p>Your link is ready. Registration opens after prize funding is confirmed.</p>
+              )}
             </section>
           )}
           <details open={!funded && !frozen && !detail.payout}>
