@@ -10,7 +10,7 @@ import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import { MIN_RELIABLE_MAINNET_OUTPUT_KAS } from "@/lib/mainnet-amount-policy";
 import { formatApproxUsdMeta, formatApproxUsdValue } from "@/lib/price-display";
 import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
-import { slugify, validateRecipientAddress } from "./helpers";
+import { canShowGiveawayTemplate, slugify, validateRecipientAddress } from "./helpers";
 
 type ActionTypeValue =
   | "kaspa.tip"
@@ -339,6 +339,7 @@ export function NewLinkClient() {
   const [username, setUsername] = useState("");
   const [token, setToken] = useState("");
   const [hydrated, setHydrated] = useState(false);
+  const [giveawayAccess, setGiveawayAccess] = useState(false);
 
   const [type, setType] = useState<ActionTypeValue>("kaspa.tip");
   const [slug, setSlug] = useState("");
@@ -416,6 +417,23 @@ export function NewLinkClient() {
     }),
     [token, username],
   );
+
+  useEffect(() => {
+    setGiveawayAccess(false);
+    if (!signedIn || username !== "example") return;
+    const controller = new AbortController();
+    void fetch("/api/toccata-lab/prize-covenant", {
+      headers: authHeaders,
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!controller.signal.aborted) setGiveawayAccess(response.ok);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setGiveawayAccess(false);
+      });
+    return () => controller.abort();
+  }, [signedIn, username, authHeaders]);
 
   const applyTemplate = useCallback((template: LinkTemplate) => {
     setActiveTemplateId(template.id);
@@ -641,6 +659,18 @@ export function NewLinkClient() {
           <h2 className="form-section-heading">Start with a common use case</h2>
         </div>
         <div className="quick-template-grid" aria-label="Quick link templates">
+          {canShowGiveawayTemplate(username, giveawayAccess) && (
+            <Link className="quick-template-button" href="/toccata-lab/prize-covenant">
+              <span className="quick-template-icon" aria-hidden="true">
+                {BLANK_ICON}
+              </span>
+              <span className="quick-template-title">Giveaway</span>
+              <span className="quick-template-description">
+                Fund a prize and share a link for people to enter.
+              </span>
+              <span className="quick-template-meta">Up to 100 participants · up to 24 hours</span>
+            </Link>
+          )}
           {LINK_TEMPLATES.map((template) => (
             <button
               aria-pressed={activeTemplateId === template.id}

@@ -52,3 +52,7 @@ export function validateRecipientAddress(rawAddress: string): AddressValidation 
 
   return { state: "valid" };
 }
+
+export function canShowGiveawayTemplate(username: string, accessVerified: boolean): boolean {
+  return username === "example" && accessVerified;
+}

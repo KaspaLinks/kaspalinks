@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { slugify, validateRecipientAddress } from "./helpers";
+import { canShowGiveawayTemplate, slugify, validateRecipientAddress } from "./helpers";
 
 const VALID_ADDRESS = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
 
@@ -19,4 +19,11 @@ describe("new-link helpers", () => {
     });
     expect(validateRecipientAddress("kaspa:hallo")).toMatchObject({ state: "invalid" });
   });
+});
+
+it("shows the giveaway template only for the verified pilot account", () => {
+  expect(canShowGiveawayTemplate("example", true)).toBe(true);
+  expect(canShowGiveawayTemplate("example", false)).toBe(false);
+  expect(canShowGiveawayTemplate("franklobster", true)).toBe(false);
+  expect(canShowGiveawayTemplate("", true)).toBe(false);
 });

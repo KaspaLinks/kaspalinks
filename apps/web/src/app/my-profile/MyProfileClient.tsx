@@ -331,9 +331,6 @@ export function MyProfileClient() {
           <Link className="btn btn-primary" href={profilePath}>
             View public profile
           </Link>
-          <Link className="btn" href="/toccata-lab/prize-covenant">
-            Create giveaway
-          </Link>
           <Link className="btn" href="/new-link">
             Create a new link
           </Link>
