@@ -11328,3 +11328,9 @@ main.giveaway-guided-page {
 .covenant-prototype-page input:not([type="checkbox"]),
 .covenant-prototype-page select,
 .covenant-prototype-page textarea { max-width: 100%; }
+
+.covenant-participant-count { display:flex; align-items:baseline; gap:10px; padding:20px 0; border-bottom:1px solid var(--border); margin-bottom:20px; }
+.covenant-participant-count strong {font-size:2rem; line-height:1;}
+.covenant-participant-count .label {margin-left:auto;}
+.covenant-participant-count small {opacity:.6;}
+.covenant-winner-address {overflow-wrap:anywhere; font-family:monospace; padding:16px; border-radius:12px; background:rgba(100,200,190,.08);}

@@ -167,6 +167,22 @@ export default function PrototypeClient() {
       await refresh(detail.id);
     });
   const daa = BigInt(detail?.chain.daa ?? "0");
+  const emptyClosed = Boolean(
+    detail?.publicTitle && detail.entryCount === 0 && daa > BigInt(detail.manifest.closesAtDaa),
+  );
+  const refundReady = (phase: "open" | "frozen") =>
+    Boolean(
+      chainFresh &&
+      detail &&
+      daa >
+        BigInt(
+          detail.manifest.version === 4 &&
+            phase === "frozen" &&
+            detail.manifest.entries.length === 0
+            ? detail.manifest.closesAtDaa
+            : detail.manifest.refundDaa,
+        ),
+    );
   const refundable = detail ? daa > BigInt(detail.manifest.refundDaa) : false;
   const fundingUri = detail
     ? buildWalletLaunchUri({
@@ -206,8 +222,9 @@ export default function PrototypeClient() {
         <summary>Fees and how this preview works</summary>
         <p>
           The platform attests the participant list and randomness block. Funding goes directly into
-          the covenant. Two fees of 0.01 KAS are reserved; your wallet adds its funding fee.
-          Recovery becomes available about 55 minutes after entries close.
+          the covenant. Two fees of 0.01 KAS are reserved; your wallet adds its funding fee. New
+          giveaways are processed automatically. Empty-list recovery opens after closing and the
+          on-chain empty-list confirmation; otherwise recovery opens about 55 minutes after closing.
         </p>
       </details>
       <p role="status" aria-live="polite">
@@ -300,6 +317,13 @@ export default function PrototypeClient() {
           >
             Refresh chain state
           </button>
+          {detail.manifest.version === 4 && (
+            <p role="status">
+              {emptyClosed
+                ? "No participants. Recovery becomes available once the empty list is confirmed on-chain."
+                : "Automatic draw: you do not need to keep this page open."}
+            </p>
+          )}
           <div role="status" aria-live="polite" className="prototype-progress">
             <h2>
               {complete
@@ -488,49 +512,63 @@ export default function PrototypeClient() {
                       : "Save recovery first. Funding is available only before entries close."}
                 </p>
               )}
-              <h2>3. Freeze and draw</h2>
-              <p>Each step costs 0.01 KAS from the reserved fees.</p>
-              <button
-                className="btn btn-primary"
-                disabled={
-                  busy ||
-                  !chainFresh ||
-                  Boolean(detail.payout) ||
-                  refundable ||
-                  !detail.open.some((entry) => entry.amount === detail.terms.fundingSompi) ||
-                  daa <= BigInt(detail.manifest.closesAtDaa)
-                }
-                onClick={() => void submit("freeze")}
-              >
-                Freeze participants
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={
-                  busy ||
-                  !chainFresh ||
-                  Boolean(detail.payout) ||
-                  refundable ||
-                  !detail.frozen.some(
-                    (entry) =>
-                      BigInt(entry.amount) ===
-                      BigInt(detail.manifest.prizeSompi) + BigInt(detail.manifest.drawFeeSompi),
-                  ) ||
-                  BigInt(detail.chain.blueScore) <
-                    BigInt(detail.manifest.entropyTargetBlueScore) + 100n
-                }
-                onClick={() => void submit("draw")}
-              >
-                Draw and pay winner
-              </button>
+              <details open={detail.manifest.version === 3}>
+                <summary>
+                  {detail.manifest.version === 4
+                    ? "Automatic processing · manual fallback"
+                    : "3. Freeze and draw"}
+                </summary>
+                <p>Each step costs 0.01 KAS from the reserved fees.</p>
+                <button
+                  className="btn btn-primary"
+                  disabled={
+                    busy ||
+                    !chainFresh ||
+                    Boolean(detail.payout) ||
+                    refundable ||
+                    !detail.open.some((entry) => entry.amount === detail.terms.fundingSompi) ||
+                    daa <= BigInt(detail.manifest.closesAtDaa)
+                  }
+                  onClick={() => void submit("freeze")}
+                >
+                  Freeze participants
+                </button>
+                <button
+                  className="btn btn-primary"
+                  disabled={
+                    busy ||
+                    !chainFresh ||
+                    Boolean(detail.payout) ||
+                    refundable ||
+                    !detail.frozen.some(
+                      (entry) =>
+                        BigInt(entry.amount) ===
+                        BigInt(detail.manifest.prizeSompi) + BigInt(detail.manifest.drawFeeSompi),
+                    ) ||
+                    BigInt(detail.chain.blueScore) <
+                      BigInt(detail.manifest.entropyTargetBlueScore) + 100n
+                  }
+                  onClick={() => void submit("draw")}
+                >
+                  Draw and pay winner
+                </button>
+              </details>
             </>
           )}
-          <details style={{ marginTop: 20 }}>
+          <details open={emptyClosed} style={{ marginTop: 20 }}>
             <summary>Recovery and committed details</summary>
             <p>
               Recovery signs only in this browser. Fee: 0.01 KAS. The recovery file is never
               uploaded.
             </p>
+            {!recovery && <p>Import your recovery file above to unlock signing.</p>}
+            {!refundable && !refundReady("frozen") && (
+              <p>
+                Recovery unlocks in approximately {remaining(detail.manifest.refundDaa, daa)}{" "}
+                minutes. For an empty new giveaway, the automatic empty-list confirmation unlocks it
+                earlier.
+              </p>
+            )}
             <label htmlFor="refund-address">Refund destination</label>
             <input
               id="refund-address"
@@ -544,7 +582,7 @@ export default function PrototypeClient() {
                 className="btn"
                 disabled={
                   busy ||
-                  !refundable ||
+                  !refundReady(phase) ||
                   detail[phase].length === 0 ||
                   recovery?.id !== detail.id ||
                   !refundAddress

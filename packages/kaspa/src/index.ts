@@ -53,3 +53,5 @@ export {
   TOCCATA_BATCH_MIN_OUTPUTS,
   TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES,
 } from "./toccata-constants";
+
+export * from "./giveaway-prize-v4";

@@ -94,6 +94,19 @@ describe("public covenant admission", () => {
     mocks.tx.covenantPrototype.findFirst.mockResolvedValue(row);
     mocks.chain.mockResolvedValue({ daa: 14000n });
     mocks.tx.covenantRegistration.findMany.mockResolvedValue([]);
+    await freezePublicCovenant("test", "owner");
+    expect(mocks.tx.covenantPrototype.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          manifest: expect.objectContaining({ entries: [] }),
+          entriesFrozenAt: expect.any(Date),
+        }),
+      }),
+    );
+    mocks.tx.covenantPrototype.findFirst.mockResolvedValue({
+      ...row,
+      manifest: { ...manifest, version: 3 },
+    });
     await expect(freezePublicCovenant("test", "owner")).rejects.toThrow(/No participants/);
   });
 });

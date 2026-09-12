@@ -4,6 +4,7 @@ vi.mock("@kaspa-actions/db", () => ({
   prisma: { giveaway: { findMany: mocks.findMany, updateMany: mocks.updateMany } },
 }));
 vi.mock("@/lib/giveaway-draw", () => ({ finalizeGiveaway: mocks.finalize }));
+vi.mock("@/lib/giveaway-covenant-automation", () => ({ processCovenantGiveaways: vi.fn() }));
 import { POST } from "./route";
 function req(secret = "worker-secret") {
   return new Request("http://app:3000/api/agent/giveaways/tick", {

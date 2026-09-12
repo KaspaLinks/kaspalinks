@@ -12,6 +12,9 @@ import {
 } from "@/lib/giveaway-prize-v3-chain";
 import { prototypeManifestSchema, prototypeTerms } from "@/lib/giveaway-prize-v3-prototype";
 import { publicCovenantVerificationReady, PUBLIC_COVENANT_LIMIT } from "@/lib/public-covenant";
+import DrawProof from "./DrawProof";
+import { giveawayV3Draw } from "@/lib/giveaway-prize-v3-proof";
+import { prototypeEntropySchema } from "@/lib/giveaway-prize-v3-prototype";
 import EntryClient from "./EntryClient";
 export const dynamic = "force-dynamic";
 export default async function GiveawayPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,6 +43,9 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
   if (!row?.publicTitle) notFound();
   const m = prototypeManifestSchema.parse(row.manifest),
     terms = prototypeTerms(m);
+  let drawWindowEnded = false;
+  let closed = false;
+  let funded = false;
   let available = false,
     status = "Chain status unavailable. Please refresh shortly.";
   try {
@@ -47,7 +53,9 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
       readPrototypeChain(),
       readPrototypeUtxos(terms.open.address),
     ]);
-    const funded = outputs.some((u) => u.amount === terms.fundingSompi);
+    funded = outputs.some((u) => u.amount === terms.fundingSompi);
+    drawWindowEnded = chain.daa >= BigInt(m.refundDaa);
+    closed = chain.daa >= BigInt(m.closesAtDaa) || Boolean(row.entriesFrozenAt);
     available =
       funded &&
       chain.daa < BigInt(m.closesAtDaa) &&
@@ -80,45 +88,108 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
     .object({ transactionId: z.string().regex(/^[0-9a-f]{64}$/) })
     .safeParse(submitted?.metadata);
   const payout = tx.success ? await readPrototypePayout(tx.data.transactionId, m) : null;
+  const entropy = prototypeEntropySchema.safeParse(row.entropy);
+  const draw =
+    entropy.success && m.entries.length
+      ? giveawayV3Draw({
+          seedHex: entropy.data.seedHex,
+          sortedEntryHashes: m.entries.map((e) => e.hash),
+        })
+      : null;
+  const winner = draw ? m.entries[draw.winnerIndex] : null;
   return (
-    <main className="main" style={{ maxWidth: 600, margin: "0 auto", padding: "24px 16px" }}>
-      <section className="card">
-        <p>Giveaway by @{row.creator.username}</p>
+    <main className="main giveaway-entry-page">
+      <section className="giveaway-entry-hero">
+        <span className="hero-eyebrow">Kaspa giveaway · @{row.creator.username}</span>
         <h1>{row.publicTitle}</h1>
-        <h2>{formatSompiToKaspa(BigInt(m.prizeSompi))} KAS</h2>
-        <p role="status">{payout?.confirmed ? "Winner paid · confirmed on Mainnet" : status}</p>
-        <p>
-          {row._count.registrations} / {PUBLIC_COVENANT_LIMIT} participants · One winner
-        </p>
-        {payout?.confirmed && (
-          <p style={{ overflowWrap: "anywhere" }}>
-            Winner: {payout.winnerAddress} ·{" "}
+        <div className="giveaway-hero-prize">
+          <span className="label">Prize</span>
+          <strong>{formatSompiToKaspa(BigInt(m.prizeSompi))} KAS</strong>
+        </div>
+      </section>
+      <section className="card giveaway-entry-card">
+        <div className="giveaway-entry-status" role="status">
+          {payout?.confirmed
+            ? "Completed · winner paid"
+            : closed && row._count.registrations === 0
+              ? "Ended · no participants"
+              : closed
+                ? drawWindowEnded
+                  ? "Ended · payout not confirmed"
+                  : "Entries closed · drawing"
+                : status}
+        </div>
+        <div className="covenant-participant-count">
+          <strong>{row._count.registrations}</strong>
+          <span>
+            participants <small>/ {PUBLIC_COVENANT_LIMIT}</small>
+          </span>
+          <span className="label">1 winner</span>
+        </div>
+        {payout?.confirmed ? (
+          <div className="giveaway-result-state is-winner">
+            <span className="label">Winner</span>
+            <p className="covenant-winner-address">{payout.winnerAddress}</p>
             <a
+              className="btn btn-primary"
               href={`https://explorer.kaspa.org/txs/${payout.transactionId}`}
               target="_blank"
               rel="noreferrer"
             >
-              View payout
+              View confirmed payout
             </a>
-          </p>
-        )}
+          </div>
+        ) : closed && row._count.registrations === 0 ? (
+          <div className="giveaway-result-state">
+            <h2>No winner this time</h2>
+            <p>The creator can recover the prize under this giveaway's refund rules.</p>
+          </div>
+        ) : null}
         <EntryClient
           id={row.id}
           available={available && !payout?.confirmed && publicCovenantVerificationReady()}
           siteKey={process.env.TURNSTILE_SITE_KEY?.trim() ?? ""}
         />
-        <details>
-          <summary>Participation and draw rules</summary>
-          <p>
-            Free entry. One entry per Kaspa mainnet address. No wallet connection or payment is
-            required. Your address is stored for this draw; the winning address and final
-            transaction proof are public. Human verification discourages bots but does not establish
-            one person per wallet. The creator closes the list and triggers the covenant payout. The
-            platform attests the list and blockchain randomness. If the draw is not completed, the
-            creator can recover the remaining prize after the refund deadline.
-          </p>
-        </details>
+        <div className="giveaway-entry-meta">
+          <span>
+            {funded ? "✓ Prize funded" : payout?.confirmed ? "✓ Paid on Mainnet" : "Mainnet"}
+          </span>
+          <span>Free entry · one address per entry</span>
+        </div>
+        {draw && winner && entropy.success && (
+          <DrawProof
+            proof={{
+              version: m.version,
+              entryHashes: m.entries.map((e) => e.hash),
+              entriesRoot: draw.entriesRootHex,
+              seedHex: entropy.data.seedHex,
+              blockHash: entropy.data.blockHash,
+              blockBlueScore: entropy.data.blockBlueScore,
+              targetBlueScore: m.entropyTargetBlueScore,
+              digest: draw.digestHex,
+              winnerIndex: draw.winnerIndex,
+              winnerScriptHex: winner.scriptPublicKeyHex,
+              winnerAddress: winner.address,
+            }}
+          />
+        )}
       </section>
+      <details className="giveaway-proof">
+        <summary>Rules & transparency</summary>
+        <p>
+          No payment or wallet connection is required. Your address is stored for the draw. Address
+          hashes form the public draw proof; the winning address is public. Human verification does
+          not guarantee one person per wallet.
+        </p>
+        <p>
+          {m.version === 4
+            ? "After closing, the server automatically freezes the list and submits the payout when the committed block is confirmed. An empty frozen list allows browser-signed recovery."
+            : "This older giveaway uses creator-triggered freeze and draw, with its original refund deadline."}{" "}
+          The platform attests the list and randomness block; SilverScript enforces the payout.
+          Server or chain outages can delay processing.
+        </p>
+      </details>
+      <p className="giveaway-entry-footnote">Non-custodial · powered by Kaspa</p>
     </main>
   );
 }

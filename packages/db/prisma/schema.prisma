@@ -646,6 +646,9 @@ model TelegramGiveawaySubscription {
 // Isolated mainnet trials; never processed by the public giveaway worker.
 // Only public covenant material and signed transaction IDs belong here.
 model CovenantPrototype {
+  automationNextAt DateTime @default(now())
+  automationFinishedAt DateTime?
+  @@index([automationFinishedAt, automationNextAt])
   publicTitle String?
   entriesFrozenAt DateTime?
   registrations CovenantRegistration[]

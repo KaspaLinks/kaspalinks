@@ -1,3 +1,4 @@
+import { processCovenantGiveaways } from "@/lib/giveaway-covenant-automation";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { prisma } from "@kaspa-actions/db";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
   if (!isGiveawayLabEnabled())
     return apiError(ErrorCodes.TOCCATA_LAB_DISABLED, "Giveaways are disabled.", 403);
   const now = new Date();
+  await processCovenantGiveaways(now);
   const due = await prisma.giveaway.findMany({
     where: {
       status: "OPEN",

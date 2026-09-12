@@ -75,7 +75,7 @@ export async function freezePublicCovenant(id: string, creatorId: string) {
         where: { prototypeId: id },
         select: { address: true },
       });
-      if (!entries.length)
+      if (!entries.length && manifest.version !== 4)
         throw new Error("No participants. Recover the prize after the refund deadline.");
       const snapshot = prototypeManifestSchema.parse({
         ...manifest,

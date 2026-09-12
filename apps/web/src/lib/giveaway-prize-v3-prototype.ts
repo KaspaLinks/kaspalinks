@@ -1,6 +1,10 @@
 import { createRequire } from "node:module";
 import { z } from "zod";
-import { buildGiveawayPrizeV3Address, GIVEAWAY_PRIZE_V3_DISPATCH_TAGS } from "@kaspa-actions/kaspa";
+import {
+  buildGiveawayPrizeV3Address,
+  buildGiveawayPrizeV4Address,
+  GIVEAWAY_PRIZE_V3_DISPATCH_TAGS,
+} from "@kaspa-actions/kaspa";
 import {
   giveawayV3Draw,
   giveawayV3EntryHash,
@@ -45,7 +49,7 @@ export const prototypeCreateSchema = z
   );
 export const prototypeManifestSchema = z
   .object({
-    version: z.literal(3),
+    version: z.union([z.literal(3), z.literal(4)]),
     network: z.literal("mainnet"),
     creatorPublicKeyHex: hex32,
     platformPublicKeyHex: hex32,
@@ -103,7 +107,7 @@ export function createPrototypeManifest(
   return prototypeManifestSchema.parse({
     creatorPublicKeyHex: input.creatorPublicKeyHex,
     prizeSompi: input.prizeSompi,
-    version: 3,
+    version: input.publicTitle ? 4 : 3,
     network: "mainnet",
     platformPublicKeyHex: chain.platformPublicKeyHex,
     entries,
@@ -138,11 +142,12 @@ export function prototypeTerms(m: PrototypeManifest) {
   const entriesRootHex = m.entries.length
     ? giveawayV3EntriesRoot(m.entries.map((e) => e.hash))
     : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-  const open = buildGiveawayPrizeV3Address({
+  const buildAddress = m.version === 4 ? buildGiveawayPrizeV4Address : buildGiveawayPrizeV3Address;
+  const open = buildAddress({
     platformPublicKeyHex: m.platformPublicKeyHex,
     stateHashHex: giveawayV3OpenStateHash(paramsHashHex),
   });
-  const frozen = buildGiveawayPrizeV3Address({
+  const frozen = buildAddress({
     platformPublicKeyHex: m.platformPublicKeyHex,
     stateHashHex: giveawayV3FrozenStateHash(paramsHashHex, entriesRootHex),
   });
@@ -255,7 +260,8 @@ export function buildPrototypeTransaction(input: {
       gas: "0",
       payload: "",
       subnetworkId: "00".repeat(20),
-      lockTime: mode === "freeze" ? m.closesAtDaa : mode === "refund" ? m.refundDaa : "0",
+      lockTime:
+        mode === "freeze" ? m.closesAtDaa : mode === "refund" ? prototypeRefundDaa(m, phase) : "0",
       inputs: [
         {
           transactionId: utxo.transactionId,
@@ -312,4 +318,10 @@ export function validatePrototypeRefundTransaction(
   if (JSON.stringify(a) !== JSON.stringify(b))
     throw new Error("Signed refund differs from the reviewed recovery intent.");
   return actual.serializeToSafeJSON();
+}
+
+export function prototypeRefundDaa(m: PrototypeManifest, phase: "open" | "frozen") {
+  return m.version === 4 && phase === "frozen" && m.entries.length === 0
+    ? m.closesAtDaa
+    : m.refundDaa;
 }

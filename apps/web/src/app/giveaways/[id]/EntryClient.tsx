@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { TurnstileWidget } from "@/app/toccata-lab/giveaway/[publicId]/TurnstileWidget";
 import { GIVEAWAY_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
@@ -19,15 +19,25 @@ export default function EntryClient({
   const [busy, setBusy] = useState(false);
   const [entered, setEntered] = useState(false);
   const [message, setMessage] = useState("");
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !busy) router.refresh();
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [router, busy]);
   return (
     <>
       <p role="status" aria-live="polite">
         {message}
       </p>
       {entered ? (
-        <p>You are entered. Save this link to check the result.</p>
+        <div className="giveaway-entry-success" role="status">
+          <strong>✓ You’re in!</strong>
+          <p>Keep this link to see the winner.</p>
+        </div>
       ) : available ? (
         <form
+          className="giveaway-entry-form"
           onSubmit={async (e) => {
             e.preventDefault();
             if (busy || !token) return;
@@ -65,7 +75,7 @@ export default function EntryClient({
             style={{ width: "100%" }}
             disabled={busy}
           />
-          <p>Check the address carefully. Winnings go directly to this address.</p>
+          <p className="muted">Winnings go directly to this address.</p>
           <TurnstileWidget
             siteKey={siteKey}
             action={GIVEAWAY_TURNSTILE_ACTION}
@@ -77,10 +87,8 @@ export default function EntryClient({
             {busy ? "Entering…" : "Enter giveaway"}
           </button>
         </form>
-      ) : (
-        <p>Registration is currently unavailable.</p>
-      )}
-      <button className="btn" onClick={() => router.refresh()} disabled={busy}>
+      ) : null}
+      <button className="btn btn-small" onClick={() => router.refresh()} disabled={busy}>
         Refresh status
       </button>
     </>
