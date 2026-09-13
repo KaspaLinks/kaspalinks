@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -278,15 +279,106 @@ describe("operator stats", () => {
     expect(parsed.entries).toHaveLength(1);
   });
 
+  it("reads rotated logs that Caddy already compressed", async () => {
+    // Caddy rolls at 20 MiB and gzips what it rolls. Skipping .gz meant every
+    // day older than the current roll could never be imported at all.
+    const logDir = await mkdtemp(path.join(tmpdir(), "kaspa-operator-logs-"));
+    try {
+      await writeFile(path.join(logDir, "kaspa-access.log"), line({ uri: "/today" }));
+      await writeFile(
+        path.join(logDir, "kaspa-access-2026-05-18T00-00-00.000-size.log.gz"),
+        gzipSync(Buffer.from(line({ ts: "2026-05-18T11:00:00.000Z", uri: "/rolled-away" }))),
+      );
+
+      const createMany = vi.fn().mockResolvedValue({ count: 2 });
+      const prisma = {
+        operatorPageView: { createMany },
+      } as unknown as Parameters<typeof syncOperatorPageViewsFromAccessLogs>[0];
+
+      const result = await syncOperatorPageViewsFromAccessLogs(prisma, { logDir });
+
+      expect(result).toMatchObject({ filesRead: 2, linesParsed: 2 });
+      const paths = createMany.mock.calls.flatMap((call) =>
+        (call[0].data as Array<{ path: string }>).map((row) => row.path),
+      );
+      expect(paths).toContain("/rolled-away");
+      expect(paths).toContain("/today");
+    } finally {
+      await rm(logDir, { force: true, recursive: true });
+    }
+  });
+
+  it("reads a log far past the old two-megabyte tail window", async () => {
+    // The reader used to take only the last two megabytes of a file. Anything
+    // written between two imports beyond that window was lost for good.
+    const logDir = await mkdtemp(path.join(tmpdir(), "kaspa-operator-logs-"));
+    try {
+      // Each line is roughly 330 bytes, so this puts the first line about two
+      // megabytes beyond the tail the reader used to take.
+      const filler = Array.from({ length: 12_000 }, (_unused, index) =>
+        line({ uri: `/filler-${index}` }),
+      );
+      await writeFile(
+        path.join(logDir, "kaspa-access.log"),
+        [line({ uri: "/oldest-line" }), ...filler].join("\n"),
+      );
+
+      const createMany = vi.fn().mockResolvedValue({ count: 1 });
+      const prisma = {
+        operatorPageView: { createMany },
+      } as unknown as Parameters<typeof syncOperatorPageViewsFromAccessLogs>[0];
+
+      const result = await syncOperatorPageViewsFromAccessLogs(prisma, { logDir });
+
+      expect(result.linesParsed).toBe(12_001);
+      const paths = createMany.mock.calls.flatMap((call) =>
+        (call[0].data as Array<{ path: string }>).map((row) => row.path),
+      );
+      expect(paths).toContain("/oldest-line");
+    } finally {
+      await rm(logDir, { force: true, recursive: true });
+    }
+  });
+
+  it("re-reads every retained log so an earlier gap fills itself in", async () => {
+    // A single high-water mark cannot describe a history with holes in it, so
+    // the import deliberately re-reads and lets the unique index absorb the
+    // repeats. Anything the retention window still holds gets recovered.
+    const logDir = await mkdtemp(path.join(tmpdir(), "kaspa-operator-logs-"));
+    try {
+      await writeFile(
+        path.join(logDir, "kaspa-access.log"),
+        [
+          line({ ts: "2026-05-19T10:00:00.000Z", uri: "/missed-that-day" }),
+          line({ ts: "2026-05-19T11:30:00.000Z", uri: "/recorded-already" }),
+        ].join("\n"),
+      );
+
+      const createMany = vi.fn().mockResolvedValue({ count: 1 });
+      const prisma = {
+        operatorPageView: { createMany },
+      } as unknown as Parameters<typeof syncOperatorPageViewsFromAccessLogs>[0];
+
+      const result = await syncOperatorPageViewsFromAccessLogs(prisma, { logDir });
+
+      expect(result.linesParsed).toBe(2);
+      const paths = createMany.mock.calls.flatMap((call) =>
+        (call[0].data as Array<{ path: string }>).map((row) => row.path),
+      );
+      expect(paths).toEqual(["/missed-that-day", "/recorded-already"]);
+      expect(createMany).toHaveBeenCalledWith(expect.objectContaining({ skipDuplicates: true }));
+    } finally {
+      await rm(logDir, { force: true, recursive: true });
+    }
+  });
+
   it("syncs page views to persistence without storing raw IP addresses", async () => {
     const logDir = await mkdtemp(path.join(tmpdir(), "kaspa-operator-logs-"));
     try {
       await writeFile(path.join(logDir, "kaspa-access.log"), line({ uri: "/u/ada/tip" }));
       const createMany = vi.fn().mockResolvedValue({ count: 1 });
       const prisma = {
-        operatorPageView: {
-          createMany,
-        },
+        operatorPageView: { createMany },
       } as unknown as Parameters<typeof syncOperatorPageViewsFromAccessLogs>[0];
 
       const result = await syncOperatorPageViewsFromAccessLogs(prisma, { logDir });

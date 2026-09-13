@@ -1,12 +1,18 @@
 import { createHash } from "node:crypto";
-import { open, readdir, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
+import { createGunzip } from "node:zlib";
 import type { Prisma, PrismaClient } from "@kaspa-actions/db";
 
 const DEFAULT_LOG_DIR = "/var/log/caddy";
 const LOG_FILE_PREFIX = "kaspa-access";
 const MAX_LOG_FILES = 12;
-const MAX_BYTES_PER_FILE = 2_000_000;
+// Upper bound on entries held in memory for one import. The reader streams and
+// discards static-asset lines as it goes, so this bounds the result, not the
+// file size it had to walk to produce it.
+const MAX_ENTRIES_PER_READ = 400_000;
 const CREATE_MANY_BATCH_SIZE = 500;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PAGE_VIEW_SYNC_CACHE_MS = 30_000;
@@ -161,9 +167,10 @@ export type OperatorPageViewSyncResult = {
 };
 
 type RawLogRead = {
+  entries: AccessLogEntry[];
   filesRead: number;
   logDir: string;
-  text: string;
+  parseErrors: number;
 };
 
 type ParsedLine = {
@@ -208,11 +215,12 @@ export async function loadOperatorStatsFromAccessLogs(options?: {
   now?: Date;
 }): Promise<OperatorStats> {
   const logDir = options?.logDir ?? process.env.OPERATOR_ACCESS_LOG_DIR ?? DEFAULT_LOG_DIR;
-  const read = await readRecentAccessLogText(logDir);
+  const read = await readAccessLogEntries(logDir);
 
-  return buildOperatorStatsFromText(read.text, {
+  return buildOperatorStats(read.entries, {
     filesRead: read.filesRead,
     logDir: read.logDir,
+    parseErrors: read.parseErrors,
     now: options?.now,
   });
 }
@@ -225,11 +233,10 @@ export async function loadPersistentOperatorStatsFromAccessLogs(
   },
 ): Promise<OperatorStats> {
   const logDir = options?.logDir ?? process.env.OPERATOR_ACCESS_LOG_DIR ?? DEFAULT_LOG_DIR;
-  const read = await readRecentAccessLogText(logDir);
-  const parsed = parseCaddyAccessLogLines(read.text);
+  const read = await readAccessLogEntries(logDir);
 
   try {
-    await persistOperatorPageViews(prisma, parsed.entries);
+    await persistOperatorPageViews(prisma, read.entries);
     const rows = await prisma.operatorPageView.findMany({
       select: {
         browser: true,
@@ -278,17 +285,16 @@ export async function syncOperatorPageViewsFromAccessLogs(
     return pageViewSyncCache.result;
   }
 
-  const read = await readRecentAccessLogText(logDir);
-  const parsed = parseCaddyAccessLogLines(read.text);
+  const read = await readAccessLogEntries(logDir);
 
   let result: OperatorPageViewSyncResult;
   try {
-    await persistOperatorPageViews(prisma, parsed.entries);
+    await persistOperatorPageViews(prisma, read.entries);
     result = {
       filesRead: read.filesRead,
-      linesParsed: parsed.entries.length,
+      linesParsed: read.entries.length,
       logDir: read.logDir,
-      parseErrors: parsed.parseErrors,
+      parseErrors: read.parseErrors,
       storage: "database",
     };
   } catch {
@@ -574,57 +580,91 @@ async function persistOperatorPageViews(
   }
 }
 
-async function readRecentAccessLogText(logDir: string): Promise<RawLogRead> {
+/**
+ * Read Caddy access-log entries, newest files last so entries stay in order.
+ *
+ * Three things this has to get right, each of which silently lost days before:
+ *
+ * - Rotated logs are compressed. Skipping `.gz` meant every day older than the
+ *   current roll could never be imported, and Caddy rolls at 20 MiB.
+ * - Reading only the tail of a file loses everything written between two
+ *   imports once that exceeds the window. The whole file is streamed instead,
+ *   line by line, so file size costs time rather than data.
+ * Every retained file is read on every import, and the unique index on
+ * eventHash absorbs the repeats. Skipping files whose newest line is already
+ * stored would be cheaper, but a single high-water mark cannot describe a
+ * history with holes in it, so it would leave any gap permanent. Re-reading
+ * makes the import self-healing: whatever the retention window still holds
+ * gets filled in. That is worth more here than the saved work, and the caller
+ * already caches the result.
+ */
+async function readAccessLogEntries(logDir: string): Promise<RawLogRead> {
   let names: string[];
   try {
     names = await readdir(logDir);
   } catch {
-    return { filesRead: 0, logDir, text: "" };
+    return { entries: [], filesRead: 0, logDir, parseErrors: 0 };
   }
 
   const files = (
     await Promise.all(
       names
-        .filter((name) => name.startsWith(LOG_FILE_PREFIX) && !name.endsWith(".gz"))
+        .filter((name) => name.startsWith(LOG_FILE_PREFIX))
         .map(async (name) => {
           const fullPath = path.join(logDir, name);
           try {
             const info = await stat(fullPath);
             if (!info.isFile()) return null;
-            return { fullPath, mtime: info.mtimeMs, size: info.size };
+            return { fullPath, gzipped: name.endsWith(".gz"), mtime: info.mtimeMs };
           } catch {
             return null;
           }
         }),
     )
   )
-    .filter((file): file is { fullPath: string; mtime: number; size: number } => file !== null)
+    .filter((file): file is { fullPath: string; gzipped: boolean; mtime: number } => file !== null)
     .sort((a, b) => b.mtime - a.mtime)
-    .slice(0, MAX_LOG_FILES);
+    .slice(0, MAX_LOG_FILES)
+    .sort((a, b) => a.mtime - b.mtime);
 
-  const chunks: string[] = [];
+  const entries: AccessLogEntry[] = [];
+  let parseErrors = 0;
+  let filesRead = 0;
 
   for (const file of files) {
-    const length = Math.min(file.size, MAX_BYTES_PER_FILE);
-    const start = Math.max(0, file.size - length);
-    const buffer = Buffer.alloc(length);
-    let handle;
+    if (entries.length >= MAX_ENTRIES_PER_READ) break;
     try {
-      handle = await open(file.fullPath, "r");
-      await handle.read(buffer, 0, length, start);
-      chunks.push(buffer.toString("utf8"));
+      const stream = file.gzipped
+        ? createReadStream(file.fullPath).pipe(createGunzip())
+        : createReadStream(file.fullPath);
+      const lines = createInterface({ crlfDelay: Infinity, input: stream });
+
+      for await (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const parsed = parseCaddyAccessLogLine(trimmed);
+        if (!parsed.ok) {
+          parseErrors += 1;
+          continue;
+        }
+        if (!parsed.entry) continue;
+        entries.push(parsed.entry);
+        if (entries.length >= MAX_ENTRIES_PER_READ) {
+          lines.close();
+          stream.destroy();
+          break;
+        }
+      }
+      filesRead += 1;
     } catch {
+      // A truncated or half-rotated file must not cost us the other files.
       continue;
-    } finally {
-      await handle?.close();
     }
   }
 
-  return {
-    filesRead: files.length,
-    logDir,
-    text: chunks.reverse().join("\n"),
-  };
+  entries.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  return { entries, filesRead, logDir, parseErrors };
 }
 
 function parseCaddyAccessLogLine(line: string): ParsedLine {
