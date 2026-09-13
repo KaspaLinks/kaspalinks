@@ -12,7 +12,8 @@ export async function setGiveawayResultSubscription(
     throw new ApplicationError("PRIVATE_CHAT_REQUIRED", "Use your private bot chat.", 403);
   }
   return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw(
+    // $executeRaw: the lock returns void, which the pg adapter cannot deserialize.
+    await tx.$executeRaw(
       Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`giveaway-watch:${input.telegramUserId}`}, 0))`,
     );
     const giveaway = await tx.giveaway.findUnique({

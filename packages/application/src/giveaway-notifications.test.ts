@@ -7,7 +7,7 @@ import {
 } from "./giveaway-notifications.ts";
 function fixture() {
   const tx = {
-    $queryRaw: vi.fn().mockResolvedValue([]),
+    $executeRaw: vi.fn().mockResolvedValue(1),
     giveaway: { findUnique: vi.fn().mockResolvedValue({ id: "g1", title: "Weekend" }) },
     telegramGiveawaySubscription: {
       findUnique: vi.fn().mockResolvedValue(null),

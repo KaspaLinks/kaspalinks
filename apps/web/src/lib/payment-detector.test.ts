@@ -69,7 +69,9 @@ function buildPrismaStub(
   const request = buildPaymentRequest(initial);
 
   const tx = {
-    $queryRaw: async () => [{ pg_advisory_xact_lock: null }],
+    // The real pg adapter cannot return a void column, so a mock that hands
+    // back [{ pg_advisory_xact_lock: null }] only hid that the lock threw.
+    $executeRaw: async () => 1,
     action: {
       updateMany: async ({ data }: { data: { invoicePaidAt: Date } }) => {
         invoicePaidAt = data.invoicePaidAt;

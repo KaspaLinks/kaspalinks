@@ -67,7 +67,10 @@ export async function lockActionPaymentLifecycle(
   tx: Prisma.TransactionClient,
   actionId: string,
 ): Promise<void> {
-  await tx.$queryRaw(
+  // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void, and the pg
+  // driver adapter cannot deserialize a void column. $queryRaw threw on every
+  // call and turned each payment request into a 500.
+  await tx.$executeRaw(
     Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`kaspalinks:payment:${actionId}`}, 0))`,
   );
 }
@@ -76,7 +79,7 @@ export async function lockRecipientPaymentLifecycle(
   tx: Prisma.TransactionClient,
   request: Pick<PaymentRequest, "network" | "recipientAddress">,
 ): Promise<void> {
-  await tx.$queryRaw(
+  await tx.$executeRaw(
     Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`kaspalinks:recipient:${request.network}:${request.recipientAddress}`}, 0))`,
   );
 }
