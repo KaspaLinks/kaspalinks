@@ -1,3 +1,4 @@
+import { giveawayMetadata } from "./preview";
 import { headers } from "next/headers";
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
@@ -17,6 +18,9 @@ import { giveawayV3Draw } from "@/lib/giveaway-prize-v3-proof";
 import { prototypeEntropySchema } from "@/lib/giveaway-prize-v3-prototype";
 import EntryClient from "./EntryClient";
 export const dynamic = "force-dynamic";
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  return giveawayMetadata((await params).id);
+}
 export default async function GiveawayPage({ params }: { params: Promise<{ id: string }> }) {
   const limited = enforceRateLimit(
     RateBuckets.TOCCATA_LAB_FUNDING_STATUS,
