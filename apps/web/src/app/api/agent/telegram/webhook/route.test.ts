@@ -436,6 +436,26 @@ describe("SilverScript bot handoff", () => {
       update_id: 989,
       message: { chat: { id: 123, type: "private" }, from: { id: 123 }, message_id: 1, text },
     });
+  it("keeps complete help for SilverScript-enabled accounts", async () => {
+    expect((await POST(request("/help"))).status).toBe(200);
+    const sent = mocks.sendMessage.mock.calls[0][0];
+    for (const command of [
+      "/link",
+      "/invoice",
+      "/tip",
+      "/donation",
+      "/goal",
+      "/links",
+      "/payments",
+      "/stats",
+      "/giveaways",
+      "/disconnect",
+    ])
+      expect(sent.text).toContain(command);
+    expect(sent.text).toContain("set up → save recovery → fund → share");
+    expect(JSON.stringify(sent.buttons)).toContain("/toccata-lab/prize-covenant");
+    expect(JSON.stringify(sent.buttons)).not.toContain("/toccata-lab/giveaway");
+  });
   it("opens SilverScript without creating a legacy draft", async () => {
     expect((await POST(request("/giveaway 0.5 24h Test"))).status).toBe(200);
     expect(mocks.createGiveawaySetupDraft).not.toHaveBeenCalled();

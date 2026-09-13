@@ -156,9 +156,10 @@ const helpText = [
   "/tip [KAS] <title> — optional fixed amount",
   "/donation [KAS] <title> — optional fixed amount",
   "/goal <KAS target> <title> — fundraising target",
-  "/giveaway <KAS prize> <duration> <title>",
+  "/giveaway <KAS prize> <duration> <title> — open setup; choose details in the Mini App",
   "",
-  "Giveaways use the SilverScript Mini App, subject to account access. Choose prize and duration there.",
+  "SilverScript Mini App: set up → save recovery → fund → share.",
+  "Requires account access. Prizes: 0.2, 0.5 or 1 KAS; duration up to 24h.",
   "Example: /giveaway 0.5 24h Weekend KAS",
   "Example: /link 5.5 Design payment",
   "",
@@ -650,9 +651,7 @@ async function handleMessage(
     await client.sendMessage({
       buttons: helpButtons(usesCovenantStudio(connection.creator)),
       chatId,
-      text: usesCovenantStudio(connection.creator)
-        ? "SilverScript giveaways: open the studio, choose your prize and duration, save recovery, then fund and share. Current prizes: 0.2, 0.5 or 1 KAS; duration up to 24 hours. Use /giveaways to manage them."
-        : helpText,
+      text: helpText,
     });
     return;
   }
