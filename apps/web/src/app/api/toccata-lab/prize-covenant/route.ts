@@ -8,6 +8,7 @@ import { prototypeManifestSchema, prototypeTerms } from "@/lib/giveaway-prize-v3
 import {
   readPrototypeChain,
   readPrototypeUtxos,
+  readPrototypeRefund,
   readPrototypePayout,
 } from "@/lib/giveaway-prize-v3-chain";
 import { actionSchema, executeCovenantAction } from "@/lib/giveaway-covenant-execution";
@@ -84,7 +85,24 @@ export async function GET(request: Request) {
     const payout = submission.success
       ? await readPrototypePayout(submission.data.transactionId, manifest)
       : null;
+    const refundSubmission = await prisma.auditLog.findFirst({
+      where: {
+        creatorId: guard.creator.id,
+        event: "giveaway.covenant_prototype_submitted",
+        AND: [
+          { metadata: { path: ["prototypeId"], equals: row.id } },
+          { metadata: { path: ["mode"], equals: "broadcast-refund" } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      select: { metadata: true },
+    });
+    const refundId = z
+      .object({ transactionId: z.string().regex(/^[0-9a-f]{64}$/) })
+      .safeParse(refundSubmission?.metadata);
+    const refund = refundId.success ? await readPrototypeRefund(refundId.data.transactionId) : null;
     return apiJson({
+      refund,
       payout,
       publicTitle: row.publicTitle,
       entryCount: row.publicTitle

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   guard: vi.fn(),
   limit: vi.fn(),
   audit: vi.fn(),
+  refund: vi.fn(),
   payout: vi.fn(),
   chain: vi.fn(),
   utxos: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("@/lib/rate-limit-helpers", () => ({
 }));
 vi.mock("@/lib/audit", () => ({ writeAuditLog: mocks.audit }));
 vi.mock("@/lib/giveaway-prize-v3-chain", () => ({
+  readPrototypeRefund: mocks.refund,
   readPrototypePayout: mocks.payout,
   readPrototypeChain: mocks.chain,
   readPrototypeUtxos: mocks.utxos,
@@ -96,7 +98,9 @@ describe("prototype access and transitions", () => {
   it("restores a confirmed payout from creator-scoped audit history", async () => {
     const row = trial();
     mocks.db.covenantPrototype.findFirst.mockResolvedValue(row);
-    mocks.db.auditLog.findFirst.mockResolvedValue({ metadata: { transactionId: "ab".repeat(32) } });
+    mocks.db.auditLog.findFirst
+      .mockResolvedValueOnce({ metadata: { transactionId: "ab".repeat(32) } })
+      .mockResolvedValueOnce(null);
     const payout = {
       transactionId: "ab".repeat(32),
       confirmed: true,
@@ -107,6 +111,28 @@ describe("prototype access and transitions", () => {
     expect(response.status).toBe(200);
     expect((await response.json()).payout).toEqual(payout);
     expect(mocks.db.auditLog.findFirst.mock.calls[0][0].where.creatorId).toBe("creator");
+  });
+  it("restores only the selected creator giveaway refund receipt", async () => {
+    mocks.db.covenantPrototype.findFirst.mockResolvedValue(trial());
+    mocks.db.auditLog.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ metadata: { transactionId: "ab".repeat(32) } });
+    const refund = {
+      transactionId: "ab".repeat(32),
+      confirmed: true,
+      address: "kaspa:test",
+      amount: "100000000",
+    };
+    mocks.refund.mockResolvedValue(refund);
+    const response = await GET(new Request(`https://example.com?id=${id}`));
+    expect((await response.json()).refund).toEqual(refund);
+    expect(mocks.db.auditLog.findFirst.mock.calls[1][0].where).toMatchObject({
+      creatorId: "creator",
+      AND: [
+        { metadata: { path: ["prototypeId"], equals: id } },
+        { metadata: { path: ["mode"], equals: "broadcast-refund" } },
+      ],
+    });
   });
   it("does not expose prototypes without the explicit feature gate", async () => {
     vi.stubEnv("GIVEAWAY_COVENANT_PROTOTYPE_ENABLED", "false");

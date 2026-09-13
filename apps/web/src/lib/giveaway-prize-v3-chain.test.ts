@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   readPrototypePayout,
+  readPrototypeRefund,
   verifyPrototypeEntropy,
   readPrototypeUtxos,
 } from "./giveaway-prize-v3-chain";
@@ -99,5 +100,48 @@ describe("confirmed prototype payout", () => {
       vi.fn(async () => new Response(null, { status: 503 })),
     );
     expect((await readPrototypePayout(hash, manifest)).confirmed).toBe(false);
+  });
+});
+
+describe("refund receipt", () => {
+  it("confirms the accepted audited transaction and exact output", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          transaction_id: hash,
+          is_accepted: true,
+          inputs: [{}],
+          outputs: [{ amount: "21000000", script_public_key_address: "kaspa:test" }],
+        }),
+      ),
+    );
+    expect(await readPrototypeRefund(hash)).toEqual({
+      transactionId: hash,
+      confirmed: true,
+      address: "kaspa:test",
+      amount: "21000000",
+    });
+  });
+  it("never marks unavailable or mismatched transactions as refunded", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          transaction_id: seed,
+          is_accepted: true,
+          inputs: [{}],
+          outputs: [{ amount: "21000000", script_public_key_address: "kaspa:test" }],
+        }),
+      ),
+    );
+    expect((await readPrototypeRefund(hash)).confirmed).toBe(false);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+    expect((await readPrototypeRefund(hash)).confirmed).toBe(false);
   });
 });

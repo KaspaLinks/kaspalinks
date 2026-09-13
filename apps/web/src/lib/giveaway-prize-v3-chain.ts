@@ -121,3 +121,36 @@ export async function readPrototypePayout(
     return { transactionId, confirmed: false, winnerAddress: null };
   }
 }
+
+/** Only call with a creator-scoped, already validated refund submission from the audit trail. */
+export async function readPrototypeRefund(transactionId: string) {
+  const pending = { transactionId, confirmed: false, address: null, amount: null };
+  try {
+    const tx = z
+      .object({
+        transaction_id: hash,
+        is_accepted: z.boolean(),
+        inputs: z.array(z.unknown()).length(1),
+        outputs: z
+          .array(
+            z.object({
+              amount: decimal,
+              script_public_key_address: z.string().startsWith("kaspa:"),
+            }),
+          )
+          .length(1),
+      })
+      .parse(await read(`/transactions/${transactionId}`));
+    const output = tx.outputs[0]!;
+    return tx.transaction_id === transactionId && tx.is_accepted && BigInt(output.amount) > 0n
+      ? {
+          transactionId,
+          confirmed: true,
+          address: output.script_public_key_address,
+          amount: output.amount,
+        }
+      : pending;
+  } catch {
+    return pending;
+  }
+}
