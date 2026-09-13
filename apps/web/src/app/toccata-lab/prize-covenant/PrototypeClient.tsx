@@ -49,6 +49,7 @@ async function api<T>(url: string, body?: unknown): Promise<T> {
   return data as T;
 }
 export default function PrototypeClient() {
+  const [manageView, setManageView] = useState(false);
   const [review, setReview] = useState(false);
   const [accessReady, setAccessReady] = useState(false);
   const [trials, setTrials] = useState<Trial[]>([]);
@@ -91,6 +92,9 @@ export default function PrototypeClient() {
     }
   }, []);
   useEffect(() => {
+    setManageView(new URLSearchParams(window.location.search).get("view") === "manage");
+    window.Telegram?.WebApp?.ready();
+    window.Telegram?.WebApp?.expand();
     void run(() => refresh());
   }, [refresh, run]);
   const selectedId = detail?.id;
@@ -242,7 +246,7 @@ export default function PrototypeClient() {
           `covenant-${detail.id}-recovery.json`,
           { type: "application/json" },
         ),
-        false,
+        Boolean(window.Telegram?.WebApp?.initData),
       );
       setMessage("Recovery file prepared. Confirm below once you have saved it safely.");
     });
@@ -390,130 +394,142 @@ export default function PrototypeClient() {
         </p>
       )}
       {!detail ? (
-        <div className="studio-layout">
-          <section className="card studio-panel">
-            <div className="studio-panel-heading">
-              <span className="studio-kicker">Step 1 of 4</span>
-              <h2>{review ? "Ready to create?" : "Make it yours"}</h2>
-              <p>
-                {review
-                  ? "Check your prize and timing before the giveaway starts."
-                  : "Choose a title, prize and how long people can enter."}
-              </p>
-            </div>
-            {!review ? (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setReview(true);
-                }}
-                className="studio-form"
-              >
-                <label className="field">
-                  <span className="label">Giveaway title</span>
-                  <input
-                    id="giveaway-title"
-                    placeholder="A little KAS for our community"
-                    required
-                    minLength={3}
-                    maxLength={100}
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    disabled={busy}
-                  />
-                </label>
-                <fieldset className="studio-prizes">
-                  <legend className="label">Prize for the winner</legend>
-                  {["20000000", "50000000", "100000000"].map((value) => (
-                    <label key={value} className={prize === value ? "is-selected" : ""}>
-                      <input
-                        type="radio"
-                        name="prize"
-                        value={value}
-                        checked={prize === value}
-                        onChange={() => setPrize(value)}
-                        disabled={busy}
-                      />
-                      <span>{kas(value)}</span>
-                    </label>
-                  ))}
-                </fieldset>
-                <label className="field">
-                  <span className="label">People can enter for</span>
-                  <select
-                    id="duration"
-                    value={durationMinutes}
-                    onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                    disabled={busy}
-                  >
-                    {[5, 15, 30, 60, 360, 720, 1440].map((minutes) => (
-                      <option key={minutes} value={minutes}>
-                        {minutes < 60
-                          ? `${minutes} minutes`
-                          : `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="studio-cost">
-                  <span>Total funding</span>
-                  <strong>{kas(total)}</strong>
-                  <small>Includes 0.02 KAS reserved for processing. Wallet fee is extra.</small>
-                </div>
-                <button
-                  className="btn btn-primary studio-primary"
-                  disabled={busy || !accessReady || title.trim().length < 3}
-                >
-                  Review giveaway →
-                </button>
-              </form>
-            ) : (
-              <div className="studio-review">
-                <h3>{title.trim()}</h3>
-                <dl className="studio-summary">
-                  <div>
-                    <dt>Winner receives</dt>
-                    <dd>{kas(prize)}</dd>
-                  </div>
-                  <div>
-                    <dt>Entry duration</dt>
-                    <dd>{durationLabel}</dd>
-                  </div>
-                  <div>
-                    <dt>Participants</dt>
-                    <dd>Up to 100 · one winner</dd>
-                  </div>
-                  <div>
-                    <dt>Total to fund</dt>
-                    <dd>{kas(total)}</dd>
-                  </div>
-                </dl>
-                <div className="studio-hint">
-                  <strong>Your timer starts when you create.</strong>
-                  <p>Have your wallet ready. Next, save recovery and fund before entries close.</p>
-                </div>
-                <div className="studio-actions">
-                  <button className="btn" disabled={busy} onClick={() => setReview(false)}>
-                    Edit details
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    disabled={busy || !accessReady}
-                    onClick={() => void create()}
-                  >
-                    {busy ? "Creating…" : "Create & save recovery →"}
-                  </button>
-                </div>
+        <div
+          className="studio-layout"
+          style={manageView ? { gridTemplateColumns: "1fr" } : undefined}
+        >
+          {manageView && (
+            <button className="btn btn-primary" onClick={() => setManageView(false)}>
+              Create a new giveaway →
+            </button>
+          )}
+          {!manageView && (
+            <section className="card studio-panel">
+              <div className="studio-panel-heading">
+                <span className="studio-kicker">Step 1 of 4</span>
+                <h2>{review ? "Ready to create?" : "Make it yours"}</h2>
+                <p>
+                  {review
+                    ? "Check your prize and timing before the giveaway starts."
+                    : "Choose a title, prize and how long people can enter."}
+                </p>
               </div>
-            )}
-            {!accessReady && (
-              <p>
-                <Link href="/sign-in?next=%2Ftoccata-lab%2Fprize-covenant">
-                  Sign in to your creator account
-                </Link>
-              </p>
-            )}
-          </section>
+              {!review ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setReview(true);
+                  }}
+                  className="studio-form"
+                >
+                  <label className="field">
+                    <span className="label">Giveaway title</span>
+                    <input
+                      id="giveaway-title"
+                      placeholder="A little KAS for our community"
+                      required
+                      minLength={3}
+                      maxLength={100}
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      disabled={busy}
+                    />
+                  </label>
+                  <fieldset className="studio-prizes">
+                    <legend className="label">Prize for the winner</legend>
+                    {["20000000", "50000000", "100000000"].map((value) => (
+                      <label key={value} className={prize === value ? "is-selected" : ""}>
+                        <input
+                          type="radio"
+                          name="prize"
+                          value={value}
+                          checked={prize === value}
+                          onChange={() => setPrize(value)}
+                          disabled={busy}
+                        />
+                        <span>{kas(value)}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                  <label className="field">
+                    <span className="label">People can enter for</span>
+                    <select
+                      id="duration"
+                      value={durationMinutes}
+                      onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                      disabled={busy}
+                    >
+                      {[5, 15, 30, 60, 360, 720, 1440].map((minutes) => (
+                        <option key={minutes} value={minutes}>
+                          {minutes < 60
+                            ? `${minutes} minutes`
+                            : `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="studio-cost">
+                    <span>Total funding</span>
+                    <strong>{kas(total)}</strong>
+                    <small>Includes 0.02 KAS reserved for processing. Wallet fee is extra.</small>
+                  </div>
+                  <button
+                    className="btn btn-primary studio-primary"
+                    disabled={busy || !accessReady || title.trim().length < 3}
+                  >
+                    Review giveaway →
+                  </button>
+                </form>
+              ) : (
+                <div className="studio-review">
+                  <h3>{title.trim()}</h3>
+                  <dl className="studio-summary">
+                    <div>
+                      <dt>Winner receives</dt>
+                      <dd>{kas(prize)}</dd>
+                    </div>
+                    <div>
+                      <dt>Entry duration</dt>
+                      <dd>{durationLabel}</dd>
+                    </div>
+                    <div>
+                      <dt>Participants</dt>
+                      <dd>Up to 100 · one winner</dd>
+                    </div>
+                    <div>
+                      <dt>Total to fund</dt>
+                      <dd>{kas(total)}</dd>
+                    </div>
+                  </dl>
+                  <div className="studio-hint">
+                    <strong>Your timer starts when you create.</strong>
+                    <p>
+                      Have your wallet ready. Next, save recovery and fund before entries close.
+                    </p>
+                  </div>
+                  <div className="studio-actions">
+                    <button className="btn" disabled={busy} onClick={() => setReview(false)}>
+                      Edit details
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      disabled={busy || !accessReady}
+                      onClick={() => void create()}
+                    >
+                      {busy ? "Creating…" : "Create & save recovery →"}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!accessReady && (
+                <p>
+                  <Link href="/sign-in?next=%2Ftoccata-lab%2Fprize-covenant">
+                    Sign in to your creator account
+                  </Link>
+                </p>
+              )}
+            </section>
+          )}
           <aside className="studio-sidebar">
             <section className="card studio-guide">
               <h2>How it works</h2>
@@ -565,6 +581,7 @@ export default function PrototypeClient() {
                 void run(async () => {
                   await refresh();
                   setDetail(null);
+                  setManageView(true);
                   setTxId(null);
                   setReview(false);
                 })

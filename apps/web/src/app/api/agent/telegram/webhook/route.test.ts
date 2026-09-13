@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getCard: vi.fn(),
+  covenantList: vi.fn(),
   subscribe: vi.fn(),
   stopSubscriptions: vi.fn(),
   answerCallbackQuery: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock("@kaspa-actions/db", () => {
   return {
     Prisma: { PrismaClientKnownRequestError },
     prisma: {
+      covenantPrototype: { findMany: mocks.covenantList },
       telegramConnection: { findUnique: mocks.findConnection },
       telegramUpdate: {
         create: mocks.createUpdate,
@@ -76,6 +78,7 @@ function webhookRequest(body: unknown, secret = "webhook-secret") {
 describe("Telegram Agent webhook", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED = "false";
     resetRateLimits();
     process.env.TOCCATA_LAB_ENABLED = "true";
     process.env.GIVEAWAY_LAB_ENABLED = "true";
@@ -427,5 +430,69 @@ describe("Telegram Agent webhook", () => {
     const response = await POST(webhookRequest({ update_id: 106, message: { chat: null } }));
     expect(response.status).toBe(400);
     expect(mocks.createUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("SilverScript bot handoff", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    resetRateLimits();
+    process.env.TOCCATA_LAB_ENABLED = "true";
+    process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED = "true";
+    process.env.TELEGRAM_WEBHOOK_SECRET = "webhook-secret";
+    process.env.TELEGRAM_BOT_TOKEN = "test-token";
+    process.env.NEXT_PUBLIC_APP_URL = "https://kaspalinks.com";
+    mocks.createUpdate.mockResolvedValue({});
+    mocks.updateUpdate.mockResolvedValue({});
+    mocks.sendMessage.mockResolvedValue({ message_id: 1 });
+    mocks.findConnection.mockResolvedValue({
+      creatorId: "creator-1",
+      telegramUserId: "123",
+      telegramChatId: "123",
+      creator: { prizeCovenantEnabled: true, telegramBetaEnabled: true },
+    });
+    mocks.covenantList.mockResolvedValue([
+      { id: "giveaway-id", publicTitle: "Silver giveaway", _count: { registrations: 3 } },
+    ]);
+  });
+  const request = (text: string) =>
+    webhookRequest({
+      update_id: 989,
+      message: { chat: { id: 123, type: "private" }, from: { id: 123 }, message_id: 1, text },
+    });
+  it("opens SilverScript without creating a legacy draft", async () => {
+    expect((await POST(request("/giveaway 0.5 24h Test"))).status).toBe(200);
+    expect(mocks.createGiveawaySetupDraft).not.toHaveBeenCalled();
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttons: expect.arrayContaining([
+          [
+            {
+              text: "Create giveaway",
+              web_app: { url: "https://kaspalinks.com/toccata-lab/prize-covenant" },
+            },
+          ],
+        ]),
+      }),
+    );
+  });
+  it("lists only the connected creator covenant giveaways and opens management", async () => {
+    expect((await POST(request("/giveaways"))).status).toBe(200);
+    expect(mocks.covenantList).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { creatorId: "creator-1", publicTitle: { not: null } } }),
+    );
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("/giveaways/giveaway-id"),
+        buttons: expect.arrayContaining([
+          [
+            {
+              text: "Manage giveaways",
+              web_app: { url: "https://kaspalinks.com/toccata-lab/prize-covenant?view=manage" },
+            },
+          ],
+        ]),
+      }),
+    );
   });
 });

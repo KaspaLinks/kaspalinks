@@ -107,7 +107,20 @@ function giveawayMiniAppUrl(draftId?: string) {
   return draftId ? `${base}?draft=${encodeURIComponent(draftId)}` : base;
 }
 
-function helpButtons() {
+function usesCovenantStudio(creator: {
+  prizeCovenantEnabled?: boolean;
+  telegramBetaEnabled?: boolean;
+}) {
+  return (
+    process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED === "true" &&
+    creator.prizeCovenantEnabled === true &&
+    creator.telegramBetaEnabled === true
+  );
+}
+function covenantStudioUrl() {
+  return `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/toccata-lab/prize-covenant`;
+}
+function helpButtons(covenant = false) {
   return [
     [
       { callback_data: "menu:links", text: "My links" },
@@ -116,13 +129,22 @@ function helpButtons() {
     ],
     [
       { callback_data: "menu:giveaways", text: "Giveaways" },
-      { text: "Open giveaway app", web_app: { url: giveawayMiniAppUrl() } },
+      {
+        text: "Open giveaway app",
+        web_app: { url: covenant ? covenantStudioUrl() : giveawayMiniAppUrl() },
+      },
     ],
     [{ text: "Agent settings", url: agentSettingsUrl() }],
   ];
 }
 
-function giveawayAppButtons() {
+function giveawayAppButtons(covenant = false) {
+  if (covenant)
+    return [
+      [{ text: "Create giveaway", web_app: { url: covenantStudioUrl() } }],
+      [{ text: "Manage giveaways", web_app: { url: `${covenantStudioUrl()}?view=manage` } }],
+      [{ text: "Older giveaways", web_app: { url: `${giveawayMiniAppUrl()}?view=manage` } }],
+    ];
   return [[{ text: "Manage giveaways", web_app: { url: `${giveawayMiniAppUrl()}?view=manage` } }]];
 }
 
@@ -231,7 +253,27 @@ async function renderGiveaways(creatorId: string): Promise<string> {
     .join("\n\n");
 }
 
-async function executeMenuAction(action: string, creatorId: string): Promise<string> {
+async function executeMenuAction(
+  action: string,
+  creatorId: string,
+  covenant = false,
+): Promise<string> {
+  if (action === "giveaways" && covenant) {
+    const rows = await prisma.covenantPrototype.findMany({
+      where: { creatorId, publicTitle: { not: null } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: { id: true, publicTitle: true, _count: { select: { registrations: true } } },
+    });
+    return rows.length
+      ? rows
+          .map(
+            (row) =>
+              `${row.publicTitle} · ${row._count.registrations} participants\n${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/giveaways/${row.id}`,
+          )
+          .join("\n\n")
+      : "Create your first SilverScript giveaway below. Save recovery, fund the prize and share your link.";
+  }
   if (action === "giveaways") return renderGiveaways(creatorId);
   if (action === "links") return renderLinks(creatorId);
   if (action === "payments") return renderPayments(creatorId);
@@ -319,9 +361,15 @@ async function handleCallback(client: TelegramApiClient, callback: TelegramCallb
   if (data.startsWith("menu:")) {
     const action = data.slice(5);
     await client.sendMessage({
-      ...(action === "giveaways" ? { buttons: giveawayAppButtons() } : {}),
+      ...(action === "giveaways"
+        ? { buttons: giveawayAppButtons(usesCovenantStudio(connection.creator)) }
+        : {}),
       chatId: String(chat.id),
-      text: await executeMenuAction(action, connection.creatorId),
+      text: await executeMenuAction(
+        action,
+        connection.creatorId,
+        usesCovenantStudio(connection.creator),
+      ),
     });
     await client.answerCallbackQuery(callback.id);
     return;
@@ -656,7 +704,13 @@ async function handleMessage(
     return;
   }
   if (command.kind === "start" || command.kind === "help") {
-    await client.sendMessage({ buttons: helpButtons(), chatId, text: helpText });
+    await client.sendMessage({
+      buttons: helpButtons(usesCovenantStudio(connection.creator)),
+      chatId,
+      text: usesCovenantStudio(connection.creator)
+        ? "SilverScript giveaways: open the studio, choose your prize and duration, save recovery, then fund and share. Current prizes: 0.2, 0.5 or 1 KAS; duration up to 24 hours. Use /giveaways to manage them."
+        : helpText,
+    });
     return;
   }
   if (command.kind === "disconnect") {
@@ -671,9 +725,23 @@ async function handleMessage(
     command.kind === "stats"
   ) {
     await client.sendMessage({
-      ...(command.kind === "giveaways" ? { buttons: giveawayAppButtons() } : {}),
+      ...(command.kind === "giveaways"
+        ? { buttons: giveawayAppButtons(usesCovenantStudio(connection.creator)) }
+        : {}),
       chatId,
-      text: await executeMenuAction(command.kind, connection.creatorId),
+      text: await executeMenuAction(
+        command.kind,
+        connection.creatorId,
+        usesCovenantStudio(connection.creator),
+      ),
+    });
+    return;
+  }
+  if (command.kind === "prepare_giveaway" && usesCovenantStudio(connection.creator)) {
+    await client.sendMessage({
+      chatId,
+      buttons: giveawayAppButtons(true),
+      text: "Create this giveaway in the SilverScript studio. Choose the title, prize and duration there, then review before creating. Current prizes: 0.2, 0.5 or 1 KAS; duration up to 24 hours. Nothing has been created or funded yet.",
     });
     return;
   }
