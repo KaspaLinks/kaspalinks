@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
+import { writeClipboardText } from "@/lib/clipboard";
 import { savePrivateRecoveryFile } from "@/lib/private-recovery-download";
 import {
   createPrototypeRecoveryKey,
@@ -60,6 +61,8 @@ export default function PrototypeClient() {
   const [qr, setQr] = useState<{ uri: string; src: string } | null>(null);
   const [prize, setPrize] = useState("20000000");
   const [recovery, setRecovery] = useState<{ id: string; privateKeyHex: string } | null>(null);
+  // Recovery text shown for manual storage where Telegram cannot save a file.
+  const [manualRecovery, setManualRecovery] = useState<{ id: string; text: string } | null>(null);
   const [saved, setSaved] = useState(false);
   const [refundAddress, setRefundAddress] = useState("");
   const [busy, setBusy] = useState(false);
@@ -228,28 +231,73 @@ export default function PrototypeClient() {
   const saveRecovery = () =>
     run(async () => {
       if (!detail || recovery?.id !== detail.id) return;
-      await savePrivateRecoveryFile(
-        new File(
-          [
-            JSON.stringify(
-              {
-                format: "kaspalinks-covenant-prototype-v3",
-                id: detail.id,
-                privateKeyHex: recovery.privateKeyHex,
-                manifest: detail.manifest,
-                terms: detail.terms,
-              },
-              null,
-              2,
-            ),
-          ],
-          `covenant-${detail.id}-recovery.json`,
-          { type: "application/json" },
-        ),
+      const name = `covenant-${detail.id}-recovery.json`;
+      const text = JSON.stringify(
+        {
+          format: "kaspalinks-covenant-prototype-v3",
+          id: detail.id,
+          privateKeyHex: recovery.privateKeyHex,
+          manifest: detail.manifest,
+          terms: detail.terms,
+        },
+        null,
+        2,
+      );
+      const result = await savePrivateRecoveryFile(
+        new File([text], name, { type: "application/json" }),
         Boolean(window.Telegram?.WebApp?.initData),
       );
-      setMessage("Recovery file prepared. Confirm below once you have saved it safely.");
+      // None of these outcomes can confirm the file landed anywhere, so the
+      // message describes what to do next rather than claiming it worked. The
+      // checkbox below stays the gate before funding.
+      if (result === "copy") {
+        setManualRecovery({ id: detail.id, text });
+        setMessage(
+          "Telegram can't save files here. Copy the recovery text below into a password manager or a private note, then confirm.",
+        );
+        return;
+      }
+      setManualRecovery(null);
+      setMessage(
+        result === "menu"
+          ? "Choose where to save the recovery file in the menu that opened, then confirm below."
+          : `Your browser is saving ${name}. Check that it arrived, then confirm below.`,
+      );
     });
+  const copyRecoveryText = (text: string) =>
+    run(async () => {
+      const copied = await writeClipboardText(text);
+      setMessage(
+        copied
+          ? "Recovery text copied. Paste it somewhere private now, then clear your clipboard."
+          : "Copy failed. Select the recovery text and copy it manually.",
+      );
+    });
+  const manualRecoveryBlock =
+    detail && manualRecovery?.id === detail.id ? (
+      <div className="studio-recovery-manual">
+        <label className="studio-caption" htmlFor="studio-recovery-text">
+          Recovery text · private, do not share
+        </label>
+        <textarea
+          className="studio-recovery-text"
+          id="studio-recovery-text"
+          readOnly
+          rows={8}
+          spellCheck={false}
+          value={manualRecovery.text}
+          onFocus={(e) => e.currentTarget.select()}
+        />
+        <button
+          className="btn"
+          disabled={busy}
+          onClick={() => void copyRecoveryText(manualRecovery.text)}
+          type="button"
+        >
+          Copy recovery text
+        </button>
+      </div>
+    ) : null;
   const importRecovery = (file: File) =>
     run(async () => {
       if (!detail) return;
@@ -626,6 +674,7 @@ export default function PrototypeClient() {
                     >
                       Save recovery file ↓
                     </button>
+                    {manualRecoveryBlock}
                     <label className="studio-confirm">
                       <input
                         type="checkbox"
@@ -633,7 +682,7 @@ export default function PrototypeClient() {
                         disabled={busy}
                         onChange={(e) => setSaved(e.target.checked)}
                       />
-                      <span>I saved the file somewhere safe.</span>
+                      <span>I saved my recovery somewhere safe.</span>
                     </label>
                   </>
                 ) : (
@@ -877,6 +926,7 @@ export default function PrototypeClient() {
                   Save recovery file again
                 </button>
               )}
+              {manualRecoveryBlock}
               {upload}
               {!confirmed && state !== "refund" && returnForm}
               <h3>Manual processing</h3>

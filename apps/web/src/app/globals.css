@@ -11857,3 +11857,16 @@ main.giveaway-guided-page {
     font-size: 0.9rem;
   }
 }
+
+/* Recovery text for manual storage where Telegram cannot save a file. */
+.studio-recovery-manual {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.studio-recovery-text {
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  word-break: break-all;
+}

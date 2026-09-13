@@ -39,10 +39,24 @@ describe("private recovery export", () => {
     return { anchor, share, create, revoke, file };
   }
 
-  it("downloads on Telegram macOS even when file sharing is supported", async () => {
+  // Telegram's desktop apps hand a blob URL to the operating system as an
+  // external link. The OS has no handler for blob:, so nothing is saved while a
+  // mocked anchor click still looks like success. An earlier version of this
+  // test asserted exactly that click, which is how the failure shipped.
+  it.each(["macos", "tdesktop", "weba", "unknown"])(
+    "never starts a blob download inside Telegram on %s",
+    async (platform) => {
+      const b = browser(platform);
+      expect(await savePrivateRecoveryFile(b.file, true)).toBe("copy");
+      expect(b.create).not.toHaveBeenCalled();
+      expect(b.anchor.click).not.toHaveBeenCalled();
+      expect(b.share).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still downloads in an ordinary browser outside Telegram", async () => {
     const b = browser("macos");
-    expect(await savePrivateRecoveryFile(b.file, true)).toBe("download");
-    expect(b.share).not.toHaveBeenCalled();
+    expect(await savePrivateRecoveryFile(b.file, false)).toBe("download");
     expect(b.anchor.download).toBe("test-recovery.json");
     expect(b.anchor.click).toHaveBeenCalledOnce();
     expect(b.revoke).not.toHaveBeenCalled();
@@ -79,10 +93,11 @@ describe("private recovery export", () => {
     expect(b.create).not.toHaveBeenCalled();
   });
 
-  it("falls back to downloading when mobile file sharing is unsupported", async () => {
+  it("asks for a manual copy when Telegram mobile cannot share files", async () => {
     const b = browser("android");
     vi.stubGlobal("navigator", { userAgent: "Android", maxTouchPoints: 1 });
-    expect(await savePrivateRecoveryFile(b.file, true)).toBe("download");
-    expect(b.anchor.click).toHaveBeenCalledOnce();
+    expect(await savePrivateRecoveryFile(b.file, true)).toBe("copy");
+    expect(b.create).not.toHaveBeenCalled();
+    expect(b.anchor.click).not.toHaveBeenCalled();
   });
 });
