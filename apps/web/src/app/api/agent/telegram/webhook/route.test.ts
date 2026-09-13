@@ -192,9 +192,9 @@ describe("Telegram Agent webhook", () => {
     expect(response.status).toBe(200);
     const help = mocks.sendMessage.mock.calls[0]?.[0]?.text as string;
     expect(help).toContain("Amounts are always entered in KAS");
-    expect(help).toContain("30m");
+    expect(help).toContain("SilverScript Mini App");
     expect(help).toContain("24h");
-    expect(help).toContain("7d");
+    expect(help).not.toContain("7d");
   });
 
   it("acknowledges invalid commands after sending the correction", async () => {
@@ -256,7 +256,7 @@ describe("Telegram Agent webhook", () => {
     expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("creates only a browser handoff draft for a giveaway command", async () => {
+  it("never falls back to legacy giveaway creation for accounts without SilverScript access", async () => {
     mocks.findConnection.mockResolvedValue({
       creator: { defaultRecipientAddress: null },
       creatorId: "creator-1",
@@ -277,33 +277,9 @@ describe("Telegram Agent webhook", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.createGiveawaySetupDraft).toHaveBeenCalledWith(
-      expect.anything(),
-      { channel: "telegram", creatorId: "creator-1" },
-      "123",
-      {
-        amountKas: "10.5",
-        entryWindowSeconds: 86_400,
-        title: "Weekend KAS",
-        winnerClaimWindowSeconds: 86_400,
-      },
-      expect.any(Date),
-      "telegram:4",
-    );
+    expect(mocks.createGiveawaySetupDraft).not.toHaveBeenCalled();
     expect(mocks.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        buttons: [
-          [
-            {
-              text: "Finish giveaway setup",
-              web_app: {
-                url: "https://kaspalinks.com/toccata-lab/giveaway?draft=giveaway-draft-1",
-              },
-            },
-          ],
-        ],
-        text: expect.stringContaining("never enter Telegram"),
-      }),
+      expect.objectContaining({ text: expect.stringContaining("not enabled") }),
     );
   });
 
@@ -463,6 +439,8 @@ describe("SilverScript bot handoff", () => {
   it("opens SilverScript without creating a legacy draft", async () => {
     expect((await POST(request("/giveaway 0.5 24h Test"))).status).toBe(200);
     expect(mocks.createGiveawaySetupDraft).not.toHaveBeenCalled();
+    expect(JSON.stringify(mocks.sendMessage.mock.calls)).not.toContain("Older giveaways");
+    expect(JSON.stringify(mocks.sendMessage.mock.calls)).not.toContain("/toccata-lab/giveaway");
     expect(mocks.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         buttons: expect.arrayContaining([

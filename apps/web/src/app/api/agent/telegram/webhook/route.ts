@@ -21,12 +21,10 @@ import {
   confirmIntentDraftTool,
   consumeTelegramConnectCodeTool,
   createClarificationDraftTool,
-  createGiveawaySetupDraftTool,
   createIntentDraftTool,
   createActionTool,
   disconnectTelegramTool,
   getCreatorStatsTool,
-  listGiveawaysTool,
   listActionsTool,
   listPaymentsTool,
   recordAiUsage,
@@ -102,11 +100,6 @@ function agentSettingsUrl() {
   return `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/agent`;
 }
 
-function giveawayMiniAppUrl(draftId?: string) {
-  const base = `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/toccata-lab/giveaway`;
-  return draftId ? `${base}?draft=${encodeURIComponent(draftId)}` : base;
-}
-
 function usesCovenantStudio(creator: {
   prizeCovenantEnabled?: boolean;
   telegramBetaEnabled?: boolean;
@@ -127,13 +120,17 @@ function helpButtons(covenant = false) {
       { callback_data: "menu:payments", text: "Payments" },
       { callback_data: "menu:stats", text: "Stats" },
     ],
-    [
-      { callback_data: "menu:giveaways", text: "Giveaways" },
-      {
-        text: "Open giveaway app",
-        web_app: { url: covenant ? covenantStudioUrl() : giveawayMiniAppUrl() },
-      },
-    ],
+    ...(covenant
+      ? [
+          [
+            { callback_data: "menu:giveaways", text: "Giveaways" },
+            {
+              text: "Open giveaway app",
+              web_app: { url: covenantStudioUrl() },
+            },
+          ],
+        ]
+      : []),
     [{ text: "Agent settings", url: agentSettingsUrl() }],
   ];
 }
@@ -143,9 +140,8 @@ function giveawayAppButtons(covenant = false) {
     return [
       [{ text: "Create giveaway", web_app: { url: covenantStudioUrl() } }],
       [{ text: "Manage giveaways", web_app: { url: `${covenantStudioUrl()}?view=manage` } }],
-      [{ text: "Older giveaways", web_app: { url: `${giveawayMiniAppUrl()}?view=manage` } }],
     ];
-  return [[{ text: "Manage giveaways", web_app: { url: `${giveawayMiniAppUrl()}?view=manage` } }]];
+  return [];
 }
 
 const helpText = [
@@ -162,8 +158,8 @@ const helpText = [
   "/goal <KAS target> <title> — fundraising target",
   "/giveaway <KAS prize> <duration> <title>",
   "",
-  "Giveaway duration: m = minutes, h = hours, d = days; for example 30m, 24h, or 7d.",
-  "Example: /giveaway 10 24h Weekend KAS",
+  "Giveaways use the SilverScript Mini App, subject to account access. Choose prize and duration there.",
+  "Example: /giveaway 0.5 24h Weekend KAS",
   "Example: /link 5.5 Design payment",
   "",
   "View your account",
@@ -222,37 +218,6 @@ async function renderStats(creatorId: string): Promise<string> {
   ].join("\n");
 }
 
-function giveawayStateLabel(giveaway: Awaited<ReturnType<typeof listGiveawaysTool>>[number]) {
-  if (giveaway.prizeStatus === "spent_unknown") return "Prize spend requires verification";
-  if (giveaway.prizeStatus === "claimed") return "Prize claimed";
-  if (giveaway.prizeStatus === "refunded") return "Prize refunded";
-  if (!giveaway.funded) return "Waiting for prize funding";
-  if (giveaway.status === "DRAWN") {
-    if (giveaway.winnerClaimExpiresAt && giveaway.winnerClaimExpiresAt.getTime() <= Date.now()) {
-      return "Winner claim window closed";
-    }
-    return "Winner selected";
-  }
-  if (giveaway.status === "NO_ENTRIES") return "Closed without entries";
-  if (giveaway.status === "CANCELLED") return "Cancelled";
-  if (giveaway.closesAt.getTime() <= Date.now()) return "Entries closed; draw pending";
-  return "Entries open";
-}
-
-async function renderGiveaways(creatorId: string): Promise<string> {
-  const giveaways = await listGiveawaysTool(prisma, actorContext(creatorId, "telegram"), 10);
-  if (giveaways.length === 0) return "You do not have any giveaways yet.";
-  const appUrl = requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "");
-  return giveaways
-    .map(
-      (giveaway) =>
-        `${giveawayStateLabel(giveaway)}: ${giveaway.title}\n` +
-        `${giveaway.amountKas} KAS · ${giveaway.entryCount} entries\n` +
-        `${appUrl}/toccata-lab/giveaway/${encodeURIComponent(giveaway.publicId)}`,
-    )
-    .join("\n\n");
-}
-
 async function executeMenuAction(
   action: string,
   creatorId: string,
@@ -274,33 +239,11 @@ async function executeMenuAction(
           .join("\n\n")
       : "Create your first SilverScript giveaway below. Save recovery, fund the prize and share your link.";
   }
-  if (action === "giveaways") return renderGiveaways(creatorId);
+  if (action === "giveaways") return "SilverScript giveaways are not enabled for this account yet.";
   if (action === "links") return renderLinks(creatorId);
   if (action === "payments") return renderPayments(creatorId);
   if (action === "stats") return renderStats(creatorId);
   return helpText;
-}
-
-async function createGiveawayHandoff(
-  connection: NonNullable<Awaited<ReturnType<typeof connectedCreator>>>,
-  command: Extract<ReturnType<typeof parseTelegramCommand>, { kind: "prepare_giveaway" }>,
-  updateId: string,
-) {
-  const draft = await createGiveawaySetupDraftTool(
-    prisma,
-    actorContext(connection.creatorId, "telegram"),
-    connection.telegramUserId,
-    {
-      amountKas: command.amountKas,
-      entryWindowSeconds: command.entryWindowSeconds,
-      title: command.title,
-      winnerClaimWindowSeconds: 24 * 60 * 60,
-    },
-    new Date(),
-    `telegram:${updateId}`,
-  );
-  const url = giveawayMiniAppUrl(draft.id);
-  return { draft, url };
 }
 
 async function handleCallback(client: TelegramApiClient, callback: TelegramCallbackQuery) {
@@ -746,13 +689,9 @@ async function handleMessage(
     return;
   }
   if (command.kind === "prepare_giveaway") {
-    const handoff = await createGiveawayHandoff(connection, command, updateId);
     await client.sendMessage({
-      buttons: [[{ text: "Finish giveaway setup", web_app: { url: handoff.url } }]],
       chatId,
-      text:
-        `Giveaway draft: ${command.title}\n${command.amountKas} KAS\n` +
-        "Finish the setup in your browser. Private prize and recovery keys never enter Telegram.",
+      text: "SilverScript giveaways are not enabled for this account yet. The previous giveaway creator has been retired.",
     });
     return;
   }
