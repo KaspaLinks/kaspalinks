@@ -128,6 +128,14 @@ The script is well past the legacy 520-byte limit, which one test executes rathe
 assumes. A freeze-then-settle dispute costs two transactions of this size, so a realistic
 fee reserve has to cover both.
 
+The compute budget is **not** measured by these tests. Running the whole suite with a
+declared budget of 400, 200, 100, 50, 25, 5, 1 and even 0 passes every time, so
+`TxScriptEngine::execute` does not enforce it here. What a 962-byte script with five
+entries really needs, and whether a node relays it, has to come from consensus-level mass
+validation or from a funded trial. The same caveat applies to fees and storage mass: the
+engine happily accepts transactions this harness builds, which says nothing about
+acceptance by the network.
+
 ## What V1 does not do
 
 - **No deposits.** Freezing makes theft impossible, but a stubborn party can hold out
@@ -136,10 +144,10 @@ fee reserve has to cover both.
   and never signs anything.
 - **No partial release** outside a settlement.
 
-## Open questions for the engine tests and the first funded trial
+## Open questions for the first funded trial
 
 - Exact fee and storage-mass reserve per path, including the two-transaction
-  freeze-then-settle route.
+  freeze-then-settle route, and the compute budget a node actually requires.
 - Whether `tx.daa` thresholds behave the same on chain as in the engine (the engine
   accepts the claim exactly at the threshold and rejects it one score earlier).
 - Which wallets can sign a covenant spend for these paths; KasWare support decides
