@@ -1,6 +1,7 @@
 # Escrow Covenant V1 — specification
 
-Status: lab specification for `labs/claimable-script/escrow_v1.sil`. No funded
+Status: lab specification for `labs/claimable-script/escrow_v1.sil`, verified against the
+real script engine (26 tests in `labs/claimable-script/escrow_v1_tests.rs`). No funded
 transaction has been performed. The UI prototype in [escrow-links.md](./escrow-links.md)
 assumes this model.
 
@@ -99,6 +100,34 @@ Compiled in the lab checkout `3ed9733` ("Prepare SilverScript 1.0"), compiler ve
 The giveaway prize covenant is 746 bytes for comparison. Compute budget, witness sizes
 and fee floors still have to come out of the engine tests.
 
+## Engine test results
+
+`escrow_v1_tests.rs` runs the real `TxScriptEngine` with `covenants_enabled`, the same
+engine the Toccata mainnet release uses, inside the pinned lab checkout. All 26 tests
+pass: every path once valid, and each rule once violated. Output mutations happen before
+signing, so the signature stays valid and the test really exercises the script's output
+binding rather than a broken signature.
+
+Covered rejections: release or refund redirected to the signing party, short payout, an
+extra output, a foreign signature, a claim one DAA score before the deadline, a claim or
+release against a frozen escrow, freezing into a state that stays ACTIVE or into a foreign
+script template, freezing twice, a settlement with one real signature, a settlement
+against an unfrozen escrow, and forged witness parameters on every path.
+
+Measured on the passing runs:
+
+| Path    | Redeem script | Witness | Signature script |
+| ------- | ------------- | ------- | ---------------- |
+| release | 962 B         | 235 B   | 1200 B           |
+| refund  | 962 B         | 237 B   | 1202 B           |
+| claim   | 962 B         | 235 B   | 1200 B           |
+| freeze  | 962 B         | 230 B   | 1195 B           |
+| settle  | 962 B         | 296 B   | 1261 B           |
+
+The script is well past the legacy 520-byte limit, which one test executes rather than
+assumes. A freeze-then-settle dispute costs two transactions of this size, so a realistic
+fee reserve has to cover both.
+
 ## What V1 does not do
 
 - **No deposits.** Freezing makes theft impossible, but a stubborn party can hold out
@@ -111,8 +140,8 @@ and fee floors still have to come out of the engine tests.
 
 - Exact fee and storage-mass reserve per path, including the two-transaction
   freeze-then-settle route.
-- Compute budget of the compiled script, and the witness size per path.
-- Whether `tx.daa` thresholds behave as expected close to the deadline.
+- Whether `tx.daa` thresholds behave the same on chain as in the engine (the engine
+  accepts the claim exactly at the threshold and rejects it one score earlier).
 - Which wallets can sign a covenant spend for these paths; KasWare support decides
   whether the first trial runs on Testnet-10 or on mainnet with small amounts.
 - Whether the seller should be able to refund while frozen (currently yes, as an
