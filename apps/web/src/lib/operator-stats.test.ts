@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildOperatorStatsFromStoredPageViews,
   buildOperatorStatsFromText,
+  loadPersistentOperatorStatsFromAccessLogs,
   parseCaddyAccessLogLines,
   syncOperatorPageViewsFromAccessLogs,
 } from "./operator-stats";
@@ -398,6 +399,48 @@ describe("operator stats", () => {
         skipDuplicates: true,
       });
       expect(JSON.stringify(createMany.mock.calls)).not.toContain("203.0.113.10");
+    } finally {
+      await rm(logDir, { force: true, recursive: true });
+    }
+  });
+
+  it("falls back to the logs when page views cannot be stored", async () => {
+    const logDir = await mkdtemp(path.join(tmpdir(), "kaspa-operator-logs-"));
+    try {
+      await writeFile(
+        path.join(logDir, "kaspa-access.log"),
+        [line({ uri: "/u/ada/tip" }), "not json"].join("\n"),
+      );
+      const prisma = {
+        operatorPageView: { createMany: vi.fn().mockRejectedValue(new Error("db down")) },
+      } as unknown as Parameters<typeof syncOperatorPageViewsFromAccessLogs>[0];
+
+      const result = await syncOperatorPageViewsFromAccessLogs(prisma, { logDir });
+
+      expect(result).toMatchObject({
+        filesRead: 1,
+        linesParsed: 1,
+        parseErrors: 1,
+        storage: "logs",
+      });
+    } finally {
+      await rm(logDir, { force: true, recursive: true });
+    }
+  });
+
+  it("still shows log-based stats on the operator page when the database fails", async () => {
+    const logDir = await mkdtemp(path.join(tmpdir(), "kaspa-operator-logs-"));
+    try {
+      await writeFile(path.join(logDir, "kaspa-access.log"), line({ uri: "/u/ada/tip" }));
+      const prisma = {
+        operatorPageView: { createMany: vi.fn().mockRejectedValue(new Error("db down")) },
+      } as unknown as Parameters<typeof loadPersistentOperatorStatsFromAccessLogs>[0];
+
+      const stats = await loadPersistentOperatorStatsFromAccessLogs(prisma, { logDir, now: NOW });
+
+      expect(stats.source).toMatchObject({ filesRead: 1, storage: "logs" });
+      expect(stats.parseErrors).toBe(0);
+      expect(stats.pageViews.human).toBe(1);
     } finally {
       await rm(logDir, { force: true, recursive: true });
     }

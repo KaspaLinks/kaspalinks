@@ -256,14 +256,14 @@ export async function loadPersistentOperatorStatsFromAccessLogs(
       filesRead: read.filesRead,
       logDir: read.logDir,
       now: options?.now,
-      parseErrors: parsed.parseErrors,
+      parseErrors: read.parseErrors,
     });
   } catch {
-    return buildOperatorStats(parsed.entries, {
+    return buildOperatorStats(read.entries, {
       filesRead: read.filesRead,
       logDir: read.logDir,
       now: options?.now,
-      parseErrors: parsed.parseErrors,
+      parseErrors: read.parseErrors,
     });
   }
 }
@@ -300,9 +300,9 @@ export async function syncOperatorPageViewsFromAccessLogs(
   } catch {
     result = {
       filesRead: read.filesRead,
-      linesParsed: parsed.entries.length,
+      linesParsed: read.entries.length,
       logDir: read.logDir,
-      parseErrors: parsed.parseErrors,
+      parseErrors: read.parseErrors,
       storage: "logs",
     };
   }
