@@ -1,0 +1,162 @@
+pragma silverscript ^0.1.0;
+
+// EscrowV1 — Zwei-Parteien-Escrow ohne Kaution fuer KaspaLinks Escrow-Links.
+// Spezifikation: docs/escrow-covenant-v1.md
+//
+// Nur der Kaeufer finanziert: eine Covenant-Ausgabe traegt den ganzen Deal.
+// Alle Deal-Parameter reisen im Witness und sind ueber paramsHash an den
+// Zustand gebunden, wie beim Giveaway-Preis-Covenant.
+//
+//   paramsHash = sha256(amount ‖ fee ‖ releaseAfter ‖ buyerPk ‖ sellerPk
+//                       ‖ buyerSpkHash ‖ sellerSpkHash)
+//   ACTIVE     = sha256(0x00 ‖ paramsHash)
+//   FROZEN     = sha256(0x01 ‖ paramsHash)
+//
+// Finanzierung zahlt amount + fee in ACTIVE. Ein Einfrieren verschiebt amount
+// nach FROZEN und verbraucht fee als Transaktionsgebuehr; die Einigung zahlt
+// deshalb amount - fee aus.
+//
+// Auszahlungsziele sind als sha256(scriptPubKey) committet, damit P2PK- und
+// P2SH-Adressen passen. Die Ausgabebindung ist notwendig, weil sonst die
+// signierende Partei das Geld zu sich selbst umlenken koennte.
+//
+// Lab-Prototyp: bis die Engine-Tests und ein finanzierter Durchlauf vorliegen,
+// gilt dieser Contract als ungeprueft.
+contract EscrowV1(byte[32] initStateHash) {
+    byte[32] stateHash = initStateHash;
+
+    function params(
+        byte[8] amount, byte[8] fee, byte[8] releaseAfter,
+        byte[32] buyerPk, byte[32] sellerPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash
+    ) : byte[32] {
+        return sha256(byte[](amount) + byte[](fee) + byte[](releaseAfter)
+            + byte[](buyerPk) + byte[](sellerPk)
+            + byte[](buyerSpkHash) + byte[](sellerSpkHash));
+    }
+
+    // Der Kaeufer gibt frei: genau eine Ausgabe, amount an den Verkaeufer.
+    entry release(
+        sig buyerSig,
+        byte[8] amount, byte[8] fee, byte[8] releaseAfter,
+        byte[32] buyerPk, byte[32] sellerPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash,
+        byte[] sellerSpk
+    ) {
+        byte[32] paramsHash = params(amount, fee, releaseAfter, buyerPk, sellerPk,
+            buyerSpkHash, sellerSpkHash);
+        require(stateHash == sha256(byte[1](0x00) + byte[](paramsHash)));
+
+        int payout = OpBin2Num(byte[](amount));
+        require(payout > 0);
+        require(sha256(sellerSpk) == sellerSpkHash);
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].value == payout);
+        require(tx.outputs[0].scriptPubKey == sellerSpk);
+
+        require(checkSig(buyerSig, pubkey(buyerPk)));
+    }
+
+    // Der Verkaeufer erstattet: in ACTIVE amount, in FROZEN amount - fee an den
+    // Kaeufer. Bleibt auch im eingefrorenen Zustand offen, damit ein Streit
+    // einseitig zugunsten des Kaeufers beendet werden kann.
+    entry refund(
+        sig sellerSig,
+        byte[8] amount, byte[8] fee, byte[8] releaseAfter,
+        byte[32] buyerPk, byte[32] sellerPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash,
+        byte[1] phase,
+        byte[] buyerSpk
+    ) {
+        byte[32] paramsHash = params(amount, fee, releaseAfter, buyerPk, sellerPk,
+            buyerSpkHash, sellerSpkHash);
+        // Deckt ACTIVE und FROZEN ab: nur der echte Zustand hasht auf stateHash.
+        require(stateHash == sha256(byte[](phase) + byte[](paramsHash)));
+
+        int payout = OpBin2Num(byte[](amount));
+        if (phase == byte[1](0x01)) {
+            payout = payout - OpBin2Num(byte[](fee));
+        }
+        require(payout > 0);
+        require(sha256(buyerSpk) == buyerSpkHash);
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].value == payout);
+        require(tx.outputs[0].scriptPubKey == buyerSpk);
+
+        require(checkSig(sellerSig, pubkey(sellerPk)));
+    }
+
+    // Nach Ablauf der Frist holt der Verkaeufer die Zahlung. In FROZEN gesperrt,
+    // denn ein Einfrieren vor der Frist nimmt genau diesen Weg weg.
+    entry claim(
+        sig sellerSig,
+        byte[8] amount, byte[8] fee, byte[8] releaseAfter,
+        byte[32] buyerPk, byte[32] sellerPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash,
+        byte[] sellerSpk
+    ) {
+        byte[32] paramsHash = params(amount, fee, releaseAfter, buyerPk, sellerPk,
+            buyerSpkHash, sellerSpkHash);
+        require(stateHash == sha256(byte[1](0x00) + byte[](paramsHash)));
+
+        int releaseDaa = OpBin2Num(byte[](releaseAfter));
+        require(releaseDaa > 0);
+        require(tx.daa >= releaseDaa);
+
+        int payout = OpBin2Num(byte[](amount));
+        require(payout > 0);
+        require(sha256(sellerSpk) == sellerSpkHash);
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].value == payout);
+        require(tx.outputs[0].scriptPubKey == sellerSpk);
+
+        require(checkSig(sellerSig, pubkey(sellerPk)));
+    }
+
+    // Der Kaeufer friert ein: die einzige erlaubte Ausgabe ist derselbe Covenant
+    // mit demselben Betrag im Zustand FROZEN.
+    //
+    // Keine obere Zeitgrenze: Kaspa-Zeitsperren beweisen nur "nicht vor", nie
+    // "nicht nach" (tx.daa kennt ausschliesslich >=). Nach Ablauf der Frist
+    // konkurrieren claim und freeze deshalb um dieselbe Ausgabe. Der Verkaeufer
+    // sollte zeitnah nach der Frist auszahlen; das Produkt muss das sagen.
+    entry freeze(
+        sig buyerSig,
+        byte[8] amount, byte[8] fee, byte[8] releaseAfter,
+        byte[32] buyerPk, byte[32] sellerPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash
+    ) {
+        byte[32] paramsHash = params(amount, fee, releaseAfter, buyerPk, sellerPk,
+            buyerSpkHash, sellerSpkHash);
+        require(stateHash == sha256(byte[1](0x00) + byte[](paramsHash)));
+
+        int payout = OpBin2Num(byte[](amount));
+        int feeAmount = OpBin2Num(byte[](fee));
+        require(payout > feeAmount);
+        require(feeAmount > 0);
+
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].value == payout);
+        validateOutputState(0, State {
+            stateHash: sha256(byte[1](0x01) + byte[](paramsHash))
+        });
+
+        require(checkSig(buyerSig, pubkey(buyerPk)));
+    }
+
+    // Einigung im eingefrorenen Zustand: jede Aufteilung, die beide signieren.
+    // Beide Signaturen deckend die Ausgaben, deshalb braucht es keine Bindung.
+    entry settle(
+        sig buyerSig, sig sellerSig,
+        byte[8] amount, byte[8] fee, byte[8] releaseAfter,
+        byte[32] buyerPk, byte[32] sellerPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash
+    ) {
+        byte[32] paramsHash = params(amount, fee, releaseAfter, buyerPk, sellerPk,
+            buyerSpkHash, sellerSpkHash);
+        require(stateHash == sha256(byte[1](0x01) + byte[](paramsHash)));
+
+        require(checkSig(buyerSig, pubkey(buyerPk)));
+        require(checkSig(sellerSig, pubkey(sellerPk)));
+    }
+}
