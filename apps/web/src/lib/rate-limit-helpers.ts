@@ -10,6 +10,7 @@ export const RateBuckets = {
   CREATOR_PROFILE_DELETE: "creator.profile.delete",
   CREATOR_PROFILE_UPDATE: "creator.profile.update",
   CREATOR_SIGNUP: "creator.signup",
+  ESCROW_PROTOTYPE_ACCESS: "escrow-prototype.access",
   MOCK_CONFIRM: "mock.confirm",
   PAYMENT_REQUEST_CREATE: "payment-request.create",
   PAYMENT_REQUEST_STATUS: "payment-request.status",
@@ -41,6 +42,7 @@ export const RateLimits = {
   // still cap at the same generous bucket used for action mutations.
   [RateBuckets.CREATOR_PROFILE_UPDATE]: { limit: 30, windowMs: 60_000 },
   [RateBuckets.CREATOR_SIGNUP]: { limit: 5, windowMs: 60 * 60_000 },
+  [RateBuckets.ESCROW_PROTOTYPE_ACCESS]: { limit: 60, windowMs: 60_000 },
   [RateBuckets.MOCK_CONFIRM]: { limit: 30, windowMs: 60_000 },
   [RateBuckets.PAYMENT_REQUEST_CREATE]: { limit: 20, windowMs: 60_000 },
   [RateBuckets.PAYMENT_REQUEST_STATUS]: { limit: 120, windowMs: 60_000 },

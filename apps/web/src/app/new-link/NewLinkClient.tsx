@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 
 import { SESSION_EVENT } from "../BrandNav";
 import { CreatorSignInGate } from "../CreatorSignInGate";
+import { useEscrowAccess } from "../escrow/_lib/use-escrow-access";
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import { MIN_RELIABLE_MAINNET_OUTPUT_KAS } from "@/lib/mainnet-amount-policy";
 import { formatApproxUsdMeta, formatApproxUsdValue } from "@/lib/price-display";
@@ -139,6 +140,22 @@ const CLAIMABLE_ICON = (
     <path d="M3 13h18M12 9v12" />
     <path d="M12 9H8.5a2.5 2.5 0 1 1 0-5C11 4 12 9 12 9Z" />
     <path d="M12 9h3.5a2.5 2.5 0 1 0 0-5C13 4 12 9 12 9Z" />
+  </svg>
+);
+
+// Escrow links are a prototype; the template only appears for allowlisted creators.
+const ESCROW_ICON = (
+  <svg
+    aria-hidden="true"
+    fill="none"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="1.6"
+    viewBox="0 0 24 24"
+  >
+    <rect height="11" rx="2" width="16" x="4" y="10" />
+    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
   </svg>
 );
 
@@ -368,6 +385,7 @@ export function NewLinkClient() {
   const [error, setError] = useState<null | string>(null);
   const [copiedPreview, setCopiedPreview] = useState(false);
   const kasUsdPrice = useKasUsdPrice();
+  const escrowAccess = useEscrowAccess();
 
   const signedIn = username.length > 0 && token.length > 0;
   const selectedType = ACTION_TYPES.find((option) => option.value === type) ?? ACTION_TYPES[0]!;
@@ -705,6 +723,20 @@ export function NewLinkClient() {
             </span>
             <span className="quick-template-meta">1 to 8 links · non-custodial rewards</span>
           </Link>
+          {escrowAccess === "granted" ? (
+            <Link className="quick-template-button" href="/escrow">
+              <span className="quick-template-icon" aria-hidden="true">
+                {ESCROW_ICON}
+              </span>
+              <span className="quick-template-title">Escrow link</span>
+              <span className="quick-template-description">
+                Sell an item with KAS locked in a Kaspa escrow until the buyer releases it.
+              </span>
+              <span className="quick-template-meta">
+                Prototype · example data · only visible to you
+              </span>
+            </Link>
+          ) : null}
           <button
             aria-pressed={blankTemplateActive}
             className={`quick-template-button quick-template-button-muted${

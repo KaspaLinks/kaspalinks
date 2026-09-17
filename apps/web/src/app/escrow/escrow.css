@@ -1,0 +1,782 @@
+/* Escrow links prototype. Loaded only by app/escrow/layout.tsx and built on the
+   shared tokens and primitives in globals.css (card, btn, status-pill,
+   type-segmented, preview-card, amount-display). Every selector is escrow-
+   prefixed so nothing leaks into other routes after client navigation. */
+
+.escrow-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.escrow-layout :is(a, button, summary):focus-visible,
+.escrow-layout .escrow-choice:has(input:focus-visible),
+.escrow-layout .escrow-photo-add:has(input:focus-visible),
+.escrow-layout .escrow-radio:has(input:focus-visible) {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+}
+
+.escrow-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.escrow-prototype-notice {
+  margin: 0 0 14px;
+}
+
+.escrow-status-closed {
+  background: rgba(131, 149, 162, 0.12);
+  color: var(--fg-muted);
+  border-color: rgba(131, 149, 162, 0.25);
+}
+
+/* Overview */
+
+.escrow-hero-actions {
+  justify-content: center;
+}
+
+.escrow-hero-trust {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 0;
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+}
+
+.escrow-hero-trust .escrow-icon {
+  color: var(--ok);
+}
+
+.escrow-list-header {
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.escrow-list-header h2 {
+  margin: 0;
+}
+
+.escrow-list-footer {
+  margin: 14px 0 0;
+}
+
+.escrow-deal-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.escrow-deal-row {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.escrow-deal-row-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.escrow-deal-row-title {
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+
+.escrow-deal-row-meta {
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+}
+
+.escrow-deal-row-meta .value-mono {
+  font-size: 0.78rem;
+  word-break: normal;
+}
+
+.escrow-deal-row-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.escrow-deal-row-amount {
+  color: var(--fg-strong);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.escrow-deal-row-amount .amount-unit {
+  font-size: 0.75rem;
+}
+
+.escrow-deal-row-action {
+  min-height: 38px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+}
+
+.escrow-steps {
+  list-style: none;
+  display: grid;
+  gap: 12px;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.escrow-step {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.escrow-step h3 {
+  margin: 4px 0 6px;
+}
+
+.escrow-step p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+}
+
+.escrow-step-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: rgba(73, 234, 203, 0.1);
+  color: var(--accent-bright);
+}
+
+.escrow-step-number {
+  display: block;
+  color: var(--fg-subtle);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Rules and trust copy */
+
+.escrow-rule-list,
+.escrow-trust-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 12px;
+  padding: 0;
+}
+
+.escrow-rule-list li,
+.escrow-trust-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.escrow-rule-list .escrow-icon,
+.escrow-trust-list .escrow-icon {
+  margin-top: 2px;
+  color: var(--accent-bright);
+}
+
+.escrow-trust-list {
+  margin: 0;
+  gap: 8px;
+}
+
+.escrow-rules-limit {
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+}
+
+.escrow-rules-keys {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(112, 199, 186, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(73, 234, 203, 0.06);
+  font-size: 0.88rem;
+}
+
+.escrow-rules-keys .escrow-icon {
+  margin-top: 2px;
+  color: var(--accent-bright);
+}
+
+/* Amounts */
+
+.escrow-amounts {
+  display: grid;
+  margin: 0;
+}
+
+.escrow-amounts-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.escrow-amounts-row:last-child {
+  border-bottom: 0;
+}
+
+.escrow-amounts dt {
+  display: flex;
+  flex-direction: column;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+
+.escrow-amounts dd {
+  margin: 0;
+  color: var(--fg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.escrow-amounts-hint {
+  color: var(--fg-subtle);
+  font-size: 0.76rem;
+}
+
+.escrow-amounts-row-strong dt {
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+
+.escrow-amounts-row-strong dd {
+  color: var(--accent-bright);
+  font-weight: 700;
+}
+
+.escrow-amounts-row-total dt,
+.escrow-amounts-row-total dd {
+  color: var(--fg-strong);
+  font-weight: 700;
+}
+
+.escrow-kas-amount .amount-display {
+  margin-bottom: 2px;
+}
+
+/* Timeline */
+
+.escrow-timeline {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.escrow-timeline-step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 8px 0;
+}
+
+.escrow-timeline-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 38px;
+  bottom: -6px;
+  left: 13px;
+  width: 2px;
+  background: var(--border-strong);
+}
+
+.escrow-timeline-marker {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-elev);
+  color: var(--accent-fg);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.escrow-timeline-done .escrow-timeline-marker {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.escrow-timeline-done:not(:last-child)::after {
+  background: rgba(92, 228, 173, 0.5);
+}
+
+.escrow-timeline-current .escrow-timeline-marker {
+  border-color: var(--accent-bright);
+  background: radial-gradient(circle, var(--accent-bright) 0 5px, var(--bg-elev) 6px);
+  box-shadow: 0 0 0 4px rgba(73, 234, 203, 0.15);
+}
+
+.escrow-timeline-attention .escrow-timeline-marker {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #1a0508;
+}
+
+.escrow-timeline-current .escrow-timeline-label,
+.escrow-timeline-attention .escrow-timeline-label {
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+
+.escrow-timeline-upcoming .escrow-timeline-label {
+  color: var(--fg-muted);
+}
+
+.escrow-timeline-skipped .escrow-timeline-marker {
+  border-style: dashed;
+}
+
+.escrow-timeline-skipped .escrow-timeline-label {
+  color: var(--fg-subtle);
+  text-decoration: line-through;
+}
+
+/* Photos */
+
+.escrow-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+
+.escrow-photo-tile {
+  position: relative;
+  aspect-ratio: 1;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.escrow-photo-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.escrow-photo-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: rgba(11, 17, 22, 0.85);
+  color: var(--fg-strong);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.escrow-photo-add {
+  position: relative;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  aspect-ratio: 1;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.escrow-photo-add:hover {
+  border-color: var(--accent);
+  color: var(--fg-strong);
+}
+
+.escrow-photo-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 240px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(73, 234, 203, 0.12), rgba(73, 234, 203, 0) 60%),
+    var(--bg-elev);
+  color: var(--fg-subtle);
+}
+
+.escrow-photo-placeholder .escrow-icon {
+  width: 48px;
+  height: 48px;
+}
+
+/* Create form */
+
+.escrow-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.escrow-fieldset legend {
+  padding: 0;
+}
+
+.escrow-choice {
+  position: relative;
+}
+
+.escrow-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.escrow-option {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.escrow-option:hover {
+  border-color: var(--accent);
+}
+
+.escrow-option-active {
+  border-color: var(--accent);
+  background: rgba(73, 234, 203, 0.1);
+}
+
+.escrow-option-title {
+  color: var(--fg-strong);
+  font-weight: 700;
+}
+
+.escrow-option-help {
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.escrow-condition {
+  display: inline-flex;
+  margin: 0 0 8px;
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+}
+
+.escrow-preview-description,
+.escrow-deal-description {
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.escrow-preview-window {
+  margin: 12px 0 0;
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+}
+
+.escrow-error-summary {
+  margin: 0 0 8px;
+}
+
+.escrow-created h1 {
+  margin: 4px 0 10px;
+}
+
+/* Deal page */
+
+.escrow-prototype-controls summary {
+  color: var(--fg-strong);
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.escrow-prototype-controls-body {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.escrow-prototype-controls-body .form-field + .form-field {
+  margin-top: 0;
+}
+
+.escrow-deal-header h1 {
+  margin: 12px 0 6px;
+}
+
+.escrow-deal-header .link-type-pill {
+  margin-bottom: 0;
+}
+
+.escrow-deal-meta {
+  margin: 0 0 12px;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+
+.escrow-role-chip {
+  display: inline-block;
+  margin: 0;
+  padding: 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+}
+
+.escrow-role-chip strong {
+  color: var(--fg-strong);
+}
+
+.escrow-deal-grid {
+  display: grid;
+}
+
+.escrow-shipment-line {
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+}
+
+.escrow-shipment-line .value-mono {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.escrow-panel h2,
+.escrow-panel p {
+  margin: 0;
+}
+
+.escrow-flash {
+  margin: 0;
+}
+
+.escrow-pay-split {
+  color: var(--fg-muted);
+  font-size: 0.86rem;
+}
+
+.escrow-countdown {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.escrow-countdown .escrow-icon {
+  width: 22px;
+  height: 22px;
+  margin-top: 3px;
+  color: var(--warn);
+}
+
+.escrow-panel .escrow-countdown-time {
+  color: var(--fg-strong);
+  font-size: 1.3rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.escrow-panel .escrow-countdown-text {
+  margin-top: 2px;
+  color: var(--fg-muted);
+  font-size: 0.84rem;
+}
+
+.escrow-confirm {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.escrow-share-url {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.escrow-freeze-summary {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(240, 106, 120, 0.25);
+  border-radius: var(--radius-sm);
+  background: rgba(240, 106, 120, 0.08);
+}
+
+.escrow-freeze-summary blockquote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid rgba(240, 106, 120, 0.5);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.escrow-freeze-form,
+.escrow-shipment-form,
+.escrow-settlement {
+  display: grid;
+  gap: 14px;
+}
+
+.escrow-freeze-form .form-field + .form-field,
+.escrow-shipment-form .form-field + .form-field,
+.escrow-settlement .form-field + .form-field {
+  margin-top: 0;
+}
+
+.escrow-radio-list {
+  display: grid;
+  gap: 6px;
+}
+
+.escrow-radio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.escrow-radio:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(73, 234, 203, 0.08);
+}
+
+.escrow-radio input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.escrow-settlement-total {
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+
+@media (min-width: 720px) {
+  .escrow-deal-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .escrow-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .escrow-option-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .escrow-prototype-controls-body {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: end;
+  }
+
+  .escrow-prototype-controls-body .row {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1024px) {
+  .escrow-steps {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  /* Deal page: details on the left, the next step sticky on the right. On
+     smaller screens the aside comes first in source order, so the action a
+     party needs is the first thing under the header. */
+  .escrow-deal-grid {
+    grid-template-columns: minmax(0, 1fr) 380px;
+    column-gap: 24px;
+    align-items: start;
+  }
+
+  .escrow-deal-main {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .escrow-deal-aside {
+    position: sticky;
+    top: 16px;
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
