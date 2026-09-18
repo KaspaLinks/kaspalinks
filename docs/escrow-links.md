@@ -20,14 +20,18 @@ Both sides lock the same deposit (0 %, 25 %, 50 % or 100 % of price plus
 shipping) on top of the deal. The seller chooses a release window of 7, 14 or 30
 days, counted from payment.
 
-| Path        | Who signs            | When                        | Payout                                          |
-| ----------- | -------------------- | --------------------------- | ----------------------------------------------- |
-| Release     | Buyer                | Any time while funded       | Seller: item total + deposit. Buyer: deposit    |
-| Refund      | Seller               | Any time while funded       | Buyer: item total + deposit. Seller: deposit    |
-| Claim       | Seller               | After the release deadline  | Same as release                                 |
-| Freeze      | Buyer                | Before the release deadline | Nothing moves; the escrow becomes frozen        |
-| Settle      | Buyer **and** seller | While frozen                | Any split that adds up to the full locked total |
-| Cancel link | Seller               | Before the buyer pays       | Seller deposit returns                          |
+| Path        | Who signs            | When                       | Payout                                          |
+| ----------- | -------------------- | -------------------------- | ----------------------------------------------- |
+| Release     | Buyer                | Any time while funded      | Seller: item total + deposit. Buyer: deposit    |
+| Refund      | Seller               | Any time while funded      | Buyer: item total + deposit. Seller: deposit    |
+| Claim       | Seller               | After the release deadline | Same as release                                 |
+| Freeze      | Buyer                | Any time while funded      | Nothing moves; the escrow becomes frozen        |
+| Settle      | Buyer **and** seller | While frozen               | Any split that adds up to the full locked total |
+| Cancel link | Seller               | Before the buyer pays      | Seller deposit returns                          |
+
+The covenant cannot cap the freeze in time (see
+[escrow-covenant-v1.md](./escrow-covenant-v1.md)), so after the deadline claiming and
+freezing race each other. The seller should claim promptly.
 
 Freezing prevents either side from taking the KAS alone. Deposits make holding
 out expensive for both sides; they do not guarantee an honest outcome. The
