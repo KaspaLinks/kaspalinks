@@ -82,7 +82,7 @@ export function EscrowDealClient({ id }: { id: EscrowFixtureId }) {
   const nowMs = state.clockMs + state.offsetMs;
   const amounts = computeEscrowAmounts(deal);
   const deadlinePassed = isDeadlinePassed(deal, nowMs);
-  const actions = getEscrowActions(deal.status, role, deadlinePassed);
+  const actions = getEscrowActions(deal.status, role, deadlinePassed, deal.shipment !== null);
 
   function runTransition(transition: EscrowTransition, message: string) {
     if (!state) return;
@@ -105,9 +105,7 @@ export function EscrowDealClient({ id }: { id: EscrowFixtureId }) {
 
   const exampleDeals = createEscrowFixtures(state.clockMs).map((fixture) => fixture.deal);
   const canSkipDeadline =
-    deal.releaseDeadline !== null &&
-    !deadlinePassed &&
-    (deal.status === "funded" || deal.status === "shipped");
+    deal.releaseDeadline !== null && !deadlinePassed && deal.status === "active";
 
   return (
     <main className="main-wide escrow-layout">

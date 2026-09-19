@@ -1,8 +1,7 @@
 # Escrow Links — Phase 1 UI Prototype
 
 Status: frontend prototype with mock data. Nothing sends KAS, creates a
-transaction, or writes to the database. The covenant will be specified
-separately before any funds move.
+transaction, or writes to the database. The V1 covenant and offline TypeScript builder exist; wallet and network integration are still missing.
 
 ## Idea
 
@@ -16,32 +15,32 @@ exchanged where the deal was agreed, not through Kaspa Links.
 
 ## Escrow model the screens assume
 
-Both sides lock the same deposit (0 %, 25 %, 50 % or 100 % of price plus
-shipping) on top of the deal. The seller chooses a release window of 7, 14 or 30
-days, counted from payment.
+V1 has no deposits. The buyer funds one covenant output with the payment plus a fee reserve. The UI uses simulated amounts before network fees; a real fee reserve remains unmeasured. The release window is simulated from payment in this mock UI; real transactions must use the absolute DAA deadline committed before funding.
 
-| Path        | Who signs            | When                       | Payout                                          |
-| ----------- | -------------------- | -------------------------- | ----------------------------------------------- |
-| Release     | Buyer                | Any time while funded      | Seller: item total + deposit. Buyer: deposit    |
-| Refund      | Seller               | Any time while funded      | Buyer: item total + deposit. Seller: deposit    |
-| Claim       | Seller               | After the release deadline | Same as release                                 |
-| Freeze      | Buyer                | Any time while funded      | Nothing moves; the escrow becomes frozen        |
-| Settle      | Buyer **and** seller | While frozen               | Any split that adds up to the full locked total |
-| Cancel link | Seller               | Before the buyer pays      | Seller deposit returns                          |
+| Path    | Who signs | Condition                   | Result                                                    |
+| ------- | --------- | --------------------------- | --------------------------------------------------------- |
+| Release | Buyer     | ACTIVE                      | Payment to seller                                         |
+| Refund  | Seller    | ACTIVE or FROZEN            | Payment to buyer; frozen refund deducts the remaining fee |
+| Claim   | Seller    | ACTIVE, at/after deadline   | Payment to seller                                         |
+| Freeze  | Buyer     | ACTIVE, even after deadline | Payment moves into FROZEN, spending one fee               |
+| Settle  | Both      | FROZEN                      | Jointly signed split, accounting for the remaining fee    |
 
-The covenant cannot cap the freeze in time (see
-[escrow-covenant-v1.md](./escrow-covenant-v1.md)), so after the deadline claiming and
-freezing race each other. The seller should claim promptly.
+After the deadline, claim and freeze race. A frozen deal can remain locked indefinitely without joint settlement or seller refund. KaspaLinks never arbitrates a dispute.
 
-Freezing prevents either side from taking the KAS alone. Deposits make holding
-out expensive for both sides; they do not guarantee an honest outcome. The
-escrow cannot verify a parcel or judge a dispute, and the UI copy says so.
+The UI uses the same canonical lifecycle names intended for persistence:
+`draft`, `awaiting_buyer`, `awaiting_funding`, `active`, `frozen`,
+`released`, `refunded`, `claimed`, `settled`, `cancelled_unfunded`, and
+`unknown_spend`. Shipping is metadata on an active deal, not a covenant state.
+`claimed` means that the seller signed and broadcast the claim after the deadline;
+it is not an automatic release.
 
 ## Routes
 
 - `/escrow`: explainer, example deals, and the creator's escrow links when signed in
 - `/escrow/new`: create form (existing creator sign-in), local photo previews, live preview
 - `/escrow/[id]`: deal page with timeline, amounts, rules and role-specific next step
+- `/toccata-lab/passkey-signer`: private PRF/passkey capability probe for the
+  allowlisted creator; it derives and displays only a local public signer identity
 
 The deal page has prototype controls to switch between buyer and seller, jump
 between example deals, and skip past the release deadline.
@@ -75,10 +74,9 @@ helpers. USD values reuse the live KAS price estimate and stay secondary.
 
 ## Open questions before Phase 2
 
-- Covenant design: two-party funding (seller deposit and buyer payment), the
-  frozen state transition, timelock source (DAA score), fees and minimum outputs
-- Whether a 0 % deposit option should exist at all
-- Link expiry when no buyer pays, and how the seller reclaims the deposit
+- Passkey PRF stability across browser restarts, synced devices and credential providers
+- Timelock source (DAA score), fees, compute budget and minimum outputs
+- Link expiry when no buyer funds the prepared covenant
 - Where shipment and freeze notes live, and who can read them
 - Wallet support for multi-input covenant spends
 - Legal review of the escrow link flow before any public launch

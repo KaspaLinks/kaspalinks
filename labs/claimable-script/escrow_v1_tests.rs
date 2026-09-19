@@ -32,6 +32,9 @@ use sha2::{Digest, Sha256};
 use silverscript_abi::ArtifactValue;
 use silverscript_lang::compiler::CompileOptions;
 
+fn hex_encode(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() }
+fn hex_decode(value: &str) -> Vec<u8> { value.as_bytes().chunks_exact(2).map(|v| u8::from_str_radix(std::str::from_utf8(v).unwrap(),16).unwrap()).collect() }
+
 const SOURCE: &str = include_str!("escrow_v1.sil");
 
 const AMOUNT: u64 = 100_000_000;
@@ -311,12 +314,39 @@ fn run(mode: &str, mutation: Mutation) -> Result<(), TxScriptError> {
     }
 
     let flags = EngineFlags { covenants_enabled: true, ..Default::default() };
-    let inner = encode_entry_sig_script(&artifact, mode, &witness).expect("witness encodes");
+    let mut ts_signature_script = None;
+    let mut inner = encode_entry_sig_script(&artifact, mode, &witness).expect("witness encodes");
+    // Cross-language fixtures must match compiler ABI exactly, then execute the TS bytes.
+    if mutation == Mutation::None || (mode == "refund" && mutation == Mutation::FromFrozen) {
+        if let Ok(path) = std::env::var("ESCROW_TS_VECTORS") {
+            let rows: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            let phase = if frozen_input { "frozen" } else { "active" };
+            let row = rows.as_array().unwrap().iter().find(|r| r["mode"] == mode && r["phase"] == phase).unwrap();
+            assert_eq!(row["paramsHash"].as_str().unwrap(), hex_encode(&params));
+            assert_eq!(row["stateHash"].as_str().unwrap(), hex_encode(&init_state));
+            assert_eq!(row["redeemScriptHex"].as_str().unwrap(), hex_encode(&redeem_script), "TS redeem script");
+            let mut encoded = row["witnessHex"].as_str().unwrap().to_owned();
+            let mut full_encoded = row["signatureScriptHex"].as_str().unwrap().to_owned();
+            for (index, marker) in ["aa", "bb"].iter().enumerate().take(if mode == "settle" { 2 } else { 1 }) {
+                let ArtifactValue::Bytes(signature) = &witness[index] else { panic!("expected signature") };
+                encoded = encoded.replace(&(marker.repeat(64) + "01"), &hex_encode(signature));
+                full_encoded = full_encoded.replace(&(marker.repeat(64) + "01"), &hex_encode(signature));
+            }
+            let ts_inner = hex_decode(&encoded);
+            assert_eq!(ts_inner, inner, "TS witness must equal compiler ABI encoding");
+            inner = ts_inner;
+            ts_signature_script = Some(hex_decode(&full_encoded));
+        }
+    }
     let redeem_len = redeem_script.len();
     let inner_len = inner.len();
     tx.tx.inputs[0].signature_script =
         pay_to_script_hash_signature_script_with_flags(redeem_script, inner, flags)
             .expect("p2sh sigscript builds");
+    if let Some(full_script) = ts_signature_script {
+        assert_eq!(tx.tx.inputs[0].signature_script, full_script, "TS full P2SH signature script");
+        tx.tx.inputs[0].signature_script = full_script;
+    }
     if std::env::var("ESCROW_REPORT_SIZES").is_ok() {
         println!(
             "{mode}: redeem {redeem_len} B, witness {inner_len} B, signature script {} B, budget {budget}",

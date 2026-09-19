@@ -1,27 +1,25 @@
 import Link from "next/link";
-
 import { computeEscrowAmounts, formatKasAmount } from "../_lib/escrow-amounts";
 import type { EscrowDeal, EscrowStatus } from "../_lib/escrow-types";
 import { EscrowStatusBadge } from "./EscrowStatusBadge";
 
 const DATE_FORMAT = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" });
-
 const SELLER_ACTION_LABEL: Record<EscrowStatus, string> = {
-  auto_released: "View",
-  awaiting_buyer_payment: "Share link",
-  awaiting_seller_deposit: "Lock deposit",
-  cancelled: "View",
-  expired: "View",
+  active: "Manage",
+  awaiting_buyer: "Invite buyer",
+  awaiting_funding: "Share link",
+  cancelled_unfunded: "View",
+  claimed: "View",
+  draft: "Continue",
   frozen: "Resolve",
-  funded: "Ship item",
+  refunded: "View",
   released: "View",
   settled: "View",
-  shipped: "Track",
+  unknown_spend: "Review",
 };
 
 export function EscrowDealRow({ deal }: { deal: EscrowDeal }) {
   const { itemTotalSompi } = computeEscrowAmounts(deal);
-
   return (
     <li className="escrow-deal-row">
       <div className="escrow-deal-row-main">

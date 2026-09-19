@@ -4,12 +4,12 @@ import { CheckIcon, LinkIcon, LockIcon, PackageIcon } from "./EscrowIcons";
 
 const STEPS: ReadonlyArray<{ body: string; icon: ReactNode; title: string }> = [
   {
-    body: "Describe the item, set a price in KAS, pick a deposit and a release window. Lock your deposit from your wallet.",
+    body: "Describe the item, set a price in KAS, choose a release window. V1 requires no deposits.",
     icon: <LinkIcon />,
     title: "Seller creates a link",
   },
   {
-    body: "Share it where you agreed the deal: a marketplace chat, Telegram, X. The buyer locks the payment plus their deposit.",
+    body: "Share it where you agreed the deal: a marketplace chat, Telegram, X. The buyer funds the payment and network-fee reserve.",
     icon: <LockIcon />,
     title: "Buyer pays into escrow",
   },

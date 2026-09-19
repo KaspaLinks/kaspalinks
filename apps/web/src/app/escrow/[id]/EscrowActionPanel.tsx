@@ -151,8 +151,8 @@ export function EscrowActionPanel(props: PanelProps) {
 
   const release = releasePayout(amounts);
   const refund = refundPayout(amounts);
-  const releaseQuestion = `Release ${formatKasAmount(amounts.itemTotalSompi)} KAS to the seller? Both deposits go back. This cannot be undone.`;
-  const refundQuestion = `Refund the buyer? They get ${formatKasAmount(refund.buyerSompi)} KAS back and your ${formatKasAmount(refund.sellerSompi)} KAS deposit returns to you.`;
+  const releaseQuestion = `Release ${formatKasAmount(amounts.itemTotalSompi)} KAS to the seller? This cannot be undone.`;
+  const refundQuestion = `Refund the buyer? They get ${formatKasAmount(refund.buyerSompi)} KAS back before any remaining network fee.`;
 
   const refundButton = can("refund_buyer") ? (
     <ConfirmAction
@@ -168,7 +168,7 @@ export function EscrowActionPanel(props: PanelProps) {
     <ConfirmAction
       className="btn btn-primary btn-block btn-pay"
       confirmLabel="Release payment"
-      label={deal.status === "shipped" ? "Everything is OK: release payment" : "Release payment"}
+      label={deal.shipment ? "Everything is OK: release payment" : "Release payment"}
       onConfirm={() => onTransition({ type: "release" }, `${NO_KAS_SENT} Payment released.`)}
       question={releaseQuestion}
     />
@@ -209,56 +209,15 @@ export function EscrowActionPanel(props: PanelProps) {
   }
 
   switch (deal.status) {
-    case "awaiting_seller_deposit":
-      if (role === "buyer") {
-        return (
-          <PanelShell eyebrow="Not open yet" flash={flash} title="Waiting for the seller">
-            <p>
-              The seller still has to lock their deposit. The link opens for payment right after.
-            </p>
-          </PanelShell>
-        );
-      }
+    case "draft":
+    case "awaiting_buyer":
       return (
-        <PanelShell
-          eyebrow="Your next step"
-          flash={flash}
-          title={amounts.sellerDepositSompi > 0n ? "Lock your deposit" : "Activate your link"}
-        >
-          {amounts.sellerDepositSompi > 0n ? (
-            <EscrowKasAmount label="Your deposit" sompi={amounts.sellerDepositSompi} />
-          ) : null}
-          <p>
-            Your deposit shows the buyer you are committed. It comes back when the deal completes.
-            Until someone pays, you can cancel and unlock it.
-          </p>
-          <div className="row-stack">
-            <button
-              className="btn btn-primary btn-block btn-pay"
-              onClick={() =>
-                onTransition(
-                  { type: "lock_deposit" },
-                  `${NO_KAS_SENT} The link is open for payment.`,
-                )
-              }
-              type="button"
-            >
-              {amounts.sellerDepositSompi > 0n ? "Lock deposit with Kaspa" : "Activate link"}
-            </button>
-            <button
-              className="btn btn-block"
-              onClick={() =>
-                onTransition({ type: "cancel_link" }, `${NO_KAS_SENT} Link cancelled.`)
-              }
-              type="button"
-            >
-              Cancel link
-            </button>
-          </div>
+        <PanelShell eyebrow="Not open yet" flash={flash} title="Waiting for the buyer">
+          <p>The seller is preparing the final terms or waiting for the invited buyer to join.</p>
         </PanelShell>
       );
 
-    case "awaiting_buyer_payment":
+    case "awaiting_funding":
       if (role === "seller") {
         const url = `${window.location.origin}/escrow/${deal.id}`;
         return (
@@ -283,11 +242,11 @@ export function EscrowActionPanel(props: PanelProps) {
               <ConfirmAction
                 className="btn btn-block"
                 confirmLabel="Cancel link"
-                label="Cancel link and unlock deposit"
+                label="Cancel link"
                 onConfirm={() =>
                   onTransition({ type: "cancel_link" }, `${NO_KAS_SENT} Link cancelled.`)
                 }
-                question="Cancel this link? Nobody has paid yet, so your deposit simply returns to you."
+                question="Cancel this link? Nobody has paid yet."
               />
             </div>
           </PanelShell>
@@ -297,11 +256,8 @@ export function EscrowActionPanel(props: PanelProps) {
         <PanelShell eyebrow="Checkout" flash={flash} title="Pay into escrow">
           <EscrowKasAmount label="You lock" sompi={amounts.buyerLockSompi} />
           <p className="escrow-pay-split">
-            {formatKasAmount(amounts.itemTotalSompi)} KAS for the item and shipping
-            {amounts.buyerDepositSompi > 0n
-              ? ` + ${formatKasAmount(amounts.buyerDepositSompi)} KAS deposit you get back`
-              : ""}
-            , plus network fees.
+            {formatKasAmount(amounts.itemTotalSompi)} KAS for the item and shipping, plus network
+            fees.
           </p>
           <ul className="escrow-trust-list">
             <li>
@@ -310,10 +266,7 @@ export function EscrowActionPanel(props: PanelProps) {
             </li>
             <li>
               <ClockIcon />
-              <span>
-                Before the {deal.releaseWindowDays}-day deadline, only you can release or freeze the
-                payment
-              </span>
+              <span>You can release or freeze the active payment</span>
             </li>
             <li>
               <KeyIcon />
@@ -329,7 +282,7 @@ export function EscrowActionPanel(props: PanelProps) {
             <span className="form-toggle-body">
               <span className="form-toggle-help">
                 I agreed this deal with @{deal.sellerUsername} and understand that a frozen escrow
-                only pays out when we both sign the same split.
+                needs both signatures for a split, or the seller can refund me alone.
               </span>
             </span>
           </label>
@@ -349,12 +302,11 @@ export function EscrowActionPanel(props: PanelProps) {
         </PanelShell>
       );
 
-    case "funded":
-    case "shipped": {
+    case "active": {
       const deadline = deal.releaseDeadline;
 
       if (role === "seller") {
-        const shipping = deal.status === "funded";
+        const shipping = deal.shipment === null;
         return (
           <PanelShell
             eyebrow="Your next step"
@@ -369,7 +321,9 @@ export function EscrowActionPanel(props: PanelProps) {
           >
             {claimButton ? (
               <>
-                <p>The buyer did not release or freeze the escrow in time. You can claim now.</p>
+                <p>
+                  You can claim now. The buyer can still freeze; the first confirmed spend wins.
+                </p>
                 {claimButton}
               </>
             ) : null}
@@ -410,18 +364,18 @@ export function EscrowActionPanel(props: PanelProps) {
           title={
             deadlinePassed
               ? "Deadline passed"
-              : deal.status === "shipped"
+              : deal.shipment !== null
                 ? "Check your item"
                 : "Waiting for shipment"
           }
         >
-          {deal.status === "shipped" ? <ShipmentLine deal={deal} /> : null}
+          {deal.shipment !== null ? <ShipmentLine deal={deal} /> : null}
           <p>
             {deadlinePassed
-              ? "The seller can now claim the payment. You can still release it yourself."
-              : deal.status === "shipped"
-                ? "When it arrives, check that everything matches the description. If it does, release the payment. If not, report the problem before the deadline."
-                : "Your payment is locked while the seller prepares the shipment. If nothing arrives, report it before the deadline."}
+              ? "The seller can now claim. You can still release or freeze, but a claim may confirm first."
+              : deal.shipment !== null
+                ? "When it arrives, check that everything matches the description. If it does, release the payment. If not, freeze promptly. After the deadline, the seller can race your freeze with a claim."
+                : "Your payment is locked while the seller prepares the shipment. If nothing arrives, freeze promptly. The seller can claim after the deadline."}
           </p>
           {deadline && !deadlinePassed ? (
             <Countdown
@@ -450,9 +404,10 @@ export function EscrowActionPanel(props: PanelProps) {
             </div>
           ) : null}
           <p>
-            No single party can move the locked KAS: not the buyer, not the seller, not KaspaLinks.
-            Agree on a split, then both sign it.
+            Agree on a split and both sign it. The seller can instead refund the buyer alone.
+            Network fees reduce the final refund or settlement.
           </p>
+          {refundButton}
           <EscrowSettlementForm
             amounts={amounts}
             onProposalChange={props.onProposalChange}
@@ -472,16 +427,26 @@ export function EscrowActionPanel(props: PanelProps) {
         </PanelShell>
       );
 
-    case "auto_released":
-    case "cancelled":
-    case "expired":
+    case "unknown_spend":
+      return (
+        <PanelShell eyebrow="Review needed" flash={flash} title="Unknown covenant spend">
+          <p>
+            The funding output was spent in a way this prototype has not classified. Do not create
+            another transaction until the on-chain transaction has been reviewed.
+          </p>
+        </PanelShell>
+      );
+
+    case "cancelled_unfunded":
+    case "claimed":
+    case "refunded":
     case "released":
     case "settled": {
       const payout = outcomePayout(deal);
       const title = {
-        auto_released: "Released after the deadline",
-        cancelled: deal.fundedAt ? "Buyer refunded" : "Link cancelled",
-        expired: "Link expired",
+        cancelled_unfunded: "Link cancelled",
+        claimed: "Claimed after the deadline",
+        refunded: "Buyer refunded",
         released: "Deal completed",
         settled: "Settled by agreement",
       }[deal.status];

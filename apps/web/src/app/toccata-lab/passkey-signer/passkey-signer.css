@@ -1,0 +1,103 @@
+.passkey-lab {
+  max-width: 880px;
+}
+.passkey-lab-hero > p {
+  max-width: 68ch;
+}
+.passkey-lab-environment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+}
+.passkey-lab-step {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.passkey-lab-step h2,
+.passkey-lab-result h2 {
+  margin-top: 0;
+}
+.passkey-lab-number {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: #071512;
+  background: var(--accent, #55e6ca);
+  font-weight: 800;
+}
+.passkey-lab-result {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.passkey-lab-result-passed {
+  border-color: rgba(85, 230, 202, 0.65);
+}
+.passkey-lab-result-mismatch,
+.passkey-lab-result-error {
+  border-color: rgba(255, 106, 106, 0.65);
+}
+.passkey-lab-result dl {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0 0;
+}
+.passkey-lab-result dl div {
+  display: grid;
+  gap: 5px;
+}
+.passkey-lab-result dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.passkey-lab-result dd {
+  margin: 0;
+}
+.passkey-lab-key {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+.passkey-lab-matrix {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  margin: 18px 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.passkey-lab-matrix > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 15px;
+  background: var(--surface, #111b22);
+}
+.passkey-lab-matrix strong {
+  color: var(--muted);
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .passkey-lab-step {
+    grid-template-columns: 1fr;
+  }
+  .passkey-lab .row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .passkey-lab .btn {
+    width: 100%;
+  }
+  .passkey-lab-matrix > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+}

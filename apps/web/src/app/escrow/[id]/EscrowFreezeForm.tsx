@@ -75,8 +75,8 @@ export function EscrowFreezeForm({
       />
 
       <p className="notice notice-warn">
-        Freezing cannot be undone by one side. The KAS stay locked until you and the seller sign the
-        same split.
+        Freezing blocks the seller claim. You can both sign a split, or the seller can refund you
+        alone. Without either, funds may remain locked indefinitely.
       </p>
 
       {error ? (

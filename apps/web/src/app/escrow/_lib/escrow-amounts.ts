@@ -2,16 +2,12 @@ import { formatSompiToKaspa, parseKaspaAmountToSompi } from "@kaspa-actions/kasp
 
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 
-import type { EscrowDeal, EscrowDepositRateBps } from "./escrow-types";
-
-const BPS_DENOMINATOR = 10_000n;
+import type { EscrowDeal } from "./escrow-types";
 
 export type EscrowAmounts = {
-  buyerDepositSompi: bigint;
   buyerLockSompi: bigint;
   itemTotalSompi: bigint;
   priceSompi: bigint;
-  sellerDepositSompi: bigint;
   shippingSompi: bigint;
   totalLockedSompi: bigint;
 };
@@ -21,81 +17,66 @@ export type EscrowPayout = {
   sellerSompi: bigint;
 };
 
-export function computeDepositSompi(
-  itemTotalSompi: bigint,
-  depositRateBps: EscrowDepositRateBps,
-): bigint {
-  return (itemTotalSompi * BigInt(depositRateBps)) / BPS_DENOMINATOR;
-}
-
 export function computeEscrowAmounts(
-  deal: Pick<EscrowDeal, "depositRateBps" | "priceSompi" | "shippingSompi">,
+  deal: Pick<EscrowDeal, "priceSompi" | "shippingSompi">,
 ): EscrowAmounts {
   const itemTotalSompi = deal.priceSompi + deal.shippingSompi;
-  const depositSompi = computeDepositSompi(itemTotalSompi, deal.depositRateBps);
-  const buyerLockSompi = itemTotalSompi + depositSompi;
 
   return {
-    buyerDepositSompi: depositSompi,
-    buyerLockSompi,
+    buyerLockSompi: itemTotalSompi,
     itemTotalSompi,
     priceSompi: deal.priceSompi,
-    sellerDepositSompi: depositSompi,
     shippingSompi: deal.shippingSompi,
-    totalLockedSompi: buyerLockSompi + depositSompi,
+    totalLockedSompi: itemTotalSompi,
   };
 }
 
-/** Release pays the item total to the seller; each side gets its own deposit back. */
+/** Release pays the buyer-funded item total to the seller. */
 export function releasePayout(amounts: EscrowAmounts): EscrowPayout {
   return {
-    buyerSompi: amounts.buyerDepositSompi,
-    sellerSompi: amounts.itemTotalSompi + amounts.sellerDepositSompi,
+    buyerSompi: 0n,
+    sellerSompi: amounts.itemTotalSompi,
   };
 }
 
-/** A seller refund returns everything each side locked. */
+/** A seller refund returns the complete buyer-funded output. */
 export function refundPayout(amounts: EscrowAmounts): EscrowPayout {
   return {
     buyerSompi: amounts.buyerLockSompi,
-    sellerSompi: amounts.sellerDepositSompi,
+    sellerSompi: 0n,
   };
 }
 
-/** Splits the frozen total so each side gets its own deposit plus half the item total. */
+/** Splits the frozen buyer-funded total in half. */
 export function evenSplitPayout(amounts: EscrowAmounts): EscrowPayout {
-  const buyerSompi = amounts.buyerDepositSompi + amounts.itemTotalSompi / 2n;
+  const buyerSompi = amounts.itemTotalSompi / 2n;
   return { buyerSompi, sellerSompi: amounts.totalLockedSompi - buyerSompi };
 }
 
 /** What each side received once an escrow is closed, or null while it is still open. */
 export function outcomePayout(
-  deal: Pick<
-    EscrowDeal,
-    "depositRateBps" | "fundedAt" | "priceSompi" | "settlement" | "shippingSompi" | "status"
-  >,
+  deal: Pick<EscrowDeal, "fundedAt" | "priceSompi" | "settlement" | "shippingSompi" | "status">,
 ): EscrowPayout | null {
   const amounts = computeEscrowAmounts(deal);
 
   switch (deal.status) {
     case "released":
-    case "auto_released":
+    case "claimed":
       return releasePayout(amounts);
-    case "cancelled":
-      return deal.fundedAt
-        ? refundPayout(amounts)
-        : { buyerSompi: 0n, sellerSompi: amounts.sellerDepositSompi };
-    case "expired":
-      return { buyerSompi: 0n, sellerSompi: amounts.sellerDepositSompi };
+    case "refunded":
+      return refundPayout(amounts);
+    case "cancelled_unfunded":
+      return { buyerSompi: 0n, sellerSompi: 0n };
     case "settled":
       return deal.settlement
         ? { buyerSompi: deal.settlement.buyerSompi, sellerSompi: deal.settlement.sellerSompi }
         : null;
-    case "awaiting_buyer_payment":
-    case "awaiting_seller_deposit":
+    case "draft":
+    case "awaiting_buyer":
+    case "awaiting_funding":
     case "frozen":
-    case "funded":
-    case "shipped":
+    case "active":
+    case "unknown_spend":
       return null;
   }
 }

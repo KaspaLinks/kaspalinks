@@ -5,47 +5,15 @@ import {
 
 import { validateRecipientAddress } from "../../new-link/helpers";
 import { computeEscrowAmounts, parseKasInput, type EscrowAmounts } from "./escrow-amounts";
-import type {
-  EscrowCondition,
-  EscrowDepositRateBps,
-  EscrowReleaseWindowDays,
-} from "./escrow-types";
+import type { EscrowCondition, EscrowReleaseWindowDays } from "./escrow-types";
 
 export const ESCROW_TITLE_MAX_LENGTH = 80;
 export const ESCROW_DESCRIPTION_MAX_LENGTH = 600;
-
-export const ESCROW_DEPOSIT_OPTIONS: ReadonlyArray<{
-  bps: EscrowDepositRateBps;
-  help: string;
-  label: string;
-}> = [
-  {
-    bps: 0,
-    help: "Easiest to start. If you disagree, only the payment is frozen, so holding out costs nobody anything extra.",
-    label: "No deposit",
-  },
-  {
-    bps: 2500,
-    help: "A light incentive to settle a disagreement quickly.",
-    label: "25%",
-  },
-  {
-    bps: 5000,
-    help: "A solid incentive to agree without locking too much extra KAS.",
-    label: "50%",
-  },
-  {
-    bps: 10000,
-    help: "Strongest incentive to agree: both sides lock as much as the deal is worth.",
-    label: "100%",
-  },
-];
 
 export const ESCROW_RELEASE_WINDOW_OPTIONS: ReadonlyArray<EscrowReleaseWindowDays> = [7, 14, 30];
 
 export type EscrowDraftInput = {
   condition: "" | EscrowCondition;
-  depositRateBps: EscrowDepositRateBps;
   description: string;
   payoutAddress: string;
   priceKas: string;
@@ -116,7 +84,6 @@ export function validateEscrowDraft(input: EscrowDraftInput): EscrowDraftValidat
   const amounts =
     price.ok && shipping.ok
       ? computeEscrowAmounts({
-          depositRateBps: input.depositRateBps,
           priceSompi: price.sompi,
           shippingSompi: shipping.sompi,
         })

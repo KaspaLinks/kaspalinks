@@ -148,7 +148,9 @@ export function EscrowSettlementForm({
           className={`form-field-help${split.ok ? "" : " form-field-warn"}`}
           id="escrow-split-result"
         >
-          {split.ok ? `Seller receives ${formatKasAmount(split.sellerSompi)} KAS.` : split.message}
+          {split.ok
+            ? `Seller share before network fees: ${formatKasAmount(split.sellerSompi)} KAS.`
+            : split.message}
         </p>
       </div>
       <button className="btn btn-primary btn-block btn-pay" disabled={!split.ok} type="submit">
