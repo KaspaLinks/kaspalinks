@@ -511,3 +511,4 @@ function summarizeWalletResult(value: unknown): string {
   if (value === null) return "null";
   return String(value);
 }
+export { requestEscrowWalletSignature } from "./escrow-signing";

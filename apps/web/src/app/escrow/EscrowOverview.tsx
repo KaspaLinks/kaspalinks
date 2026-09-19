@@ -27,6 +27,9 @@ export function EscrowOverview() {
           <Link className="btn" href="#how-it-works">
             How it works
           </Link>
+          <Link className="btn" href="/toccata-lab/passkey-signer">
+            Test passkey signer
+          </Link>
         </div>
         <p className="escrow-hero-trust">
           <LockIcon />

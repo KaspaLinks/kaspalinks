@@ -15,7 +15,7 @@ export function EscrowRules({ releaseWindowDays }: { releaseWindowDays: number |
           <CheckIcon />
           <span>
             <strong>Buyer releases.</strong> Once the item is fine, the buyer releases the payment
-            and both deposits go back.
+            to the seller. V1 has no deposits.
           </span>
         </li>
         <li>
@@ -28,21 +28,21 @@ export function EscrowRules({ releaseWindowDays }: { releaseWindowDays: number |
         <li>
           <PauseIcon />
           <span>
-            <strong>Buyer freezes.</strong> Before the deadline, the buyer can freeze the escrow.
-            Then no single party can move the KAS.
+            <strong>Buyer freezes.</strong> The buyer can freeze an active escrow, including after
+            the deadline. A late freeze and seller claim compete; the first confirmed spend wins.
           </span>
         </li>
         <li>
           <SplitIcon />
           <span>
-            <strong>Both agree.</strong> A frozen escrow pays out only when buyer and seller sign
-            the same split.
+            <strong>Both agree.</strong> Both sign the same split to settle a frozen escrow. The
+            seller can also refund the buyer alone, less the remaining transaction fee.
           </span>
         </li>
       </ul>
       <p className="escrow-rules-limit">
-        The escrow cannot check a parcel or judge a disagreement. Deposits make stalling expensive
-        for both sides, so agreeing is the fastest way out.
+        The escrow cannot check a parcel or judge a disagreement. Without an agreement or seller
+        refund, a frozen payment can remain locked indefinitely.
       </p>
       <p className="escrow-rules-keys">
         <KeyIcon />

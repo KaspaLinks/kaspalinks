@@ -36,7 +36,11 @@ describe("escrow fixtures", () => {
       expect(deal.releaseDeadline !== null).toBe(funded);
       expect(deal.freeze !== null).toBe(deal.status === "frozen" || deal.status === "settled");
       expect(deal.settlement !== null).toBe(deal.status === "settled");
-      if (deal.status === "shipped") expect(deal.shipment).not.toBeNull();
+      if (deal.shipment) {
+        expect(deal.status === "active" || deal.status === "frozen" || deal.closedAt !== null).toBe(
+          true,
+        );
+      }
 
       if (deal.settlement) {
         const { totalLockedSompi } = computeEscrowAmounts(deal);
@@ -47,8 +51,8 @@ describe("escrow fixtures", () => {
 
   it("opens the phone example with the mocked inspection countdown", () => {
     const phone = findEscrowFixture("smartphone-pro", NOW);
-    expect(phone?.deal.status).toBe("shipped");
+    expect(phone?.deal.status).toBe("active");
     expect(getTimeRemaining(phone?.deal.releaseDeadline ?? "", NOW).label).toBe("68h 42m");
-    expect(computeEscrowAmounts(phone!.deal).buyerLockSompi).toBe(682_500_000_000n);
+    expect(computeEscrowAmounts(phone!.deal).buyerLockSompi).toBe(455_000_000_000n);
   });
 });

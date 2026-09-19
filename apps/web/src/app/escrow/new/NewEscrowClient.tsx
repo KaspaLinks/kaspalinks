@@ -8,9 +8,7 @@ import { EscrowAmountBreakdown } from "../_components/EscrowAmountBreakdown";
 import { EscrowKasAmount } from "../_components/EscrowKasAmount";
 import { EscrowPhotoPicker } from "../_components/EscrowPhotoPicker";
 import { EscrowPrototypeNotice } from "../_components/EscrowPrototypeNotice";
-import { formatKasAmount } from "../_lib/escrow-amounts";
 import {
-  ESCROW_DEPOSIT_OPTIONS,
   ESCROW_DESCRIPTION_MAX_LENGTH,
   ESCROW_RELEASE_WINDOW_OPTIONS,
   ESCROW_TITLE_MAX_LENGTH,
@@ -24,7 +22,6 @@ import { useCreatorSession } from "../_lib/use-creator-session";
 
 const EMPTY_DRAFT: EscrowDraftInput = {
   condition: "",
-  depositRateBps: 5000,
   description: "",
   payoutAddress: "",
   priceKas: "",
@@ -126,11 +123,7 @@ export function NewEscrowClient() {
         <section aria-live="polite" className="card card-accent escrow-created">
           <span className="label">Escrow link ready</span>
           <h1>{draft.title.trim()}</h1>
-          <p>
-            {amounts.sellerDepositSompi > 0n
-              ? `Next, lock your ${formatKasAmount(amounts.sellerDepositSompi)} KAS deposit from your wallet. The link opens for the buyer right after.`
-              : "Next, activate the link from your wallet. It opens for the buyer right after."}
-          </p>
+          <p>V1 requires no seller deposit. The next step is buyer funding.</p>
           <p className="muted">
             This prototype does not save links. Continue with an example deal waiting at the same
             step.
@@ -319,36 +312,11 @@ export function NewEscrowClient() {
           </section>
 
           <section className="card">
-            <h2 className="form-section-heading">Deposit and release window</h2>
+            <h2 className="form-section-heading">Release window</h2>
 
-            <fieldset className="form-field escrow-fieldset">
-              <legend className="label">Deposit from each side</legend>
-              <div className="escrow-option-grid">
-                {ESCROW_DEPOSIT_OPTIONS.map((option) => (
-                  <label
-                    className={`escrow-option escrow-choice${
-                      draft.depositRateBps === option.bps ? " escrow-option-active" : ""
-                    }`}
-                    key={option.bps}
-                  >
-                    <input
-                      checked={draft.depositRateBps === option.bps}
-                      className="escrow-sr-only"
-                      name="escrow-deposit"
-                      onChange={() => update("depositRateBps", option.bps)}
-                      type="radio"
-                      value={option.bps}
-                    />
-                    <span className="escrow-option-title">{option.label}</span>
-                    <span className="escrow-option-help">{option.help}</span>
-                  </label>
-                ))}
-              </div>
-              <p className="form-field-help">
-                Both you and the buyer lock the same deposit on top of the deal. Each side gets it
-                back when the deal completes.
-              </p>
-            </fieldset>
+            <p className="form-field-help">
+              V1 has no deposits. The buyer funds the payment and a network-fee reserve.
+            </p>
 
             <fieldset className="form-field escrow-fieldset">
               <legend className="label">Release window</legend>

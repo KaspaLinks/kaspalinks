@@ -6,7 +6,6 @@ const VALID_ADDRESS = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24yd
 
 const VALID_DRAFT: EscrowDraftInput = {
   condition: "used",
-  depositRateBps: 5000,
   description: "Latest model, 256 GB, very good condition.",
   payoutAddress: VALID_ADDRESS,
   priceKas: "4500",
@@ -21,8 +20,8 @@ describe("escrow draft validation", () => {
 
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual({});
-    expect(result.amounts?.buyerLockSompi).toBe(682_500_000_000n);
-    expect(result.amounts?.sellerDepositSompi).toBe(227_500_000_000n);
+    expect(result.amounts?.buyerLockSompi).toBe(455_000_000_000n);
+    expect(result.amounts?.totalLockedSompi).toBe(455_000_000_000n);
   });
 
   it("treats empty shipping as free shipping", () => {
