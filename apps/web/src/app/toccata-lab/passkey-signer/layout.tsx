@@ -5,7 +5,9 @@ import "./passkey-signer.css";
 
 export const metadata: Metadata = {
   robots: { follow: false, index: false },
-  title: "Passkey signer lab · Kaspa Links",
+  // The client-side access gate sets the descriptive title only after the
+  // allowlisted creator session has been verified.
+  title: { absolute: "Kaspa Links" },
 };
 
 export default function PasskeySignerLayout({ children }: Readonly<{ children: ReactNode }>) {
