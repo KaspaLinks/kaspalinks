@@ -7,6 +7,7 @@ import {
   escrowSignerPrfInput,
   type EscrowSignerPublicIdentity,
 } from "@/lib/escrow-passkey-signer";
+import { runEscrowPasskeyDryRun, type EscrowPasskeyDryRun } from "./escrow-dry-run";
 
 const CREDENTIAL_KEY = "kaspalinks:passkey-lab-credential";
 const EXPECTED_FINGERPRINT_KEY = "kaspalinks:passkey-lab-fingerprint";
@@ -18,6 +19,7 @@ const CONTEXT = {
 } as const;
 
 type LabState = "idle" | "running" | "passed" | "mismatch" | "unsupported" | "error";
+type DryRunState = "idle" | "running" | "passed" | "error";
 type PrfExtensionResults = { prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } } };
 type PrfExtensionInput = { prf: { eval: { first: Uint8Array } } };
 
@@ -127,6 +129,11 @@ export function PasskeySignerLab() {
   const [identity, setIdentity] = useState<EscrowSignerPublicIdentity | null>(null);
   const [credentialId, setCredentialId] = useState("");
   const [expectedFingerprint, setExpectedFingerprint] = useState("");
+  const [dryRunState, setDryRunState] = useState<DryRunState>("idle");
+  const [dryRunMessage, setDryRunMessage] = useState(
+    "Run the passkey check first. No transaction will be broadcast.",
+  );
+  const [dryRun, setDryRun] = useState<EscrowPasskeyDryRun | null>(null);
 
   useEffect(() => {
     setEnvironment(describeEnvironment());
@@ -174,6 +181,32 @@ export function PasskeySignerLab() {
       const detail = error instanceof Error ? error.message : "Passkey test failed.";
       setState(/PRF|WebAuthn|passkey provider/iu.test(detail) ? "unsupported" : "error");
       setMessage(detail);
+    } finally {
+      prfOutput?.fill(0);
+    }
+  }
+
+  async function signDryRun() {
+    if (state !== "passed" || !identity) return;
+    setDryRunState("running");
+    setDryRunMessage("Requesting your passkey and signing the offline release…");
+    setDryRun(null);
+    let prfOutput: Uint8Array | null = null;
+    try {
+      const result = await readPrf(credentialId ? fromBase64Url(credentialId) : undefined);
+      prfOutput = result.output;
+      const signed = await runEscrowPasskeyDryRun(prfOutput, CONTEXT);
+      if (signed.publicKey !== identity.publicKey) {
+        throw new Error("The passkey produced a different escrow signer. Dry-run stopped.");
+      }
+      setDryRun(signed);
+      setDryRunState("passed");
+      setDryRunMessage(
+        "Release transaction signed and intent-checked locally. Nothing was broadcast.",
+      );
+    } catch (error) {
+      setDryRunState("error");
+      setDryRunMessage(error instanceof Error ? error.message : "Dry-run signing failed.");
     } finally {
       prfOutput?.fill(0);
     }
@@ -244,6 +277,54 @@ export function PasskeySignerLab() {
             </div>
           </dl>
         ) : null}
+      </section>
+
+      <section className="card passkey-lab-step" aria-labelledby="passkey-dry-run-heading">
+        <div className="passkey-lab-number">2</div>
+        <div>
+          <span className="label">SilverScript V1</span>
+          <h2 id="passkey-dry-run-heading">Sign an offline escrow release</h2>
+          <p>
+            Builds a complete 1 KAS Escrow-V1 transaction with a fake funding outpoint, reviews its
+            fixed payout and signs the buyer release in this browser. Network access and broadcast
+            are not part of this test.
+          </p>
+          <button
+            className="btn btn-primary"
+            disabled={state !== "passed" || dryRunState === "running"}
+            onClick={() => void signDryRun()}
+            type="button"
+          >
+            {dryRunState === "running" ? "Signing…" : "Sign dry-run release"}
+          </button>
+          <div
+            className={`passkey-lab-dry-result passkey-lab-dry-result-${dryRunState}`}
+            role="status"
+          >
+            <strong>{dryRunState === "passed" ? "Dry run passed" : "Dry run"}</strong>
+            <p>{dryRunMessage}</p>
+            {dryRun ? (
+              <dl>
+                <div>
+                  <dt>Funding address</dt>
+                  <dd className="value-mono passkey-lab-key">{dryRun.fundingAddress}</dd>
+                </div>
+                <div>
+                  <dt>Transaction ID</dt>
+                  <dd className="value-mono passkey-lab-key">{dryRun.transactionId}</dd>
+                </div>
+                <div>
+                  <dt>Witness</dt>
+                  <dd>{dryRun.signatureScriptBytes.toLocaleString()} bytes · SIGHASH_ALL</dd>
+                </div>
+                <div>
+                  <dt>Network result</dt>
+                  <dd>Not broadcast</dd>
+                </div>
+              </dl>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <section className="card" aria-labelledby="passkey-matrix-heading">

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./amount": "./src/amount.ts",
+    "./escrow-v1-artifact": "./src/escrow-v1-artifact.ts",
     "./toccata-constants": "./src/toccata-constants.ts"
   },
   "dependencies": {

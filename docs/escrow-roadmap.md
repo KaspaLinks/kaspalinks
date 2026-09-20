@@ -6,13 +6,14 @@ and [escrow-covenant-v1.md](./escrow-covenant-v1.md) (contract).
 
 ## Where it stands
 
-| Piece                                                          | State                                                                                                                           |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Interface prototype (`/escrow`, `/escrow/new`, `/escrow/[id]`) | Live, mock data only, visible to allowlisted creators (`ESCROW_LINKS_PROTOTYPE_CREATORS`). Nothing is stored, no KAS move.      |
-| Covenant V1 (`labs/claimable-script/escrow_v1.sil`)            | Compiles to a 962-byte script; 26 engine tests pass against the real script engine. No funded transaction.                      |
-| TypeScript script/address/witness builder                      | Implemented locally; six vectors match the Rust compiler ABI and execute in the engine.                                         |
-| Transaction building, wallet signing, persistence              | Not started.                                                                                                                    |
-| Passkey signer capability lab (`/toccata-lab/passkey-signer`)  | Implemented locally; device verification pending. It derives a public secp256k1 identity locally and never signs or broadcasts. |
+| Piece                                                          | State                                                                                                                                                          |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Interface prototype (`/escrow`, `/escrow/new`, `/escrow/[id]`) | Live, mock data only, visible to allowlisted creators (`ESCROW_LINKS_PROTOTYPE_CREATORS`). Nothing is stored, no KAS move.                                     |
+| Covenant V1 (`labs/claimable-script/escrow_v1.sil`)            | Compiles to a 962-byte script; 26 engine tests pass against the real script engine. No funded transaction.                                                     |
+| TypeScript script/address/witness builder                      | Implemented locally; six vectors match the Rust compiler ABI and execute in the engine.                                                                        |
+| Transaction building, wallet signing, persistence              | Not started.                                                                                                                                                   |
+| Passkey signer capability lab (`/toccata-lab/passkey-signer`)  | Implemented locally; device verification pending. It derives a public secp256k1 identity locally and never signs or broadcasts.                                |
+| Passkey Escrow-V1 dry run                                      | Implemented locally. Builds a fake-outpoint 1 KAS release, signs it with Kaspa WASM after passkey verification, checks immutable intent, and cannot broadcast. |
 
 ## Decided
 
@@ -38,6 +39,11 @@ No real escrow may rely on this path until the same fingerprint is reproduced af
 page reload, browser restart, device restart, on a second synced Apple/Google device,
 and after links opened from embedded mobile browsers are handed to Safari or Chrome.
 Any mismatch or missing PRF result blocks that environment from funded use.
+
+The same private lab also contains an offline release dry run. It uses the
+passkey-derived buyer key, the compiled Escrow-V1 SilverScript artifact and the
+vendored Kaspa WASM signer to construct a full `SIGHASH_ALL` witness. Its outpoint
+is deliberately synthetic and the function exposes no relay or network call.
 
 ## Open decisions
 
