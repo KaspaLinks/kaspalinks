@@ -145,6 +145,108 @@
 .passkey-lab-funding-warning {
   margin-top: 16px;
 }
+.passkey-canary-create {
+  display: grid;
+  gap: 14px;
+}
+.passkey-canary-create label {
+  display: grid;
+  gap: 7px;
+  font-weight: 700;
+}
+.passkey-canary-create input {
+  width: 100%;
+}
+.passkey-canary {
+  display: grid;
+  gap: 18px;
+}
+.passkey-canary-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 15px;
+  border: 1px solid rgba(85, 230, 202, 0.35);
+  border-radius: 12px;
+  background: rgba(85, 230, 202, 0.07);
+}
+.passkey-canary-status span {
+  color: var(--muted);
+}
+.passkey-canary-funding {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+}
+.passkey-canary-funding .funding-qr-svg {
+  width: 100%;
+  border-radius: 12px;
+}
+.passkey-canary-funding h3,
+.passkey-canary-actions h3,
+.passkey-canary-review h3,
+.passkey-canary-receipt h3 {
+  margin-top: 0;
+}
+.passkey-canary-funding code,
+.passkey-canary-receipt code {
+  display: block;
+  overflow-wrap: anywhere;
+  margin: 12px 0;
+  font-size: 0.78rem;
+}
+.passkey-canary-action {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.035);
+  text-align: left;
+  cursor: pointer;
+}
+.passkey-canary-action:hover:not(:disabled) {
+  border-color: rgba(85, 230, 202, 0.65);
+}
+.passkey-canary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.passkey-canary-action span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.passkey-canary-review,
+.passkey-canary-receipt {
+  padding: 17px;
+  border: 1px solid rgba(85, 230, 202, 0.55);
+  border-radius: 12px;
+  background: rgba(85, 230, 202, 0.06);
+}
+.passkey-canary-review dl {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.passkey-canary-review dl div {
+  display: grid;
+  gap: 4px;
+}
+.passkey-canary-review dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.passkey-canary-review dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.passkey-canary-message {
+  margin-top: 16px;
+}
 .passkey-lab-key {
   overflow-wrap: anywhere;
   font-size: 0.82rem;
@@ -187,6 +289,18 @@
     min-height: 0;
   }
   .passkey-lab-matrix > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .passkey-canary-funding {
+    grid-template-columns: 1fr;
+  }
+  .passkey-canary-funding .funding-qr-svg {
+    max-width: 260px;
+    margin: 0 auto;
+  }
+  .passkey-canary-status {
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;

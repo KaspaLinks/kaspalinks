@@ -47,6 +47,15 @@ describe("Prisma schema", () => {
     expect(batchModel).toContain("expectedOutputs");
     expect(batchModel).not.toMatch(/privateKey|claimCode|refundCode|seedPhrase|walletCredential/i);
   });
+
+  it("stores only public escrow canary commitments", () => {
+    const escrow = schema.match(/model EscrowPrototype \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(escrow).toContain("buyerPublicKey");
+    expect(escrow).toContain("sellerPublicKey");
+    expect(escrow).toContain("activeFundingAddress");
+    expect(escrow).not.toMatch(/privateKey|prfOutput|recovery|seedPhrase|walletCredential/i);
+  });
 });
 
 describe("initial migration", () => {

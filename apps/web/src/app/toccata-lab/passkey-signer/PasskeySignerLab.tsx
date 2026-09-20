@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FundingQrCode } from "@/lib/funding-qr";
+import { buildWalletLaunchUri } from "@/lib/wallet-uri";
+import { useCreatorSession } from "@/app/escrow/_lib/use-creator-session";
 import {
   deriveEscrowSignerPublicIdentity,
   escrowSignerPrfInput,
@@ -15,6 +18,12 @@ import {
   type EscrowPasskeyDryRunRole,
   type EscrowPasskeyDryRunSigner,
 } from "./escrow-dry-run";
+import {
+  signPreparedEscrowCanary,
+  type EscrowCanary,
+  type EscrowCanaryMode,
+  type PreparedEscrowCanary,
+} from "./escrow-canary-browser";
 
 const CREDENTIAL_KEY = "kaspalinks:passkey-lab-credential";
 const EXPECTED_FINGERPRINT_KEY = "kaspalinks:passkey-lab-fingerprint";
@@ -188,6 +197,7 @@ async function createLabPasskey(): Promise<string> {
 }
 
 export function PasskeySignerLab() {
+  const session = useCreatorSession();
   const [environment, setEnvironment] = useState("Detecting browser…");
   const [state, setState] = useState<LabState>("idle");
   const [message, setMessage] = useState("No passkey test has run on this device.");
@@ -195,6 +205,13 @@ export function PasskeySignerLab() {
   const [credentialId, setCredentialId] = useState("");
   const [expectedFingerprint, setExpectedFingerprint] = useState("");
   const [dryRuns, setDryRuns] = useState<Partial<Record<EscrowPasskeyDryRunPath, DryRunEntry>>>({});
+  const [canary, setCanary] = useState<EscrowCanary | null>(null);
+  const [canaryLoading, setCanaryLoading] = useState(true);
+  const [canaryBusy, setCanaryBusy] = useState(false);
+  const [canaryMessage, setCanaryMessage] = useState("");
+  const [payoutAddress, setPayoutAddress] = useState("");
+  const [prepared, setPrepared] = useState<PreparedEscrowCanary | null>(null);
+  const [createNewCanary, setCreateNewCanary] = useState(false);
 
   useEffect(() => {
     setEnvironment(describeEnvironment());
@@ -210,6 +227,47 @@ export function PasskeySignerLab() {
     if (window.top !== window.self) return { ok: false, label: "Open this page directly" };
     return { ok: true, label: "Ready for passkey test" };
   }, []);
+
+  const creatorHeaders = useMemo(
+    () => ({
+      authorization: `Bearer ${session.token}`,
+      "content-type": "application/json",
+      "x-creator-username": session.username,
+    }),
+    [session.token, session.username],
+  );
+
+  const loadCanary = useCallback(async () => {
+    if (!session.signedIn) {
+      setCanaryLoading(false);
+      return;
+    }
+    try {
+      const response = await fetch("/api/toccata-lab/escrow-canary", {
+        cache: "no-store",
+        headers: creatorHeaders,
+      });
+      const body = (await response.json()) as {
+        canary?: EscrowCanary | null;
+        error?: { message?: string };
+      };
+      if (!response.ok) throw new Error(body.error?.message ?? "Could not load the canary.");
+      setCanary(body.canary ?? null);
+      setCanaryMessage("");
+    } catch (error) {
+      setCanaryMessage(error instanceof Error ? error.message : "Could not load the canary.");
+    } finally {
+      setCanaryLoading(false);
+    }
+  }, [creatorHeaders, session.signedIn]);
+
+  useEffect(() => {
+    if (!session.hydrated) return;
+    void loadCanary();
+    if (!session.signedIn) return;
+    const timer = window.setInterval(() => void loadCanary(), 15_000);
+    return () => window.clearInterval(timer);
+  }, [loadCanary, session.hydrated, session.signedIn]);
 
   async function run(create: boolean) {
     if (!capability.ok) {
@@ -303,6 +361,114 @@ export function PasskeySignerLab() {
       }));
     } finally {
       for (const output of prfOutputs) output.fill(0);
+    }
+  }
+
+  async function postCanary(body: unknown): Promise<unknown> {
+    const response = await fetch("/api/toccata-lab/escrow-canary", {
+      body: JSON.stringify(body),
+      headers: creatorHeaders,
+      method: "POST",
+    });
+    const result = (await response.json()) as { error?: { message?: string } };
+    if (!response.ok) throw new Error(result.error?.message ?? "Escrow canary request failed.");
+    return result;
+  }
+
+  async function createCanary() {
+    if (state !== "passed" || !payoutAddress.trim() || !credentialId) return;
+    setCanaryBusy(true);
+    setCanaryMessage("Approve the buyer and seller passkey prompts.");
+    const outputs: Uint8Array[] = [];
+    try {
+      const signerContextId = `canary-${crypto.randomUUID()}`;
+      const buyerContext: EscrowSignerContext = {
+        escrowId: signerContextId,
+        network: "mainnet",
+        role: "buyer",
+        signerVersion: 1,
+      };
+      const sellerContext: EscrowSignerContext = { ...buyerContext, role: "seller" };
+      const buyerResult = await readPrf(buyerContext, fromBase64Url(credentialId));
+      outputs.push(buyerResult.output);
+      const buyer = await deriveEscrowSignerPublicIdentity(buyerResult.output, buyerContext);
+      const sellerResult = await readPrf(sellerContext, fromBase64Url(credentialId));
+      outputs.push(sellerResult.output);
+      const seller = await deriveEscrowSignerPublicIdentity(sellerResult.output, sellerContext);
+      const result = (await postCanary({
+        action: "create",
+        buyerPublicKey: buyer.publicKey,
+        payoutAddress: payoutAddress.trim(),
+        sellerPublicKey: seller.publicKey,
+        signerContextId,
+      })) as { canary: EscrowCanary };
+      setCanary(result.canary);
+      setPrepared(null);
+      setCreateNewCanary(false);
+      setCanaryMessage("Canary created. Fund exactly 0.22 KAS with Kaspium.");
+    } catch (error) {
+      setCanaryMessage(error instanceof Error ? error.message : "Could not create the canary.");
+    } finally {
+      for (const output of outputs) output.fill(0);
+      setCanaryBusy(false);
+    }
+  }
+
+  async function prepareCanary(mode: EscrowCanaryMode) {
+    if (!canary) return;
+    setCanaryBusy(true);
+    setPrepared(null);
+    setCanaryMessage("Building and checking the exact mainnet transaction…");
+    try {
+      const result = (await postCanary({
+        action: "prepare",
+        id: canary.id,
+        mode,
+      })) as PreparedEscrowCanary;
+      setPrepared(result);
+      setCanaryMessage("Review the destination, amount, fee and funding outpoint below.");
+    } catch (error) {
+      setCanaryMessage(error instanceof Error ? error.message : "Could not prepare the spend.");
+    } finally {
+      setCanaryBusy(false);
+    }
+  }
+
+  async function approveAndBroadcast() {
+    if (!canary || !prepared || !credentialId) return;
+    setCanaryBusy(true);
+    setCanaryMessage(`Approve the ${prepared.review.requiredRole} passkey prompt.`);
+    let prfOutput: Uint8Array | null = null;
+    try {
+      const role = prepared.review.requiredRole;
+      const context: EscrowSignerContext = {
+        escrowId: canary.signerContextId,
+        network: "mainnet",
+        role,
+        signerVersion: 1,
+      };
+      const result = await readPrf(context, fromBase64Url(credentialId));
+      prfOutput = result.output;
+      const signed = await signPreparedEscrowCanary({
+        context,
+        expectedPublicKey: role === "buyer" ? canary.buyerPublicKey : canary.sellerPublicKey,
+        prepared,
+        prfOutput,
+      });
+      const receipt = (await postCanary({
+        action: "broadcast",
+        id: canary.id,
+        mode: prepared.review.mode,
+        transactionSafeJson: signed.transactionSafeJson,
+      })) as { transactionId: string };
+      setPrepared(null);
+      setCanaryMessage(`Submitted: ${receipt.transactionId}`);
+      await loadCanary();
+    } catch (error) {
+      setCanaryMessage(error instanceof Error ? error.message : "Broadcast failed.");
+    } finally {
+      prfOutput?.fill(0);
+      setCanaryBusy(false);
     }
   }
 
@@ -444,6 +610,214 @@ export function PasskeySignerLab() {
           <p className="notice passkey-lab-funding-warning">
             Fake outpoints only. Any derived address is a test fixture and must never be funded.
           </p>
+        </div>
+      </section>
+
+      <section className="card passkey-lab-step" aria-labelledby="passkey-mainnet-heading">
+        <div className="passkey-lab-number">3</div>
+        <div>
+          <span className="label">Mainnet canary · real KAS</span>
+          <h2 id="passkey-mainnet-heading">Run one small escrow</h2>
+          {(!canary || createNewCanary) && !canaryLoading ? (
+            <div className="passkey-canary-create">
+              <p>
+                Enter one Kaspium receive address. This self-test uses it for both payout and
+                refund. Two passkey roles are committed on-chain.
+              </p>
+              <label>
+                Kaspium receive address
+                <input
+                  autoComplete="off"
+                  disabled={canaryBusy}
+                  onChange={(event) => setPayoutAddress(event.target.value)}
+                  placeholder="kaspa:…"
+                  spellCheck={false}
+                  value={payoutAddress}
+                />
+              </label>
+              <button
+                className="btn btn-primary"
+                disabled={
+                  canaryBusy || state !== "passed" || !session.signedIn || !payoutAddress.trim()
+                }
+                onClick={() => void createCanary()}
+                type="button"
+              >
+                {canaryBusy ? "Creating…" : "Create 0.22 KAS canary"}
+              </button>
+            </div>
+          ) : null}
+
+          {canary && !createNewCanary ? (
+            <div className="passkey-canary">
+              <div className="passkey-canary-status">
+                <span>
+                  {canary.submitted
+                    ? "Submitted"
+                    : canary.funding.state === "funded"
+                      ? "Funded"
+                      : canary.funding.state === "ambiguous"
+                        ? "Review required"
+                        : "Waiting for 0.22 KAS"}
+                </span>
+                <strong>{canary.submitted?.mode ?? "Active escrow"}</strong>
+              </div>
+
+              {!canary.submitted && canary.funding.state === "awaiting_funding" ? (
+                <div className="passkey-canary-funding">
+                  <FundingQrCode
+                    ariaLabel="Fund the escrow canary with exactly 0.22 KAS"
+                    paymentUri={buildWalletLaunchUri({
+                      amountKas: "0.22",
+                      recipientAddress: canary.activeFundingAddress,
+                    })}
+                  />
+                  <div>
+                    <h3>Fund with Kaspium</h3>
+                    <p>Send exactly 0.22 KAS. Detection refreshes automatically.</p>
+                    <code>{canary.activeFundingAddress}</code>
+                    <div className="row">
+                      <a
+                        className="btn btn-primary"
+                        href={buildWalletLaunchUri({
+                          amountKas: "0.22",
+                          recipientAddress: canary.activeFundingAddress,
+                        })}
+                      >
+                        Open Kaspium
+                      </a>
+                      <button
+                        className="btn"
+                        onClick={() =>
+                          void navigator.clipboard.writeText(canary.activeFundingAddress)
+                        }
+                        type="button"
+                      >
+                        Copy address
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {canary.funding.unexpectedOutputCount > 0 && !canary.submitted ? (
+                <p className="notice notice-warn">
+                  A payment with the wrong amount was detected. Do not send more until this output
+                  has been reviewed.
+                </p>
+              ) : null}
+
+              {canary.funding.state === "funded" && !canary.submitted ? (
+                <div className="passkey-canary-actions">
+                  <h3>Choose the result</h3>
+                  <div className="passkey-lab-paths">
+                    <button
+                      className="passkey-canary-action"
+                      disabled={canaryBusy}
+                      onClick={() => void prepareCanary("release")}
+                      type="button"
+                    >
+                      <strong>Release</strong>
+                      <span>0.21 KAS to the payout address · buyer passkey</span>
+                    </button>
+                    <button
+                      className="passkey-canary-action"
+                      disabled={canaryBusy}
+                      onClick={() => void prepareCanary("refund")}
+                      type="button"
+                    >
+                      <strong>Refund now</strong>
+                      <span>0.21 KAS back to Kaspium · seller passkey</span>
+                    </button>
+                    <button
+                      className="passkey-canary-action"
+                      disabled={canaryBusy || !canary.claimAvailable}
+                      onClick={() => void prepareCanary("claim")}
+                      type="button"
+                    >
+                      <strong>Claim after deadline</strong>
+                      <span>
+                        {canary.claimAvailable
+                          ? "0.21 KAS to the payout address"
+                          : `Available in about ${Math.max(
+                              1,
+                              Math.ceil(
+                                (Number(canary.releaseAfter) - Number(canary.chainDaa)) / 600,
+                              ),
+                            )} min`}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {prepared ? (
+                <div className="passkey-canary-review">
+                  <span className="label">Final review</span>
+                  <h3>{prepared.review.mode}</h3>
+                  <dl>
+                    <div>
+                      <dt>Recipient</dt>
+                      <dd className="value-mono">{prepared.review.destinationAddress}</dd>
+                    </div>
+                    <div>
+                      <dt>Output</dt>
+                      <dd>0.21 KAS</dd>
+                    </div>
+                    <div>
+                      <dt>Network fee</dt>
+                      <dd>0.01 KAS</dd>
+                    </div>
+                    <div>
+                      <dt>Funding outpoint</dt>
+                      <dd className="value-mono">
+                        {prepared.review.fundingTransactionId}:{prepared.review.fundingOutputIndex}
+                      </dd>
+                    </div>
+                  </dl>
+                  <button
+                    className="btn btn-primary"
+                    disabled={canaryBusy}
+                    onClick={() => void approveAndBroadcast()}
+                    type="button"
+                  >
+                    {canaryBusy ? "Signing…" : "Approve with passkey & broadcast"}
+                  </button>
+                </div>
+              ) : null}
+
+              {canary.submitted ? (
+                <div className="passkey-canary-receipt">
+                  <h3>{canary.submitted.mode} submitted</h3>
+                  <code>{canary.submitted.transactionId}</code>
+                  <a
+                    className="btn"
+                    href={`https://explorer.kaspa.org/txs/${canary.submitted.transactionId}`}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Open explorer
+                  </a>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setPayoutAddress(canary.payoutAddress);
+                      setCreateNewCanary(true);
+                    }}
+                    type="button"
+                  >
+                    Start another canary
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {canaryMessage ? (
+            <p className="notice passkey-canary-message" role="status">
+              {canaryMessage}
+            </p>
+          ) : null}
         </div>
       </section>
 

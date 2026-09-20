@@ -101,6 +101,7 @@ model Creator {
   // only exercised on one account.
   prizeCovenantEnabled    Boolean               @default(false)
   covenantPrototypes     CovenantPrototype[]
+  escrowPrototypes       EscrowPrototype[]
   agentAiEnabled          Boolean               @default(false)
   agentAiConsentAt        DateTime?
   agentWaitlistAt         DateTime?
@@ -669,4 +670,33 @@ model CovenantRegistration {
   address String
   createdAt DateTime @default(now())
   @@unique([prototypeId, address])
+}
+
+// Private mainnet escrow canaries. Only public covenant commitments and
+// submitted transaction IDs are persisted; passkey PRF output never reaches
+// the server.
+model EscrowPrototype {
+  id                   String   @id @default(cuid())
+  creatorId            String
+  creator              Creator  @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  signerContextId      String
+  amountSompi          BigInt
+  feeSompi             BigInt
+  releaseAfter         BigInt
+  buyerPublicKey       String
+  sellerPublicKey      String
+  buyerAddress         String
+  sellerAddress        String
+  activeFundingAddress String   @unique
+  frozenFundingAddress String   @unique
+  status               String   @default("awaiting_funding")
+  releaseTxId          String?
+  refundTxId           String?
+  claimTxId            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([creatorId, signerContextId])
+  @@index([creatorId, createdAt])
+  @@index([status])
 }

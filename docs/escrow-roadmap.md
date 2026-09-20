@@ -11,9 +11,10 @@ and [escrow-covenant-v1.md](./escrow-covenant-v1.md) (contract).
 | Interface prototype (`/escrow`, `/escrow/new`, `/escrow/[id]`) | Live, mock data only, visible to allowlisted creators (`ESCROW_LINKS_PROTOTYPE_CREATORS`). Nothing is stored, no KAS move.                                  |
 | Covenant V1 (`labs/claimable-script/escrow_v1.sil`)            | Compiles to a 962-byte script; 26 engine tests pass against the real script engine. No funded transaction.                                                  |
 | TypeScript script/address/witness builder                      | Implemented locally; six vectors match the Rust compiler ABI and execute in the engine.                                                                     |
-| Transaction building, wallet signing, persistence              | Offline builder and passkey signing prototype implemented; persistence and network integration are missing.                                                 |
+| Transaction building, passkey signing, persistence             | Private 0.22 KAS mainnet canary implemented locally with creator-owned persistence, exact UTXO detection and a signed-only relay boundary.                  |
 | Passkey signer capability lab (`/toccata-lab/passkey-signer`)  | Private deployment. The same buyer identity was reproduced on iPhone and Mac and after browser restart; device-restart and embedded-browser checks remain.  |
 | Passkey Escrow-V1 dry run                                      | All six V1 paths sign fake-outpoint transactions with Kaspa WASM, verify immutable intent, match the canonical builder byte for byte, and cannot broadcast. |
+| Funded Escrow-V1 canary                                        | Release, immediate refund and deadline claim are wired for one private creator. Code is not yet deployed and no KAS has been funded.                        |
 
 ## Decided
 
@@ -73,7 +74,7 @@ TypeScript side.
 _Check:_ TypeScript and Rust agree byte for byte on script, template hash and every
 witness; unit tests in the repo; the engine accepts the TypeScript-built spends.
 
-**4. Transaction building and browser signing — offline spend builder implemented; wallet integration pending**
+**4. Transaction building and browser signing — implemented for the private canary**
 
 The offline spending builder now covers release, both refund states, claim, freeze and
 joint settlement. The wallet transport rejects changed transaction intent, requires
@@ -84,34 +85,51 @@ The vendored SDK's legacy P2SH encoder rejects this 962-byte script, so the lab 
 uses canonical OP_PUSHDATA2, verified byte for byte by Rust. This is not evidence of
 current mainnet activation or wallet/relay acceptance.
 
-Still required: verify signatures cryptographically against the committed signer and
-finalize reconstructed transactions before relay; validate selected wallet account and
-network; determine fees and compute budget; connect the browser UI and indexer.
-There is no production signing or broadcast path wired to this helper.
-
-Build funding transactions with the vendored Kaspa SDK, sign them in the
-browser through KasWare, and detect the funding through the indexer. No key ever reaches
-the server.
+The private canary separates ordinary-wallet funding from covenant signing. Kaspium sends
+an exact payment URI to the committed P2SH address. WebAuthn PRF plus role-separated HKDF
+derives the buyer or seller signing key in browser memory. Before relay, the server rebuilds
+the whole transaction and accepts only the replacement of one empty signature slot. No key
+or PRF result reaches the API.
 
 _Check:_ every path now produces a signed browser dry run. Real node acceptance, fee
 measurement, compute budget and a funded covenant spend remain unverified.
 
-**5. Minimal persistence**
+**5. Minimal persistence — implemented locally for the canary**
 
-One database record per escrow link (parameters, state, transaction ids), an API with
-Zod validation and rate limits, so the buyer can open the same link and both sides see
-the same state. Still restricted to allowlisted creators.
+`EscrowPrototype` stores public terms, covenant addresses and submitted transaction IDs.
+The creator-scoped API uses Zod validation, rate limits, exact output selection and an
+atomic broadcast lease. Passkey material and ordinary wallet credentials are neither
+accepted nor stored. The current canary is still a one-account self-test, not a shared
+buyer/seller link.
 
-_Check:_ a link survives a reload and two different browsers see the same state.
+_Check:_ the canary survives a reload; cross-browser state still needs the deployed test.
 
-**6. Funded trial**
+**6. Funded trial — next**
 
-Small amounts between two own wallets. Walk three escrows: release, freeze followed by a
-settlement, and a claim after the deadline.
+Start with three separate 0.22 KAS self-tests: release, immediate refund and claim after
+the DAA deadline. Freeze followed by settlement remains a later canary because it needs a
+second funded state transition and fee reserve.
 
-_Check:_ three escrows completed on chain with their transaction ids recorded, plus the
+_Check:_ three active-state exits completed on chain with their transaction ids recorded, plus the
 numbers the engine cannot give us: fees, storage mass, compute budget and whether nodes
 relay a transaction of this size.
+
+## Mainnet canary implementation, 20 September 2026
+
+The private signer page now has a third step. It creates two public signer commitments
+from one passkey using different buyer/seller contexts, accepts one validated Kaspium
+receive address for both self-test outcomes, and commits an absolute deadline about one
+hour ahead. Funding is exactly 0.22 KAS: 0.21 KAS output plus a fixed 0.01 KAS fee.
+
+The page restores the latest creator-owned canary after reload, shows a local QR/payment
+URI, refreshes exact UTXO status, and offers release, refund or deadline claim. Preparing
+does not sign or broadcast. A separate final-review card shows recipient, amount, fee and
+outpoint; only the final button asks for the required passkey and submits the signed JSON.
+
+Compute budget 50 follows the successful small giveaway canary. The escrow engine harness
+cannot measure consensus compute units, so the first relay attempt remains the measurement.
+A rejection does not spend the covenant output; the same passkey can sign a corrected
+transaction after the budget or fee is adjusted. No funded transaction has been attempted.
 
 **7. Wire the interface to real data**
 
