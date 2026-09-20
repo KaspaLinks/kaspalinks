@@ -3,6 +3,7 @@ import {
   deriveEscrowSignerPublicIdentity,
   escrowSignerPrfInput,
   serializeEscrowSignerContext,
+  withEscrowSignerSecret,
 } from "./escrow-passkey-signer";
 
 const context = {
@@ -42,5 +43,16 @@ describe("escrow passkey signer derivation", () => {
     const seller = await deriveEscrowSignerPublicIdentity(prf, { ...context, role: "seller" });
     expect(buyer.publicKey).not.toBe(seller.publicKey);
     expect(() => serializeEscrowSignerContext({ ...context, escrowId: "bad/id" })).toThrow();
+  });
+
+  it("wipes the temporary secret after the caller finishes", async () => {
+    let observed: Uint8Array | undefined;
+    const result = await withEscrowSignerSecret(new Uint8Array(32).fill(3), context, (secret) => {
+      observed = secret;
+      expect(secret.some((byte) => byte !== 0)).toBe(true);
+      return "used";
+    });
+    expect(result).toBe("used");
+    expect(observed).toEqual(new Uint8Array(32));
   });
 });

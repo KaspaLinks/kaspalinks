@@ -60,6 +60,38 @@
 .passkey-lab-result dd {
   margin: 0;
 }
+.passkey-lab-dry-result {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.passkey-lab-dry-result-passed {
+  border-color: rgba(85, 230, 202, 0.65);
+}
+.passkey-lab-dry-result-error {
+  border-color: rgba(255, 106, 106, 0.65);
+}
+.passkey-lab-dry-result > p {
+  margin: 6px 0 0;
+}
+.passkey-lab-dry-result dl {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0 0;
+}
+.passkey-lab-dry-result dl div {
+  display: grid;
+  gap: 4px;
+}
+.passkey-lab-dry-result dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.passkey-lab-dry-result dd {
+  margin: 0;
+}
 .passkey-lab-key {
   overflow-wrap: anywhere;
   font-size: 0.82rem;

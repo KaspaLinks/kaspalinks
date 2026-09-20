@@ -15,6 +15,8 @@ export type EscrowSignerPublicIdentity = {
   publicKey: string;
 };
 
+export type EscrowSignerSecretUse<T> = (secretKey: Uint8Array) => Promise<T> | T;
+
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -44,10 +46,11 @@ export async function escrowSignerPrfInput(context: EscrowSignerContext): Promis
  * Turns a WebAuthn PRF result into the x-only secp256k1 public key committed by
  * Escrow V1. The secret scalar never leaves this function and is wiped after use.
  */
-export async function deriveEscrowSignerPublicIdentity(
+export async function withEscrowSignerSecret<T>(
   prfOutput: Uint8Array,
   context: EscrowSignerContext,
-): Promise<EscrowSignerPublicIdentity> {
+  use: EscrowSignerSecretUse<T>,
+): Promise<T> {
   if (prfOutput.length !== 32) throw new Error("Invalid passkey PRF output.");
 
   const contextBytes = encoder.encode(serializeEscrowSignerContext(context));
@@ -75,17 +78,26 @@ export async function deriveEscrowSignerPublicIdentity(
         continue;
       }
 
-      const compressed = getPublicKey(candidate, true);
-      const publicKey = new Uint8Array(compressed).slice(1);
-      const fingerprintDigest = await crypto.subtle.digest("SHA-256", publicKey);
-      const fingerprint = bytesToHex(new Uint8Array(fingerprintDigest).slice(0, 6));
-      return {
-        fingerprint: fingerprint.match(/.{1,4}/g)?.join("-") ?? fingerprint,
-        publicKey: bytesToHex(publicKey),
-      };
+      return await use(candidate);
     }
     throw new Error("Could not derive a valid escrow signing key.");
   } finally {
     candidate?.fill(0);
   }
+}
+
+export async function deriveEscrowSignerPublicIdentity(
+  prfOutput: Uint8Array,
+  context: EscrowSignerContext,
+): Promise<EscrowSignerPublicIdentity> {
+  return withEscrowSignerSecret(prfOutput, context, async (secretKey) => {
+    const compressed = getPublicKey(secretKey, true);
+    const publicKey = new Uint8Array(compressed).slice(1);
+    const fingerprintDigest = await crypto.subtle.digest("SHA-256", publicKey);
+    const fingerprint = bytesToHex(new Uint8Array(fingerprintDigest).slice(0, 6));
+    return {
+      fingerprint: fingerprint.match(/.{1,4}/g)?.join("-") ?? fingerprint,
+      publicKey: bytesToHex(publicKey),
+    };
+  });
 }
