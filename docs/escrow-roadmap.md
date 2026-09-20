@@ -11,10 +11,10 @@ and [escrow-covenant-v1.md](./escrow-covenant-v1.md) (contract).
 | Interface prototype (`/escrow`, `/escrow/new`, `/escrow/[id]`) | Live, mock data only, visible to allowlisted creators (`ESCROW_LINKS_PROTOTYPE_CREATORS`). Nothing is stored, no KAS move.                                  |
 | Covenant V1 (`labs/claimable-script/escrow_v1.sil`)            | Compiles to a 962-byte script; 26 engine tests pass against the real script engine. No funded transaction.                                                  |
 | TypeScript script/address/witness builder                      | Implemented locally; six vectors match the Rust compiler ABI and execute in the engine.                                                                     |
-| Transaction building, passkey signing, persistence             | Private 0.22 KAS mainnet canary implemented locally with creator-owned persistence, exact UTXO detection and a signed-only relay boundary.                  |
+| Transaction building, passkey signing, persistence             | Private 0.22 KAS mainnet canary deployed with creator-owned persistence, exact UTXO detection and a signed-only relay boundary.                             |
 | Passkey signer capability lab (`/toccata-lab/passkey-signer`)  | Private deployment. The same buyer identity was reproduced on iPhone and Mac and after browser restart; device-restart and embedded-browser checks remain.  |
 | Passkey Escrow-V1 dry run                                      | All six V1 paths sign fake-outpoint transactions with Kaspa WASM, verify immutable intent, match the canonical builder byte for byte, and cannot broadcast. |
-| Funded Escrow-V1 canary                                        | Release, immediate refund and deadline claim are wired for one private creator. Code is not yet deployed and no KAS has been funded.                        |
+| Funded Escrow-V1 canary                                        | Release, immediate refund and deadline claim are privately deployed for creator `example`. No Escrow V1 output has been funded yet.                         |
 
 ## Decided
 
@@ -130,6 +130,29 @@ Compute budget 50 follows the successful small giveaway canary. The escrow engin
 cannot measure consensus compute units, so the first relay attempt remains the measurement.
 A rejection does not spend the covenant output; the same passkey can sign a corrected
 transaction after the budget or fee is adjusted. No funded transaction has been attempted.
+
+## Private mainnet-canary deployment, 20 September 2026
+
+Release `e7d9d63b096d3eabae4af8c976d7a21865fa30d1` is live on Hetzner. The exact
+Git archive built successfully on the server. `pnpm lint`, `pnpm typecheck`, all 997
+Vitest tests in 155 files and the production build passed locally before release.
+
+Migration `20260920130000_add_escrow_prototype` first passed against a temporary empty
+PostgreSQL 16 instance, then applied to production. Production contains zero canary rows
+at deployment. The migration is additive and the pre-release custom-format database dump
+was verified with `pg_restore --list`.
+
+Only the app container was recreated. PostgreSQL, Caddy, the wRPC relay and Telegram
+worker retained their container IDs. Internal and external health checks report the exact
+release SHA; the app is healthy with zero restarts. The new API returns the shared 401
+response without creator credentials, while an anonymous browser sees the normal 404 and
+no lab content. The signed-in canary screen still needs the first creator walkthrough.
+
+Backup, exact build source, logs, previous image and executable rollback script are under
+`/var/backups/kaspa-actions/releases/e7d9d63b/`. Source-content drift is zero. Temporary
+build layers were pruned without removing release or rollback images; 6.4 GB remained.
+No KAS was sent, no passkey prompt was triggered and no transaction was broadcast during
+deployment.
 
 **7. Wire the interface to real data**
 
