@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -230,14 +229,8 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
 
   return (
     <main className="escrow-link-shell">
-      <header className="escrow-link-header">
-        <Link href="/" className="escrow-link-mark">
-          Kaspa Links
-        </Link>
-        <span>Private escrow</span>
-      </header>
-
       <section className="escrow-link-hero">
+        <span className="escrow-link-private">Private escrow</span>
         <span className="escrow-link-kicker">SilverScript · Mainnet</span>
         <h1>{escrow.title}</h1>
         <p>Created by @{escrow.creatorUsername}</p>

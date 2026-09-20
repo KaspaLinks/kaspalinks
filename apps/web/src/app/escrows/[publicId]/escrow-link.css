@@ -4,23 +4,15 @@
   padding: 20px 0 56px;
   color: #eef8f7;
 }
-.escrow-link-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: #91aaa8;
-  font-size: 0.82rem;
-  margin-bottom: 28px;
-}
-.escrow-link-mark {
-  color: #52e0c4;
-  font-weight: 800;
-  text-decoration: none;
-  letter-spacing: -0.02em;
-}
 .escrow-link-hero {
   text-align: center;
   padding: 10px 10px 24px;
+}
+.escrow-link-private {
+  display: block;
+  color: #91aaa8;
+  font-size: 0.78rem;
+  margin-bottom: 28px;
 }
 .escrow-link-kicker,
 .escrow-link-step {
