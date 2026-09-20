@@ -24,6 +24,7 @@ import {
   type EscrowCanaryMode,
   type PreparedEscrowCanary,
 } from "./escrow-canary-browser";
+import { TwoPartyEscrowCreator } from "./TwoPartyEscrowCreator";
 
 const CREDENTIAL_KEY = "kaspalinks:passkey-lab-credential";
 const EXPECTED_FINGERPRINT_KEY = "kaspalinks:passkey-lab-fingerprint";
@@ -820,6 +821,13 @@ export function PasskeySignerLab() {
           ) : null}
         </div>
       </section>
+
+      <TwoPartyEscrowCreator
+        creatorHeaders={creatorHeaders}
+        credentialId={credentialId}
+        passkeyVerified={state === "passed"}
+        signedIn={session.signedIn}
+      />
 
       <section className="card" aria-labelledby="passkey-matrix-heading">
         <span className="label">Acceptance gate</span>

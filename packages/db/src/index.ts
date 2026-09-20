@@ -7,6 +7,7 @@ export type {
   AuditLog,
   ClaimableBatch,
   Creator,
+  EscrowLinkPrototype,
   EscrowPrototype,
   Giveaway,
   GiveawayEntry,

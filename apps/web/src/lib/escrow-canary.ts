@@ -27,6 +27,22 @@ const mode = z.enum(["release", "refund", "claim"]);
 
 export type EscrowCanaryMode = z.infer<typeof mode>;
 
+export type EscrowV1StoredRecord = Pick<
+  EscrowPrototype,
+  | "activeFundingAddress"
+  | "amountSompi"
+  | "buyerAddress"
+  | "buyerPublicKey"
+  | "claimTxId"
+  | "feeSompi"
+  | "frozenFundingAddress"
+  | "refundTxId"
+  | "releaseAfter"
+  | "releaseTxId"
+  | "sellerAddress"
+  | "sellerPublicKey"
+>;
+
 export const escrowCanaryActionSchema = z
   .discriminatedUnion("action", [
     z
@@ -66,22 +82,41 @@ export function createEscrowCanaryTerms(input: {
   payoutAddress: string;
   sellerPublicKey: string;
 }) {
-  const payoutScriptPublicKey = buildKaspaAddressScriptPublicKeyHex(input.payoutAddress);
-  const parameters: EscrowV1Parameters = {
+  return createEscrowV1Terms({
     amount: ESCROW_CANARY_AMOUNT_SOMPI,
+    buyerAddress: input.payoutAddress,
+    buyerPublicKey: input.buyerPublicKey,
     fee: ESCROW_CANARY_FEE_SOMPI,
     releaseAfter: input.chainDaa + ESCROW_CANARY_DURATION_DAA,
+    sellerAddress: input.payoutAddress,
+    sellerPublicKey: input.sellerPublicKey,
+  });
+}
+
+export function createEscrowV1Terms(input: {
+  amount: bigint;
+  buyerAddress: string;
+  buyerPublicKey: string;
+  fee: bigint;
+  releaseAfter: bigint;
+  sellerAddress: string;
+  sellerPublicKey: string;
+}) {
+  const parameters: EscrowV1Parameters = {
+    amount: input.amount,
+    fee: input.fee,
+    releaseAfter: input.releaseAfter,
     buyerPublicKey: input.buyerPublicKey,
     sellerPublicKey: input.sellerPublicKey,
-    buyerScriptPublicKey: payoutScriptPublicKey,
-    sellerScriptPublicKey: payoutScriptPublicKey,
+    buyerScriptPublicKey: buildKaspaAddressScriptPublicKeyHex(input.buyerAddress),
+    sellerScriptPublicKey: buildKaspaAddressScriptPublicKeyHex(input.sellerAddress),
   };
   const active = buildEscrowV1Address(parameters, "active");
   const frozen = buildEscrowV1Address(parameters, "frozen");
   return { active, frozen, parameters };
 }
 
-export function escrowCanaryParameters(row: EscrowPrototype): EscrowV1Parameters {
+export function escrowCanaryParameters(row: EscrowV1StoredRecord): EscrowV1Parameters {
   return {
     amount: row.amountSompi,
     fee: row.feeSompi,
@@ -106,7 +141,7 @@ export function selectEscrowCanaryUtxo(
 }
 
 export function buildEscrowCanarySpend(
-  row: EscrowPrototype,
+  row: EscrowV1StoredRecord,
   selectedMode: EscrowCanaryMode,
   utxo: PrototypeUtxo,
 ): EscrowV1Spend {
@@ -128,7 +163,7 @@ export function buildEscrowCanarySpend(
 }
 
 export function prepareEscrowCanaryTransaction(
-  row: EscrowPrototype,
+  row: EscrowV1StoredRecord,
   selectedMode: EscrowCanaryMode,
   utxo: PrototypeUtxo,
 ) {
@@ -160,7 +195,7 @@ function normalizedSafeJson(value: string): string {
  */
 export function validateSignedEscrowCanaryTransaction(input: {
   mode: EscrowCanaryMode;
-  row: EscrowPrototype;
+  row: EscrowV1StoredRecord;
   transactionSafeJson: string;
   utxo: PrototypeUtxo;
 }) {
@@ -200,7 +235,9 @@ export function validateSignedEscrowCanaryTransaction(input: {
   return { transactionId: actual.id, transactionSafeJson: actualJson };
 }
 
-export function escrowCanarySubmittedTransaction(row: EscrowPrototype) {
+export function escrowCanarySubmittedTransaction(
+  row: Pick<EscrowV1StoredRecord, "claimTxId" | "refundTxId" | "releaseTxId">,
+) {
   if (row.releaseTxId) return { mode: "release" as const, transactionId: row.releaseTxId };
   if (row.refundTxId) return { mode: "refund" as const, transactionId: row.refundTxId };
   if (row.claimTxId) return { mode: "claim" as const, transactionId: row.claimTxId };
