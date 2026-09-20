@@ -156,6 +156,13 @@ acceptance by the network.
   escape hatch).
 - Whether a late freeze needs a counter-measure beyond "claim promptly".
 
+The first private canary now fixes 0.21 KAS as the active-state output, reserves 0.01 KAS
+as its fee, uses compute budget 50, and commits `releaseAfter` at current DAA + 36,000.
+Kaspium only creates the ordinary funding transaction. Release, refund and claim are
+signed by the role-separated browser passkey and reconstructed exactly before the relay.
+These are trial values rather than measured escrow limits; no funded Escrow V1 spend has
+yet reached mainnet.
+
 ## Test matrix (engine level, no funds)
 
 Each path passes under the intended conditions and fails otherwise:

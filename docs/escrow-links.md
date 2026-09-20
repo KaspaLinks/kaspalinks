@@ -1,8 +1,9 @@
 # Escrow Links — Phase 1 UI Prototype
 
-Status: frontend prototype with mock data. The private passkey lab creates and
-signs synthetic Escrow V1 transactions in the browser, but nothing sends KAS,
-broadcasts, or writes to the database. Wallet and network integration are still missing.
+Status: the public escrow screens still use mock data. The private passkey lab also
+contains a creator-scoped 0.22 KAS mainnet canary with Kaspium funding, database-backed
+public commitments, exact UTXO detection and passkey-signed relay submission. It has not
+yet been funded or proven on chain.
 
 ## Idea
 
@@ -42,7 +43,8 @@ it is not an automatic release.
 - `/escrow/[id]`: deal page with timeline, amounts, rules and role-specific next step
 - `/toccata-lab/passkey-signer`: private PRF/passkey capability probe for the
   allowlisted creator; it derives a local public signer identity and dry-runs release,
-  freeze, both refund states, claim, and joint settlement without network access
+  freeze, both refund states, claim, and joint settlement without network access. Its
+  separate mainnet canary supports active release, immediate refund and deadline claim.
 
 The deal page has prototype controls to switch between buyer and seller, jump
 between example deals, and skip past the release deadline.
@@ -77,7 +79,7 @@ helpers. USD values reuse the live KAS price estimate and stay secondary.
 ## Open questions before Phase 2
 
 - Passkey PRF stability across browser restarts, synced devices and credential providers
-- Timelock source (DAA score), fees, compute budget and minimum outputs
+- Mainnet acceptance and measured compute units for the 962-byte escrow contract
 - Link expiry when no buyer funds the prepared covenant
 - Where shipment and freeze notes live, and who can read them
 - Wallet support for multi-input covenant spends
