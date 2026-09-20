@@ -20,6 +20,9 @@
   gap: 16px;
   align-items: start;
 }
+.passkey-lab-step > div:last-child {
+  min-width: 0;
+}
 .passkey-lab-step h2,
 .passkey-lab-result h2 {
   margin-top: 0;
@@ -60,12 +63,45 @@
 .passkey-lab-result dd {
   margin: 0;
 }
-.passkey-lab-dry-result {
+.passkey-lab-paths {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
   margin-top: 18px;
-  padding: 14px 16px;
+}
+.passkey-lab-path {
+  min-width: 0;
+  padding: 16px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.035);
+}
+.passkey-lab-path-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.passkey-lab-path-heading span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.passkey-lab-path-heading h3 {
+  margin: 3px 0 0;
+}
+.passkey-lab-path-heading > strong {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: capitalize;
+}
+.passkey-lab-path > p {
+  min-height: 2.7em;
+  margin: 12px 0;
+}
+.passkey-lab-path .btn {
+  width: 100%;
 }
 .passkey-lab-dry-result-passed {
   border-color: rgba(85, 230, 202, 0.65);
@@ -73,24 +109,41 @@
 .passkey-lab-dry-result-error {
   border-color: rgba(255, 106, 106, 0.65);
 }
-.passkey-lab-dry-result > p {
-  margin: 6px 0 0;
+.passkey-lab-path-result {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
-.passkey-lab-dry-result dl {
+.passkey-lab-path-result > p {
+  margin: 0;
+  font-size: 0.88rem;
+}
+.passkey-lab-path-result details {
+  margin-top: 10px;
+}
+.passkey-lab-path-result summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.passkey-lab-path-result dl {
   display: grid;
   gap: 12px;
-  margin: 16px 0 0;
+  margin: 12px 0 0;
 }
-.passkey-lab-dry-result dl div {
+.passkey-lab-path-result dl div {
   display: grid;
   gap: 4px;
 }
-.passkey-lab-dry-result dt {
+.passkey-lab-path-result dt {
   color: var(--muted);
   font-size: 0.85rem;
 }
-.passkey-lab-dry-result dd {
+.passkey-lab-path-result dd {
   margin: 0;
+}
+.passkey-lab-funding-warning {
+  margin-top: 16px;
 }
 .passkey-lab-key {
   overflow-wrap: anywhere;
@@ -126,6 +179,12 @@
   }
   .passkey-lab .btn {
     width: 100%;
+  }
+  .passkey-lab-paths {
+    grid-template-columns: 1fr;
+  }
+  .passkey-lab-path > p {
+    min-height: 0;
   }
   .passkey-lab-matrix > div {
     align-items: flex-start;
