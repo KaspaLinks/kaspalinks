@@ -146,7 +146,32 @@ while an anonymous browser sees the normal 404 and no lab content. The signed-in
 screen still needs the first creator walkthrough.
 
 No KAS was sent, no passkey prompt was triggered and no transaction was broadcast during
-deployment.
+deployment. The subsequent private acceptance run completed all three live Escrow V1
+paths: immediate refund
+(`a5f177d31c610e5ad5bd790f6aab3b142d0eb50c83476a9c91d4bc8011cfdf2c`), buyer release
+(`bcd4c9380973ed621d8013fc6da4cc4a5c2744d4df1d6a0f7e3d0290637e777f`) and seller claim
+after the committed deadline
+(`7dfe06268f21fb9c503392bcee5e82ffda40744540b24a0e3dffa134614bed9c`).
+
+## Shareable two-party beta, 20 September 2026
+
+The next beta keeps the verified Escrow V1 transaction and relay boundary while separating the
+two roles. An allowlisted creator commits a seller passkey and Kaspium payout address, receives a
+private `/escrows/:publicId` link and shares it with one buyer. The first buyer atomically commits
+their own passkey and refund address without a Kaspa Links account. Only then is the SilverScript
+funding address generated.
+
+The public mobile flow is Accept, Fund and Resolve. Funding remains exactly 0.22 KAS. Buyer release
+pays 0.21 KAS to the seller; seller refund pays 0.21 KAS to the buyer immediately; seller claim pays
+the seller only after the selected one, six or 24 hour DAA deadline. Each spend is rebuilt and
+intent-checked by the server, signed in the relevant browser and accepted by the relay only as
+canonical signed JSON. Passkey PRF output is never stored or transmitted. Shared pages are marked
+`noindex` and public mutations are rate-limited.
+
+The implementation adds an isolated `EscrowLinkPrototype` model rather than changing successful
+canary records. The additive migration, lint, typecheck, 1,005 Vitest tests in 157 files and the
+production build pass locally. Live deployment and a two-device walkthrough remain before real
+funding.
 
 **7. Wire the interface to real data**
 

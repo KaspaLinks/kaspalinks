@@ -197,6 +197,63 @@
   margin: 12px 0;
   font-size: 0.78rem;
 }
+
+.passkey-link-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.passkey-link-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.passkey-link-form input,
+.passkey-link-form select {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font: inherit;
+  padding: 13px 14px;
+}
+
+.passkey-link-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.passkey-link-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.passkey-link-list article > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.passkey-link-list span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 620px) {
+  .passkey-link-list article {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
 .passkey-canary-action {
   display: grid;
   gap: 7px;

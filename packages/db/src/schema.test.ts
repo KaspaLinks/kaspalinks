@@ -56,6 +56,16 @@ describe("Prisma schema", () => {
     expect(escrow).toContain("activeFundingAddress");
     expect(escrow).not.toMatch(/privateKey|prfOutput|recovery|seedPhrase|walletCredential/i);
   });
+
+  it("stores only public commitments for shared two-party escrows", () => {
+    const escrow = schema.match(/model EscrowLinkPrototype \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(escrow).toContain("publicId");
+    expect(escrow).toContain("buyerPublicKey");
+    expect(escrow).toContain("sellerPublicKey");
+    expect(escrow).toContain("activeFundingAddress");
+    expect(escrow).not.toMatch(/privateKey|prfOutput|recovery|seedPhrase|walletCredential/i);
+  });
 });
 
 describe("initial migration", () => {

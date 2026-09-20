@@ -102,6 +102,7 @@ model Creator {
   prizeCovenantEnabled    Boolean               @default(false)
   covenantPrototypes     CovenantPrototype[]
   escrowPrototypes       EscrowPrototype[]
+  escrowLinkPrototypes   EscrowLinkPrototype[]
   agentAiEnabled          Boolean               @default(false)
   agentAiConsentAt        DateTime?
   agentWaitlistAt         DateTime?
@@ -690,6 +691,39 @@ model EscrowPrototype {
   activeFundingAddress String   @unique
   frozenFundingAddress String   @unique
   status               String   @default("awaiting_funding")
+  releaseTxId          String?
+  refundTxId           String?
+  claimTxId            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([creatorId, signerContextId])
+  @@index([creatorId, createdAt])
+  @@index([status])
+}
+
+// Shareable two-party escrow prototypes. A creator commits the seller key,
+// then the first visitor commits the buyer key and refund address. Only public
+// covenant material is stored; WebAuthn PRF output stays in each browser.
+model EscrowLinkPrototype {
+  id                   String   @id @default(cuid())
+  publicId             String   @unique @default(cuid())
+  creatorId            String
+  creator              Creator  @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  title                String
+  signerContextId      String
+  amountSompi          BigInt
+  feeSompi             BigInt
+  durationDaa          BigInt
+  sellerPublicKey      String
+  sellerAddress        String
+  buyerPublicKey       String?
+  buyerAddress         String?
+  releaseAfter         BigInt?
+  activeFundingAddress String?  @unique
+  frozenFundingAddress String?  @unique
+  status               String   @default("awaiting_buyer")
+  joinedAt             DateTime?
   releaseTxId          String?
   refundTxId           String?
   claimTxId            String?
