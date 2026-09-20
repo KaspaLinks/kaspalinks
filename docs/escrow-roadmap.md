@@ -6,14 +6,14 @@ and [escrow-covenant-v1.md](./escrow-covenant-v1.md) (contract).
 
 ## Where it stands
 
-| Piece                                                          | State                                                                                                                                                          |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Interface prototype (`/escrow`, `/escrow/new`, `/escrow/[id]`) | Live, mock data only, visible to allowlisted creators (`ESCROW_LINKS_PROTOTYPE_CREATORS`). Nothing is stored, no KAS move.                                     |
-| Covenant V1 (`labs/claimable-script/escrow_v1.sil`)            | Compiles to a 962-byte script; 26 engine tests pass against the real script engine. No funded transaction.                                                     |
-| TypeScript script/address/witness builder                      | Implemented locally; six vectors match the Rust compiler ABI and execute in the engine.                                                                        |
-| Transaction building, wallet signing, persistence              | Not started.                                                                                                                                                   |
-| Passkey signer capability lab (`/toccata-lab/passkey-signer`)  | Implemented locally; device verification pending. It derives a public secp256k1 identity locally and never signs or broadcasts.                                |
-| Passkey Escrow-V1 dry run                                      | Implemented locally. Builds a fake-outpoint 1 KAS release, signs it with Kaspa WASM after passkey verification, checks immutable intent, and cannot broadcast. |
+| Piece                                                          | State                                                                                                                                                       |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Interface prototype (`/escrow`, `/escrow/new`, `/escrow/[id]`) | Live, mock data only, visible to allowlisted creators (`ESCROW_LINKS_PROTOTYPE_CREATORS`). Nothing is stored, no KAS move.                                  |
+| Covenant V1 (`labs/claimable-script/escrow_v1.sil`)            | Compiles to a 962-byte script; 26 engine tests pass against the real script engine. No funded transaction.                                                  |
+| TypeScript script/address/witness builder                      | Implemented locally; six vectors match the Rust compiler ABI and execute in the engine.                                                                     |
+| Transaction building, wallet signing, persistence              | Offline builder and passkey signing prototype implemented; persistence and network integration are missing.                                                 |
+| Passkey signer capability lab (`/toccata-lab/passkey-signer`)  | Private deployment. The same buyer identity was reproduced on iPhone and Mac and after browser restart; device-restart and embedded-browser checks remain.  |
+| Passkey Escrow-V1 dry run                                      | All six V1 paths sign fake-outpoint transactions with Kaspa WASM, verify immutable intent, match the canonical builder byte for byte, and cannot broadcast. |
 
 ## Decided
 
@@ -40,10 +40,13 @@ page reload, browser restart, device restart, on a second synced Apple/Google de
 and after links opened from embedded mobile browsers are handed to Safari or Chrome.
 Any mismatch or missing PRF result blocks that environment from funded use.
 
-The same private lab also contains an offline release dry run. It uses the
-passkey-derived buyer key, the compiled Escrow-V1 SilverScript artifact and the
-vendored Kaspa WASM signer to construct a full `SIGHASH_ALL` witness. Its outpoint
-is deliberately synthetic and the function exposes no relay or network call.
+The same private lab also contains isolated offline dry runs for release, freeze,
+active and frozen refund, deadline claim, and joint settlement. Each required signer
+uses a role-separated passkey context; the fixture supplies the unused counterparty.
+The compiled Escrow-V1 SilverScript artifact and vendored Kaspa WASM signer construct
+full `SIGHASH_ALL` witnesses. Joint settlement requires buyer and seller role
+confirmation. Every outpoint is deliberately synthetic and the function exposes no
+relay or network call.
 
 ## Open decisions
 
@@ -90,8 +93,8 @@ Build funding transactions with the vendored Kaspa SDK, sign them in the
 browser through KasWare, and detect the funding through the indexer. No key ever reaches
 the server.
 
-_Check:_ every path produces a signed transaction in the browser on testnet or as a
-dry run; the wallet handles a covenant spend at all, which is still unverified.
+_Check:_ every path now produces a signed browser dry run. Real node acceptance, fee
+measurement, compute budget and a funded covenant spend remain unverified.
 
 **5. Minimal persistence**
 
@@ -131,14 +134,15 @@ privacy), a copy pass, and a decision on who may create escrow links.
 - **KaspaLinks must stay non-custodial.** No arbiter key, no server-side signing, no
   wording that promises custody or buyer protection.
 
-## Offline verification, 19 September 2026
+## Offline verification, 20 September 2026
 
 - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`: passed.
-- Vitest: 984 tests across 150 files; 12 tests cover the new transaction/signing transport.
+- Vitest: 983 tests across 152 files. Seven browser dry-run tests cover every V1 path,
+  both signer roles, exact canonical witness matching, amounts, deadlines and missing signers.
 - Covenant-enabled Rust engine: 27 tests passed, including the complete TypeScript
   P2SH script wrapper. SDK signatures themselves still need cross-engine verification.
-- Changed modules: `packages/kaspa/src/escrow-v1-transaction.ts`,
-  `packages/wallet-adapter/src/escrow-signing.ts`, associated tests and exported lab vectors.
+- Changed browser modules: `apps/web/src/app/toccata-lab/passkey-signer/escrow-dry-run.ts`,
+  the compact path-card interface, styles and focused tests.
 - No application deployment, wallet interaction, funding or transaction broadcast.
 
 ## Private deployment, 19 September 2026

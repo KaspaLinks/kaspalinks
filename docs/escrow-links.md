@@ -1,7 +1,8 @@
 # Escrow Links — Phase 1 UI Prototype
 
-Status: frontend prototype with mock data. Nothing sends KAS, creates a
-transaction, or writes to the database. The V1 covenant and offline TypeScript builder exist; wallet and network integration are still missing.
+Status: frontend prototype with mock data. The private passkey lab creates and
+signs synthetic Escrow V1 transactions in the browser, but nothing sends KAS,
+broadcasts, or writes to the database. Wallet and network integration are still missing.
 
 ## Idea
 
@@ -40,7 +41,8 @@ it is not an automatic release.
 - `/escrow/new`: create form (existing creator sign-in), local photo previews, live preview
 - `/escrow/[id]`: deal page with timeline, amounts, rules and role-specific next step
 - `/toccata-lab/passkey-signer`: private PRF/passkey capability probe for the
-  allowlisted creator; it derives and displays only a local public signer identity
+  allowlisted creator; it derives a local public signer identity and dry-runs release,
+  freeze, both refund states, claim, and joint settlement without network access
 
 The deal page has prototype controls to switch between buyer and seller, jump
 between example deals, and skip past the release deadline.

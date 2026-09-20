@@ -7,11 +7,35 @@ import { loadPrototypeSdk } from "../prize-covenant/browser";
 const AMOUNT = 100_000_000n;
 const FEE = 20_000n;
 const RELEASE_AFTER = 200_000_000n;
+const SETTLEMENT_BUYER_SHARE = 40_000_000n;
 const COMPUTE_BUDGET = 2_000;
 const FAKE_OUTPOINT = "ab".repeat(32);
-const RELEASE_TAG = "8c7728a9";
 const EMPTY_SIGNATURE = "00".repeat(64) + "01";
+const BUYER_LAB_KEY = "21".repeat(32);
 const SELLER_LAB_KEY = "22".repeat(32);
+
+const TAGS = {
+  claim: "8fd20cef",
+  freeze: "11456534",
+  refund: "3198e8f6",
+  release: "8c7728a9",
+  settle: "a4fb823d",
+} as const;
+
+export type EscrowPasskeyDryRunPath =
+  | "release"
+  | "freeze"
+  | "refund-active"
+  | "refund-frozen"
+  | "claim"
+  | "settle";
+
+export type EscrowPasskeyDryRunRole = "buyer" | "seller";
+
+export type EscrowPasskeyDryRunSigner = {
+  context: EscrowSignerContext;
+  prfOutput: Uint8Array;
+};
 
 export type EscrowPasskeyDryRun = {
   amountSompi: string;
@@ -19,15 +43,70 @@ export type EscrowPasskeyDryRun = {
   feeSompi: string;
   fundingAddress: string;
   intentVerified: true;
-  publicKey: string;
+  mode: keyof typeof TAGS;
+  outcome: string;
+  path: EscrowPasskeyDryRunPath;
+  phase: "active" | "frozen";
+  publicKeys: Record<EscrowPasskeyDryRunRole, string>;
   signatureScriptBytes: number;
   signedInBrowser: true;
+  signerPublicKeys: Partial<Record<EscrowPasskeyDryRunRole, string>>;
+  signerRoles: EscrowPasskeyDryRunRole[];
   transactionId: string;
   transactionSafeJson: string;
 };
 
 type ScriptPublicKeyJson = { script: string; version: number };
 type DryRunSdk = typeof Kaspa;
+type DryRunPrivateKey = InstanceType<DryRunSdk["PrivateKey"]>;
+type DryRunMode = keyof typeof TAGS;
+type DryRunPhase = "active" | "frozen";
+
+type PathConfiguration = {
+  mode: DryRunMode;
+  outcome: string;
+  phase: DryRunPhase;
+  signerRoles: EscrowPasskeyDryRunRole[];
+};
+
+const PATHS: Record<EscrowPasskeyDryRunPath, PathConfiguration> = {
+  release: {
+    mode: "release",
+    outcome: "1 KAS to seller",
+    phase: "active",
+    signerRoles: ["buyer"],
+  },
+  freeze: {
+    mode: "freeze",
+    outcome: "1 KAS to frozen covenant",
+    phase: "active",
+    signerRoles: ["buyer"],
+  },
+  "refund-active": {
+    mode: "refund",
+    outcome: "1 KAS to buyer",
+    phase: "active",
+    signerRoles: ["seller"],
+  },
+  "refund-frozen": {
+    mode: "refund",
+    outcome: "0.9998 KAS to buyer",
+    phase: "frozen",
+    signerRoles: ["seller"],
+  },
+  claim: {
+    mode: "claim",
+    outcome: "1 KAS to seller after deadline",
+    phase: "active",
+    signerRoles: ["seller"],
+  },
+  settle: {
+    mode: "settle",
+    outcome: "0.4 KAS to buyer and 0.5998 KAS to seller",
+    phase: "frozen",
+    signerRoles: ["buyer", "seller"],
+  },
+};
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -78,23 +157,32 @@ async function buildFields(input: {
   ];
 }
 
-async function redeemScript(fields: string[]): Promise<string> {
+async function redeemScript(fields: string[], phase: DryRunPhase): Promise<string> {
   const paramsHash = await sha256Hex(fields.join(""));
-  const stateHash = await sha256Hex("00" + paramsHash);
+  const stateHash = await sha256Hex((phase === "active" ? "00" : "01") + paramsHash);
   if (!ESCROW_V1_TEMPLATE_HEX.startsWith("6b20")) throw new Error("Escrow artifact changed.");
   return ESCROW_V1_TEMPLATE_HEX.slice(0, 4) + stateHash + ESCROW_V1_TEMPLATE_HEX.slice(68);
 }
 
-function buildReleaseWitness(
+function buildWitness(
   sdk: DryRunSdk,
-  signature: string,
+  signatures: string[],
   fields: string[],
+  configuration: PathConfiguration,
+  buyerScriptPublicKey: string,
   sellerScriptPublicKey: string,
 ): string {
-  const builder = new sdk.ScriptBuilder();
-  for (const value of [signature, ...fields, sellerScriptPublicKey, RELEASE_TAG]) {
-    builder.addData(value);
+  const values = [...signatures, ...fields];
+  if (configuration.mode === "release" || configuration.mode === "claim") {
+    values.push(sellerScriptPublicKey);
   }
+  if (configuration.mode === "refund") {
+    values.push(configuration.phase === "active" ? "00" : "01", buyerScriptPublicKey);
+  }
+  values.push(TAGS[configuration.mode]);
+
+  const builder = new sdk.ScriptBuilder();
+  for (const value of values) builder.addData(value);
   return builder.toString();
 }
 
@@ -120,27 +208,92 @@ function canonicalIntent(safeJson: string): string {
   return JSON.stringify(value);
 }
 
+async function withRoleKey<T>(
+  sdk: DryRunSdk,
+  role: EscrowPasskeyDryRunRole,
+  signer: EscrowPasskeyDryRunSigner | undefined,
+  use: (key: DryRunPrivateKey) => Promise<T>,
+): Promise<T> {
+  if (signer) {
+    if (signer.context.role !== role || signer.context.network !== "mainnet") {
+      throw new Error(`Invalid ${role} signer context.`);
+    }
+    return withEscrowSignerSecret(signer.prfOutput, signer.context, async (secretKey) => {
+      const key = new sdk.PrivateKey(bytesToHex(secretKey));
+      try {
+        return await use(key);
+      } finally {
+        key.free();
+      }
+    });
+  }
+
+  const key = new sdk.PrivateKey(role === "buyer" ? BUYER_LAB_KEY : SELLER_LAB_KEY);
+  try {
+    return await use(key);
+  } finally {
+    key.free();
+  }
+}
+
+function buildOutputs(
+  sdk: DryRunSdk,
+  configuration: PathConfiguration,
+  buyerScriptJson: ScriptPublicKeyJson,
+  sellerScriptJson: ScriptPublicKeyJson,
+  frozenScript: string,
+): Array<{ value: string; scriptPublicKey: ScriptPublicKeyJson }> {
+  switch (configuration.mode) {
+    case "release":
+    case "claim":
+      return [{ value: AMOUNT.toString(), scriptPublicKey: sellerScriptJson }];
+    case "refund":
+      return [
+        {
+          value: (configuration.phase === "active" ? AMOUNT : AMOUNT - FEE).toString(),
+          scriptPublicKey: buyerScriptJson,
+        },
+      ];
+    case "freeze":
+      return [
+        {
+          value: AMOUNT.toString(),
+          scriptPublicKey: sdk.payToScriptHashScript(frozenScript).toJSON() as ScriptPublicKeyJson,
+        },
+      ];
+    case "settle":
+      return [
+        { value: SETTLEMENT_BUYER_SHARE.toString(), scriptPublicKey: buyerScriptJson },
+        {
+          value: (AMOUNT - FEE - SETTLEMENT_BUYER_SHARE).toString(),
+          scriptPublicKey: sellerScriptJson,
+        },
+      ];
+  }
+}
+
 export async function runEscrowPasskeyDryRun(
-  prfOutput: Uint8Array,
-  context: EscrowSignerContext,
+  path: EscrowPasskeyDryRunPath,
+  signers: Partial<Record<EscrowPasskeyDryRunRole, EscrowPasskeyDryRunSigner>>,
   suppliedSdk?: DryRunSdk,
 ): Promise<EscrowPasskeyDryRun> {
   const sdk = suppliedSdk ?? (await loadPrototypeSdk());
+  const configuration = PATHS[path];
+  for (const role of configuration.signerRoles) {
+    if (!signers[role]) throw new Error(`The ${role} passkey is required for this dry run.`);
+  }
 
-  return withEscrowSignerSecret(prfOutput, context, async (secretKey) => {
-    const buyerKey = new sdk.PrivateKey(bytesToHex(secretKey));
-    const sellerKey = new sdk.PrivateKey(SELLER_LAB_KEY);
-    try {
+  return withRoleKey(sdk, "buyer", signers.buyer, async (buyerKey) =>
+    withRoleKey(sdk, "seller", signers.seller, async (sellerKey) => {
       const buyerPublicKey = buyerKey.toPublicKey().toXOnlyPublicKey().toString();
       const sellerPublicKey = sellerKey.toPublicKey().toXOnlyPublicKey().toString();
-      const buyerScriptPublicKey = scriptPublicKeyHex(
-        sdk
-          .payToAddressScript(buyerKey.toAddress("mainnet").toString())
-          .toJSON() as ScriptPublicKeyJson,
-      );
+      const buyerScriptJson = sdk
+        .payToAddressScript(buyerKey.toAddress("mainnet").toString())
+        .toJSON() as ScriptPublicKeyJson;
       const sellerScriptJson = sdk
         .payToAddressScript(sellerKey.toAddress("mainnet").toString())
         .toJSON() as ScriptPublicKeyJson;
+      const buyerScriptPublicKey = scriptPublicKeyHex(buyerScriptJson);
       const sellerScriptPublicKey = scriptPublicKeyHex(sellerScriptJson);
       const fields = await buildFields({
         buyerPublicKey,
@@ -148,13 +301,22 @@ export async function runEscrowPasskeyDryRun(
         sellerPublicKey,
         sellerScriptPublicKey,
       });
-      const script = await redeemScript(fields);
+      const script = await redeemScript(fields, configuration.phase);
+      const frozenScript = await redeemScript(fields, "frozen");
       const fundingScript = sdk.payToScriptHashScript(script);
       const fundingAddress = sdk.addressFromScriptPublicKey(fundingScript, "mainnet");
       if (!fundingAddress) throw new Error("Could not derive the dry-run funding address.");
 
+      const emptySignatures = configuration.signerRoles.map(() => EMPTY_SIGNATURE);
       const emptyWitness = appendRedeemScript(
-        buildReleaseWitness(sdk, EMPTY_SIGNATURE, fields, sellerScriptPublicKey),
+        buildWitness(
+          sdk,
+          emptySignatures,
+          fields,
+          configuration,
+          buyerScriptPublicKey,
+          sellerScriptPublicKey,
+        ),
         script,
       );
       const transaction = sdk.Transaction.deserializeFromSafeJSON(
@@ -164,7 +326,7 @@ export async function runEscrowPasskeyDryRun(
           gas: "0",
           payload: "",
           subnetworkId: "00".repeat(20),
-          lockTime: "0",
+          lockTime: configuration.mode === "claim" ? RELEASE_AFTER.toString() : "0",
           inputs: [
             {
               transactionId: FAKE_OUTPOINT,
@@ -174,30 +336,46 @@ export async function runEscrowPasskeyDryRun(
               sequence: "0",
               signatureScript: emptyWitness,
               utxo: {
-                amount: (AMOUNT + FEE).toString(),
+                amount: (configuration.phase === "active" ? AMOUNT + FEE : AMOUNT).toString(),
                 blockDaaScore: "1000",
                 isCoinbase: false,
                 scriptPublicKey: fundingScript.toJSON(),
               },
             },
           ],
-          outputs: [{ value: AMOUNT.toString(), scriptPublicKey: sellerScriptJson }],
+          outputs: buildOutputs(
+            sdk,
+            configuration,
+            buyerScriptJson,
+            sellerScriptJson,
+            frozenScript,
+          ),
         }),
       );
       transaction.finalize();
       const unsignedJson = transaction.serializeToSafeJSON();
-      const signatureWithPush = sdk.createInputSignature(
-        transaction,
-        0,
-        buyerKey,
-        sdk.SighashType.All,
-      );
-      if (!/^41[0-9a-f]{128}01$/u.test(signatureWithPush)) {
-        throw new Error("Kaspa WASM returned an invalid SIGHASH_ALL signature.");
-      }
-      const signature = signatureWithPush.slice(2);
+      const signatures = configuration.signerRoles.map((role) => {
+        const key = role === "buyer" ? buyerKey : sellerKey;
+        const signatureWithPush = sdk.createInputSignature(
+          transaction,
+          0,
+          key,
+          sdk.SighashType.All,
+        );
+        if (!/^41[0-9a-f]{128}01$/u.test(signatureWithPush)) {
+          throw new Error("Kaspa WASM returned an invalid SIGHASH_ALL signature.");
+        }
+        return signatureWithPush.slice(2);
+      });
       transaction.inputs[0]!.signatureScript = appendRedeemScript(
-        buildReleaseWitness(sdk, signature, fields, sellerScriptPublicKey),
+        buildWitness(
+          sdk,
+          signatures,
+          fields,
+          configuration,
+          buyerScriptPublicKey,
+          sellerScriptPublicKey,
+        ),
         script,
       );
       transaction.finalize();
@@ -206,21 +384,27 @@ export async function runEscrowPasskeyDryRun(
         throw new Error("Signing changed the reviewed escrow intent.");
       }
 
+      const publicKeys = { buyer: buyerPublicKey, seller: sellerPublicKey };
       return {
         amountSompi: AMOUNT.toString(),
         broadcast: false,
         feeSompi: FEE.toString(),
         fundingAddress: fundingAddress.toString(),
         intentVerified: true,
-        publicKey: buyerPublicKey,
+        mode: configuration.mode,
+        outcome: configuration.outcome,
+        path,
+        phase: configuration.phase,
+        publicKeys,
         signatureScriptBytes: transaction.inputs[0]!.signatureScript!.length / 2,
         signedInBrowser: true,
+        signerPublicKeys: Object.fromEntries(
+          configuration.signerRoles.map((role) => [role, publicKeys[role]]),
+        ),
+        signerRoles: configuration.signerRoles,
         transactionId: transaction.id,
         transactionSafeJson: signedJson,
       };
-    } finally {
-      buyerKey.free();
-      sellerKey.free();
-    }
-  });
+    }),
+  );
 }
