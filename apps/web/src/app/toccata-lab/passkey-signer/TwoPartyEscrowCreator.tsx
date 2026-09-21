@@ -131,7 +131,7 @@ export function TwoPartyEscrowCreator({
             />
           </label>
           <label>
-            Your Kaspium payout address
+            Your Kaspa Mainnet payout address
             <input
               autoComplete="off"
               disabled={busy}
