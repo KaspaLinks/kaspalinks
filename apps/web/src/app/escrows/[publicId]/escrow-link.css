@@ -4,15 +4,32 @@
   padding: 20px 0 56px;
   color: #eef8f7;
 }
+.escrow-link-shell :is(a, button, input, summary):focus-visible {
+  outline: 2px solid #52e0c4;
+  outline-offset: 3px;
+}
 .escrow-link-hero {
-  text-align: center;
-  padding: 10px 10px 24px;
+  padding: 6px 4px 25px;
+}
+.escrow-link-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 34px;
+}
+.escrow-link-brand {
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.escrow-link-brand b {
+  color: #52e0c4;
 }
 .escrow-link-private {
-  display: block;
+  display: inline-block;
   color: #91aaa8;
-  font-size: 0.78rem;
-  margin-bottom: 28px;
+  font-size: 0.73rem;
 }
 .escrow-link-kicker,
 .escrow-link-step {
@@ -33,8 +50,18 @@
 }
 .escrow-link-amount {
   display: grid;
-  justify-items: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   margin-top: 24px;
+}
+.escrow-link-amount > div {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #294440;
+  border-radius: 16px;
+  background: #142729;
 }
 .escrow-link-amount span,
 .escrow-link-amount small {
@@ -42,8 +69,11 @@
 }
 .escrow-link-amount strong {
   color: #fff;
-  font-size: 2.25rem;
+  font-size: clamp(1.35rem, 5vw, 1.9rem);
   line-height: 1.1;
+}
+.escrow-link-amount strong small {
+  font-size: 0.55em;
 }
 .escrow-link-progress {
   display: grid;
@@ -87,6 +117,30 @@
   padding: 24px;
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.22);
 }
+.escrow-link-summary {
+  display: grid;
+  gap: 0;
+  margin: 20px 0;
+  border: 1px solid #294440;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.escrow-link-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 15px;
+  font-size: 0.86rem;
+}
+.escrow-link-summary > div + div {
+  border-top: 1px solid #294440;
+}
+.escrow-link-summary span {
+  color: #91aaa8;
+}
+.escrow-link-summary strong {
+  text-align: right;
+}
 .escrow-link-card h2 {
   margin: 7px 0 10px;
   font-size: 1.45rem;
@@ -96,11 +150,14 @@
   line-height: 1.55;
 }
 .escrow-link-card label {
-  display: grid;
-  gap: 8px;
+  display: block;
   color: #dce8e7;
   font-weight: 700;
   margin: 20px 0 14px;
+}
+.escrow-link-field-help {
+  margin: -8px 0 12px !important;
+  font-size: 0.84rem;
 }
 .escrow-link-card input {
   width: 100%;
@@ -134,9 +191,33 @@
 }
 .escrow-link-funding {
   display: grid;
-  justify-items: center;
+  justify-items: stretch;
   gap: 16px;
   margin: 20px 0 10px;
+}
+.escrow-link-qr {
+  width: min(100%, 230px);
+  margin: 0 auto;
+  padding: 10px;
+  border-radius: 16px;
+  background: white;
+}
+.escrow-link-qr svg {
+  display: block;
+  width: 100%;
+}
+.escrow-link-funding-detail {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-width: 0;
+}
+.escrow-link-funding-detail strong {
+  font-size: 1.5rem;
+}
+.escrow-link-button-row {
+  display: grid;
+  gap: 9px;
 }
 .escrow-link-funding svg,
 .escrow-link-funding canvas {
@@ -166,6 +247,36 @@
   padding: 16px;
   text-align: left;
   cursor: pointer;
+}
+.escrow-link-actions button strong {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.escrow-link-actions button small {
+  color: #91aaa8;
+  font-size: 0.84rem;
+}
+.escrow-link-role-picker {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: 20px 0 8px;
+}
+.escrow-link-role-picker button {
+  min-height: 54px;
+  padding: 10px;
+  border: 1px solid #385451;
+  border-radius: 13px;
+  background: #102123;
+  color: #eef8f7;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+.escrow-link-role-picker button.selected {
+  border-color: #52e0c4;
+  background: #163d38;
 }
 .escrow-link-actions button:disabled {
   cursor: not-allowed;
@@ -222,6 +333,37 @@
   padding: 13px;
   text-align: center;
 }
+.escrow-link-details {
+  margin-top: 18px;
+  border: 1px solid #294440;
+  border-radius: 14px;
+  padding: 16px 18px;
+  color: #acc1bf;
+}
+.escrow-link-details summary {
+  color: #dce8e7;
+  font-weight: 700;
+  cursor: pointer;
+}
+.escrow-link-details dl {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+.escrow-link-details dt {
+  font-size: 0.78rem;
+  color: #91aaa8;
+}
+.escrow-link-details dd {
+  margin: 3px 0 0;
+  color: #eef8f7;
+  overflow-wrap: anywhere;
+  font-size: 0.84rem;
+}
+.escrow-link-details p {
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
 .escrow-link-loading {
   margin-top: 15vh;
   text-align: center;
@@ -240,8 +382,11 @@
     padding: 30px;
   }
   .escrow-link-funding {
-    grid-template-columns: 210px 1fr;
+    grid-template-columns: 230px 1fr;
     align-items: center;
+  }
+  .escrow-link-button-row {
+    grid-template-columns: repeat(2, 1fr);
   }
   .escrow-link-funding code {
     text-align: left;

@@ -203,6 +203,125 @@
   gap: 14px;
   margin-top: 20px;
 }
+.passkey-escrow-studio {
+  max-width: 720px;
+  margin-inline: auto;
+}
+.passkey-escrow-intro h2 {
+  margin: 6px 0;
+}
+.passkey-escrow-intro p {
+  margin: 0;
+  color: var(--muted);
+}
+.passkey-escrow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0;
+  margin: 24px 0;
+  list-style: none;
+}
+.passkey-escrow-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 11px;
+  border-top: 2px solid var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.passkey-escrow-steps li.active,
+.passkey-escrow-steps li.done {
+  border-color: var(--accent-bright, #55e6ca);
+  color: var(--text);
+}
+.passkey-escrow-steps li span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.passkey-link-form small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.passkey-escrow-review,
+.passkey-escrow-share {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.passkey-escrow-review h3,
+.passkey-escrow-share h3 {
+  margin: 0 0 16px;
+}
+.passkey-escrow-review dl {
+  margin: 0 0 16px;
+}
+.passkey-escrow-review dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.passkey-escrow-review dt {
+  color: var(--muted);
+}
+.passkey-escrow-review dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.passkey-escrow-review p,
+.passkey-escrow-share p {
+  color: var(--muted);
+}
+.passkey-escrow-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.passkey-escrow-buttons .btn {
+  flex: 1 1 180px;
+}
+.passkey-escrow-success {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 15px;
+  border-radius: 50%;
+  background: rgba(85, 230, 202, 0.16);
+  color: var(--accent-bright, #55e6ca);
+  font-size: 1.4rem;
+}
+.passkey-escrow-share code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
+.passkey-escrow-again {
+  margin-top: 20px;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  color: var(--accent-bright, #55e6ca);
+  font: inherit;
+  cursor: pointer;
+}
+.passkey-escrow-studio :is(button, a, input, select, summary):focus-visible {
+  outline: 2px solid var(--accent-bright, #55e6ca);
+  outline-offset: 3px;
+}
 
 .passkey-link-form label {
   display: grid;
@@ -228,6 +347,10 @@
   gap: 10px;
   margin-top: 24px;
 }
+.passkey-link-list summary {
+  cursor: pointer;
+  font-weight: 700;
+}
 
 .passkey-link-list article {
   display: flex;
@@ -241,6 +364,20 @@
 .passkey-link-list article > div:first-child {
   display: grid;
   gap: 4px;
+}
+
+@media (max-width: 620px) {
+  .passkey-link-list article {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .passkey-escrow-review dl > div {
+    display: grid;
+    gap: 3px;
+  }
+  .passkey-escrow-review dd {
+    text-align: left;
+  }
 }
 
 .passkey-link-list span {
