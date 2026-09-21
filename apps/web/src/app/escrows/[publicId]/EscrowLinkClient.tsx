@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatSompiToKaspa } from "@kaspa-actions/kaspa/amount";
 
 import {
   createEscrowPasskey,
@@ -18,6 +19,7 @@ import {
   type EscrowCanaryMode,
   type PreparedEscrowCanary,
 } from "../../toccata-lab/passkey-signer/escrow-canary-browser";
+import { escrowLinkStage } from "./escrow-link-stage";
 
 type PublicEscrow = {
   activeFundingAddress: null | string;
@@ -82,6 +84,8 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [prepared, setPrepared] = useState<PreparedEscrowCanary | null>(null);
+  const [selectedRole, setSelectedRole] = useState<"buyer" | "seller" | null>(null);
+  const [copyMessage, setCopyMessage] = useState("");
 
   const buyerCredentialKey = `kaspalinks:escrow:${publicId}:buyer-credential`;
   const sellerCredentialKey = `kaspalinks:escrow:${publicId}:seller-credential`;
@@ -91,7 +95,7 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
       const response = await fetch(`/api/escrows/${publicId}`, { cache: "no-store" });
       const body = await parseResponse<{ escrow: PublicEscrow }>(response);
       setEscrow(body.escrow);
-      setMessage("");
+      if (escrowLinkStage(body.escrow) !== "resolve") setPrepared(null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load this escrow.");
     }
@@ -106,10 +110,19 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
   const paymentUri = useMemo(() => {
     if (!escrow?.activeFundingAddress) return "";
     return buildWalletLaunchUri({
-      amountKas: "0.22",
+      amountKas: formatSompiToKaspa(escrow.fundingAmountSompi),
       recipientAddress: escrow.activeFundingAddress,
     });
-  }, [escrow?.activeFundingAddress]);
+  }, [escrow?.activeFundingAddress, escrow?.fundingAmountSompi]);
+
+  async function copy(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyMessage(`${label} copied.`);
+    } catch {
+      setCopyMessage("Copy failed. Select and copy the text manually.");
+    }
+  }
 
   async function join(create: boolean) {
     if (!escrow || !buyerAddress.trim() || !escrowPasskeySupported()) {
@@ -220,58 +233,124 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
     );
   }
 
-  const waitingForBuyer = !escrow.buyerPublicKey;
-  const funded = escrow.funding.state === "funded";
+  const stage = escrowLinkStage(escrow);
+  const payoutKas = formatSompiToKaspa(escrow.amountSompi);
+  const fundingKas = formatSompiToKaspa(escrow.fundingAmountSompi);
+  const feeKas = formatSompiToKaspa(escrow.feeSompi);
   const remainingMinutes =
     escrow.releaseAfter && escrow.chainDaa
-      ? Math.max(1, Math.ceil((Number(escrow.releaseAfter) - Number(escrow.chainDaa)) / 600))
+      ? Math.max(0, Math.ceil((Number(escrow.releaseAfter) - Number(escrow.chainDaa)) / 600))
       : null;
+  const durationHours = Number(escrow.durationDaa) / 36_000;
+  const currentStep = stage === "accept" ? 1 : stage === "fund" ? 2 : 3;
+  const actions =
+    selectedRole === "buyer"
+      ? [
+          {
+            mode: "release" as const,
+            title: "Release payment",
+            hint: `${payoutKas} KAS to the seller`,
+          },
+        ]
+      : selectedRole === "seller"
+        ? [
+            {
+              mode: "refund" as const,
+              title: "Refund buyer",
+              hint: `${payoutKas} KAS back to the buyer`,
+            },
+            {
+              mode: "claim" as const,
+              title: "Claim after deadline",
+              hint: escrow.claimAvailable
+                ? "Deadline reached · available now"
+                : `Available in about ${remainingMinutes ?? "…"} min`,
+            },
+          ]
+        : [];
 
   return (
     <main className="escrow-link-shell">
       <section className="escrow-link-hero">
-        <span className="escrow-link-private">Private escrow</span>
-        <span className="escrow-link-kicker">SilverScript · Mainnet</span>
+        <div className="escrow-link-hero-top">
+          <span className="escrow-link-brand">
+            Kaspa <b>Links</b>
+          </span>
+          <span className="escrow-link-private">Private beta · Mainnet</span>
+        </div>
+        <span className="escrow-link-kicker">A deal protected by SilverScript</span>
         <h1>{escrow.title}</h1>
-        <p>Created by @{escrow.creatorUsername}</p>
+        <p>Created by @{escrow.creatorUsername} · Buyer and seller keep control</p>
         <div className="escrow-link-amount">
-          <span>Escrow value</span>
-          <strong>0.21 KAS</strong>
-          <small>0.01 KAS network fee</small>
+          <div>
+            <span>Payment</span>
+            <strong>
+              {payoutKas} <small>KAS</small>
+            </strong>
+          </div>
+          <div>
+            <span>Buyer sends</span>
+            <strong>
+              {fundingKas} <small>KAS</small>
+            </strong>
+          </div>
         </div>
       </section>
 
       <ol className="escrow-link-progress" aria-label="Escrow progress">
-        <li className={!waitingForBuyer ? "done" : "active"}>
-          <span>1</span>Accept
-        </li>
-        <li className={funded || escrow.submitted ? "done" : !waitingForBuyer ? "active" : ""}>
-          <span>2</span>Fund
-        </li>
-        <li className={escrow.submitted ? "done" : funded ? "active" : ""}>
-          <span>3</span>Resolve
-        </li>
+        {["Accept", "Fund", "Finish"].map((label, index) => (
+          <li
+            aria-current={currentStep === index + 1 && stage !== "submitted" ? "step" : undefined}
+            className={
+              stage === "submitted" || currentStep > index + 1
+                ? "done"
+                : currentStep === index + 1
+                  ? "active"
+                  : ""
+            }
+            key={label}
+          >
+            <span>{stage === "submitted" || currentStep > index + 1 ? "✓" : index + 1}</span>
+            {label}
+          </li>
+        ))}
       </ol>
 
-      {waitingForBuyer ? (
-        <section className="escrow-link-card">
-          <span className="escrow-link-step">Step 1</span>
-          <h2>Accept as buyer</h2>
+      {stage === "accept" ? (
+        <section className="escrow-link-card" aria-labelledby="escrow-accept-title">
+          <span className="escrow-link-step">01 / Accept the deal</span>
+          <h2 id="escrow-accept-title">Before you pay</h2>
           <p>
-            Your address receives an immediate refund if the seller cancels. The first buyer to
-            accept locks this link.
+            Check the deal with the seller. The first buyer who accepts locks the refund address and
+            buyer passkey for this link.
           </p>
-          <label>
-            Your Kaspa Mainnet refund address
-            <input
-              autoComplete="off"
-              disabled={busy}
-              onChange={(event) => setBuyerAddress(event.target.value)}
-              placeholder="kaspa:…"
-              spellCheck={false}
-              value={buyerAddress}
-            />
-          </label>
+          <div className="escrow-link-summary">
+            <div>
+              <span>Buyer sends</span>
+              <strong>{fundingKas} KAS</strong>
+            </div>
+            <div>
+              <span>Seller receives / buyer gets back</span>
+              <strong>{payoutKas} KAS</strong>
+            </div>
+            <div>
+              <span>Seller claim becomes available</span>
+              <strong>About {durationHours} hours after acceptance</strong>
+            </div>
+          </div>
+          <label htmlFor="escrow-buyer-address">Your Kaspa Mainnet refund address</label>
+          <p className="escrow-link-field-help">
+            Any wallet you control. This is where a refund would go.
+          </p>
+          <input
+            autoComplete="off"
+            disabled={busy}
+            id="escrow-buyer-address"
+            onChange={(event) => setBuyerAddress(event.target.value)}
+            placeholder="kaspa:…"
+            spellCheck={false}
+            value={buyerAddress}
+          />
           <button
             className="btn btn-primary escrow-link-primary"
             disabled={busy || !buyerAddress.trim()}
@@ -286,94 +365,144 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
             onClick={() => void join(false)}
             type="button"
           >
-            Use an existing passkey
+            Already have a buyer passkey? Use it
           </button>
           <p className="escrow-link-safety">
-            Your passkey secret stays on this device or in your passkey provider.
+            Your passkey signs later in your browser. No payment is made when you accept.
           </p>
         </section>
       ) : null}
 
-      {!waitingForBuyer &&
-      !escrow.submitted &&
-      escrow.funding.state === "awaiting_funding" &&
-      escrow.activeFundingAddress ? (
-        <section className="escrow-link-card">
-          <span className="escrow-link-step">Step 2</span>
-          <h2>Fund the escrow</h2>
+      {stage === "fund" && escrow.activeFundingAddress ? (
+        <section className="escrow-link-card" aria-labelledby="escrow-fund-title">
+          <span className="escrow-link-step">02 / Fund the deal</span>
+          <h2 id="escrow-fund-title">Send exactly {fundingKas} KAS</h2>
           <p>
-            Send exactly <strong>0.22 KAS</strong>. The contract pays 0.21 KAS and reserves 0.01 KAS
-            for the final transaction.
+            Scan with a Kaspa wallet or copy the address. You can pay from a different wallet than
+            your refund address.
           </p>
           <div className="escrow-link-funding">
-            <FundingQrCode
-              ariaLabel="Fund this escrow with exactly 0.22 KAS"
-              paymentUri={paymentUri}
-            />
-            <code>{escrow.activeFundingAddress}</code>
+            <div className="escrow-link-qr">
+              <FundingQrCode
+                ariaLabel={`Fund this escrow with exactly ${fundingKas} KAS`}
+                paymentUri={paymentUri}
+              />
+            </div>
+            <div className="escrow-link-funding-detail">
+              <span className="escrow-link-kicker">One exact payment</span>
+              <strong>{fundingKas} KAS</strong>
+              <code>{escrow.activeFundingAddress}</code>
+            </div>
           </div>
-          <a className="btn btn-primary escrow-link-primary" href={paymentUri}>
-            Open Kaspium
-          </a>
-          <button
-            className="btn escrow-link-primary"
-            onClick={() => void navigator.clipboard.writeText(escrow.activeFundingAddress!)}
-            type="button"
-          >
-            Copy address
-          </button>
+          <div className="escrow-link-button-row">
+            <a className="btn btn-primary escrow-link-primary" href={paymentUri}>
+              Open wallet
+            </a>
+            <button
+              className="btn escrow-link-primary"
+              onClick={() => void copy(escrow.activeFundingAddress!, "Address")}
+              type="button"
+            >
+              Copy address
+            </button>
+          </div>
           <p className="escrow-link-safety">
-            Waiting for one exact 0.22 KAS output · refreshes automatically
+            Waiting for an exact {fundingKas} KAS output · status updates automatically. Check the
+            amount in your wallet before sending.
           </p>
         </section>
       ) : null}
 
-      {!escrow.submitted && escrow.funding.state === "ambiguous" ? (
-        <section className="escrow-link-card escrow-link-warning">
-          <h2>Review required</h2>
-          <p>More than one exact funding output was found. Do not send more KAS.</p>
+      {stage === "funding_expired" ? (
+        <section className="escrow-link-card escrow-link-warning" role="status">
+          <span className="escrow-link-step">02 / Funding closed</span>
+          <h2>Do not send KAS to this address</h2>
+          <p>
+            The seller claim deadline was fixed when the buyer accepted and has passed before an
+            exact payment was detected. Ask the seller for a new link.
+          </p>
         </section>
       ) : null}
 
-      {!escrow.submitted && funded ? (
-        <section className="escrow-link-card">
-          <span className="escrow-link-step">Step 3</span>
-          <h2>Choose the outcome</h2>
-          <div className="escrow-link-actions">
-            <button disabled={busy} onClick={() => void prepare("release")} type="button">
-              <strong>Buyer releases</strong>
-              <span>0.21 KAS to the seller</span>
-            </button>
-            <button disabled={busy} onClick={() => void prepare("refund")} type="button">
-              <strong>Seller refunds</strong>
-              <span>0.21 KAS to the buyer now</span>
-            </button>
+      {stage === "funding_review" ? (
+        <section className="escrow-link-card escrow-link-warning" role="status">
+          <span className="escrow-link-step">02 / Funding needs review</span>
+          <h2>Do not send more KAS</h2>
+          <p>
+            More than one exact funding output was found. This page cannot safely select one for
+            signing.
+          </p>
+        </section>
+      ) : null}
+
+      {stage === "resolve" && !prepared ? (
+        <section className="escrow-link-card" aria-labelledby="escrow-resolve-title">
+          <span className="escrow-link-step">03 / Finish the deal</span>
+          <h2 id="escrow-resolve-title">Payment detected</h2>
+          <p>Select your role to see the actions that your passkey can sign.</p>
+          <div
+            className="escrow-link-role-picker"
+            role="group"
+            aria-label="Your role in this escrow"
+          >
             <button
-              disabled={busy || !escrow.claimAvailable}
-              onClick={() => void prepare("claim")}
+              aria-pressed={selectedRole === "buyer"}
+              className={selectedRole === "buyer" ? "selected" : ""}
+              onClick={() => setSelectedRole("buyer")}
               type="button"
             >
-              <strong>Seller claims</strong>
-              <span>
-                {escrow.claimAvailable
-                  ? "Deadline reached"
-                  : `Available in about ${remainingMinutes} min`}
-              </span>
+              I am the buyer
+            </button>
+            <button
+              aria-pressed={selectedRole === "seller"}
+              className={selectedRole === "seller" ? "selected" : ""}
+              onClick={() => setSelectedRole("seller")}
+              type="button"
+            >
+              I am the seller
             </button>
           </div>
+          {selectedRole ? (
+            <div className="escrow-link-actions">
+              {actions.map((action) => (
+                <button
+                  disabled={busy || (action.mode === "claim" && !escrow.claimAvailable)}
+                  key={action.mode}
+                  onClick={() => void prepare(action.mode)}
+                  type="button"
+                >
+                  <strong>
+                    {action.title} <span aria-hidden="true">↗</span>
+                  </strong>
+                  <small>{action.hint}</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <p className="escrow-link-safety">
+            The buyer can release; the seller can refund or claim after the deadline. Each action
+            requires the matching passkey.
+          </p>
         </section>
       ) : null}
 
       {prepared ? (
-        <section className="escrow-link-card escrow-link-review">
-          <span className="escrow-link-step">Final check</span>
-          <h2>
+        <section
+          className="escrow-link-card escrow-link-review"
+          aria-labelledby="escrow-review-title"
+        >
+          <span className="escrow-link-step">03 / Check before signing</span>
+          <h2 id="escrow-review-title">
             {prepared.review.mode === "release"
               ? "Release to seller"
               : prepared.review.mode === "refund"
                 ? "Refund to buyer"
                 : "Claim after deadline"}
           </h2>
+          <p>
+            Review the recipient and amount. Your passkey confirmation signs and submits a real
+            Mainnet transaction.
+          </p>
           <dl>
             <div>
               <dt>Recipient</dt>
@@ -381,7 +510,7 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
             </div>
             <div>
               <dt>Amount</dt>
-              <dd>0.21 KAS</dd>
+              <dd>{payoutKas} KAS</dd>
             </div>
             <div>
               <dt>Signer</dt>
@@ -394,7 +523,7 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
             onClick={() => void approveAndBroadcast()}
             type="button"
           >
-            {busy ? "Signing…" : "Approve with passkey"}
+            {busy ? "Signing…" : "Sign & submit transaction"}
           </button>
           <button
             className="escrow-link-text-button"
@@ -402,7 +531,7 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
             onClick={() => setPrepared(null)}
             type="button"
           >
-            Cancel
+            Back to actions
           </button>
         </section>
       ) : null}
@@ -410,11 +539,13 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
       {escrow.submitted ? (
         <section className="escrow-link-card escrow-link-receipt">
           <span className="escrow-link-check">✓</span>
-          <h2>Escrow completed</h2>
+          <span className="escrow-link-step">Transaction submitted</span>
+          <h2>Sent to Kaspa Mainnet</h2>
           <p>
             {escrow.submitted.mode === "refund"
-              ? "The refund was submitted to the buyer."
-              : "The payment was submitted to the seller."}
+              ? "The buyer refund was submitted."
+              : "The seller payment was submitted."}{" "}
+            Check its confirmation in the explorer.
           </p>
           <code>{escrow.submitted.transactionId}</code>
           <a
@@ -433,7 +564,49 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
           {message}
         </p>
       ) : null}
-      <footer>Non-custodial · Passkey signed · Verified by Kaspa consensus</footer>
+      {copyMessage ? (
+        <p className="escrow-link-message" role="status">
+          {copyMessage}
+        </p>
+      ) : null}
+      <details className="escrow-link-details">
+        <summary>Deal terms & on-chain details</summary>
+        <dl>
+          <div>
+            <dt>Buyer sends</dt>
+            <dd>{fundingKas} KAS</dd>
+          </div>
+          <div>
+            <dt>Payment or refund</dt>
+            <dd>{payoutKas} KAS</dd>
+          </div>
+          <div>
+            <dt>Reserved for final transaction</dt>
+            <dd>{feeKas} KAS</dd>
+          </div>
+          <div>
+            <dt>Seller payout address</dt>
+            <dd>{escrow.sellerAddress}</dd>
+          </div>
+          {escrow.buyerAddress ? (
+            <div>
+              <dt>Buyer refund address</dt>
+              <dd>{escrow.buyerAddress}</dd>
+            </div>
+          ) : null}
+          {escrow.releaseAfter ? (
+            <div>
+              <dt>Claim deadline (DAA score)</dt>
+              <dd>{escrow.releaseAfter}</dd>
+            </div>
+          ) : null}
+        </dl>
+        <p>
+          The seller can claim after the committed deadline without buyer approval, even if the
+          buyer has not released. Kaspa Links does not arbitrate disputes.
+        </p>
+      </details>
+      <footer>Non-custodial · SilverScript · Kaspa Mainnet</footer>
     </main>
   );
 }
