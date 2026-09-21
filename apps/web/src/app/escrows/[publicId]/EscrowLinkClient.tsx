@@ -262,7 +262,7 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
             accept locks this link.
           </p>
           <label>
-            Your Kaspium receive address
+            Your Kaspa Mainnet refund address
             <input
               autoComplete="off"
               disabled={busy}
