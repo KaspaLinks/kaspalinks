@@ -103,6 +103,7 @@ model Creator {
   covenantPrototypes     CovenantPrototype[]
   escrowPrototypes       EscrowPrototype[]
   escrowLinkPrototypes   EscrowLinkPrototype[]
+  mediatedEscrowPrototypes MediatedEscrowPrototype[]
   agentAiEnabled          Boolean               @default(false)
   agentAiConsentAt        DateTime?
   agentWaitlistAt         DateTime?
@@ -729,6 +730,52 @@ model EscrowLinkPrototype {
   claimTxId            String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+
+  @@unique([creatorId, signerContextId])
+  @@index([creatorId, createdAt])
+  @@index([status])
+}
+
+// Escrow V2 laboratory links. The three committed signer identities are
+// public x-only keys derived in each participant's browser. Kaspa Links never
+// receives passkey PRF output or a private signing key.
+model MediatedEscrowPrototype {
+  id                     String   @id @default(cuid())
+  publicId               String   @unique @default(cuid())
+  creatorId              String
+  creator                Creator  @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  title                  String
+  signerContextId        String
+  contractTemplateHash   String
+  amountSompi            BigInt
+  feeSompi               BigInt
+  claimDelayDaa          BigInt
+  fallbackDelayDaa       BigInt
+  sellerPublicKey        String
+  sellerAddress          String
+  mediatorLabel          String
+  mediatorPublicKey      String?
+  buyerPublicKey         String?
+  buyerAddress           String?
+  activeFundingAddress   String?  @unique
+  frozenFundingAddress   String?  @unique
+  status                 String   @default("awaiting_mediator")
+  mediatorJoinedAt       DateTime?
+  buyerJoinedAt          DateTime?
+  releaseTxId            String?
+  refundTxId             String?
+  claimTxId              String?
+  freezeTxId             String?
+  agreementTxId          String?
+  arbitrationTxId        String?
+  fallbackTxId           String?
+  pendingTransactionJson String?
+  pendingMode            String?
+  pendingBuyerShare      BigInt?
+  pendingMediatorParty   String?
+  pendingCreatedAt       DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   @@unique([creatorId, signerContextId])
   @@index([creatorId, createdAt])

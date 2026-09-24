@@ -6,7 +6,7 @@ const encoder = new TextEncoder();
 export type EscrowSignerContext = {
   escrowId: string;
   network: "mainnet" | "testnet-10";
-  role: "buyer" | "seller";
+  role: "buyer" | "mediator" | "seller";
   signerVersion: 1;
 };
 
@@ -44,7 +44,8 @@ export async function escrowSignerPrfInput(context: EscrowSignerContext): Promis
 
 /**
  * Turns a WebAuthn PRF result into the x-only secp256k1 public key committed by
- * Escrow V1. The secret scalar never leaves this function and is wiped after use.
+ * the selected escrow role. The secret scalar never leaves this function and
+ * is wiped after use.
  */
 export async function withEscrowSignerSecret<T>(
   prfOutput: Uint8Array,

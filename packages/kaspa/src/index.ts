@@ -57,3 +57,6 @@ export {
 export * from "./giveaway-prize-v4";
 export * from "./escrow-v1";
 export * from "./escrow-v1-transaction";
+export * from "./escrow-v2";
+export * from "./escrow-v2-artifact";
+export * from "./escrow-v2-transaction";

@@ -66,6 +66,17 @@ describe("Prisma schema", () => {
     expect(escrow).toContain("activeFundingAddress");
     expect(escrow).not.toMatch(/privateKey|prfOutput|recovery|seedPhrase|walletCredential/i);
   });
+
+  it("stores only public commitments and signed transaction coordination for mediated escrows", () => {
+    const escrow = schema.match(/model MediatedEscrowPrototype \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(escrow).toContain("buyerPublicKey");
+    expect(escrow).toContain("sellerPublicKey");
+    expect(escrow).toContain("mediatorPublicKey");
+    expect(escrow).toContain("contractTemplateHash");
+    expect(escrow).toContain("pendingTransactionJson");
+    expect(escrow).not.toMatch(/privateKey|prfOutput|recovery|seedPhrase|walletCredential/i);
+  });
 });
 
 describe("initial migration", () => {

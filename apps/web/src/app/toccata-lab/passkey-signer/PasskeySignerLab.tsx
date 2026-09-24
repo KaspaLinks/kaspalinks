@@ -24,7 +24,7 @@ import {
   type EscrowCanaryMode,
   type PreparedEscrowCanary,
 } from "./escrow-canary-browser";
-import { TwoPartyEscrowCreator } from "./TwoPartyEscrowCreator";
+import { MediatedEscrowCreator } from "./MediatedEscrowCreator";
 
 const CREDENTIAL_KEY = "kaspalinks:passkey-lab-credential";
 const EXPECTED_FINGERPRINT_KEY = "kaspalinks:passkey-lab-fingerprint";
@@ -822,10 +822,9 @@ export function PasskeySignerLab() {
         </div>
       </section>
 
-      <TwoPartyEscrowCreator
+      <MediatedEscrowCreator
         creatorHeaders={creatorHeaders}
         credentialId={credentialId}
-        passkeyVerified={state === "passed"}
         signedIn={session.signedIn}
       />
 
