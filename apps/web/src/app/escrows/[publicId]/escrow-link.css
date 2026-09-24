@@ -263,6 +263,9 @@
   gap: 10px;
   margin: 20px 0 8px;
 }
+.escrow-link-role-picker-three {
+  grid-template-columns: 1fr;
+}
 .escrow-link-role-picker button {
   min-height: 54px;
   padding: 10px;
@@ -387,6 +390,9 @@
   }
   .escrow-link-button-row {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .escrow-link-role-picker-three {
+    grid-template-columns: repeat(3, 1fr);
   }
   .escrow-link-funding code {
     text-align: left;

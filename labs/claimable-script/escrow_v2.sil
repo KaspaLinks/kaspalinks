@@ -1,0 +1,235 @@
+pragma silverscript ^0.1.0;
+
+// Escrow V2 laboratory contract. This is not used by the live Escrow V1 links.
+// One independent mediator key is committed before funding. The mediator never
+// holds the coins or signs alone. A frozen deal falls back to the seller after
+// the agreed relative DAA delay if no two-party resolution is submitted.
+contract EscrowV2(byte[32] initStateHash) {
+    byte[32] stateHash = initStateHash;
+
+    function params(
+        byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash
+    ) : byte[32] {
+        return sha256(byte[](amount) + byte[](fee)
+            + byte[](claimDelayDaa) + byte[](fallbackDelayDaa)
+            + byte[](buyerPk) + byte[](sellerPk) + byte[](mediatorPk)
+            + byte[](buyerSpkHash) + byte[](sellerSpkHash));
+    }
+
+    function checkActive(
+        byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash
+    ) {
+        byte[32] h = params(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        require(stateHash == sha256(byte[1](0x00) + byte[](h)));
+        require(tx.inputs.length == 1);
+        require(tx.inputs[this.activeInputIndex].value ==
+            OpBin2Num(byte[](amount)) + OpBin2Num(byte[](fee)));
+    }
+
+    function checkFrozen(
+        byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash
+    ) {
+        byte[32] h = params(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        require(stateHash == sha256(byte[1](0x01) + byte[](h)));
+        require(tx.inputs.length == 1);
+        require(tx.inputs[this.activeInputIndex].value == OpBin2Num(byte[](amount)));
+    }
+
+    function payOne(int value, byte[32] committedSpkHash, byte[] spk) {
+        require(value > 0);
+        require(sha256(spk) == committedSpkHash);
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].value == value);
+        require(tx.outputs[0].scriptPubKey == spk);
+    }
+
+    function paySplit(
+        int buyerShare, int net,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash,
+        byte[] buyerSpk, byte[] sellerSpk
+    ) {
+        require(net > 0);
+        require(buyerShare >= 0);
+        require(buyerShare <= net);
+        require(sha256(buyerSpk) == buyerSpkHash);
+        require(sha256(sellerSpk) == sellerSpkHash);
+        int sellerShare = net - buyerShare;
+        if (buyerShare == 0) {
+            require(tx.outputs.length == 1);
+            require(tx.outputs[0].value == sellerShare);
+            require(tx.outputs[0].scriptPubKey == sellerSpk);
+        } else if (sellerShare == 0) {
+            require(tx.outputs.length == 1);
+            require(tx.outputs[0].value == buyerShare);
+            require(tx.outputs[0].scriptPubKey == buyerSpk);
+        } else {
+            require(tx.outputs.length == 2);
+            require(tx.outputs[0].value == buyerShare);
+            require(tx.outputs[0].scriptPubKey == buyerSpk);
+            require(tx.outputs[1].value == sellerShare);
+            require(tx.outputs[1].scriptPubKey == sellerSpk);
+        }
+    }
+
+    entry release(
+        sig buyerSig, byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash, byte[] sellerSpk
+    ) {
+        checkActive(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        payOne(OpBin2Num(byte[](amount)), sellerSpkHash, sellerSpk);
+        require(checkSig(buyerSig, pubkey(buyerPk)));
+    }
+
+    entry refund(
+        sig sellerSig, byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash,
+        byte[1] phase, byte[] buyerSpk
+    ) {
+        require(phase == byte[1](0x00) || phase == byte[1](0x01));
+        if (phase == byte[1](0x00)) {
+            checkActive(amount, fee, claimDelayDaa, fallbackDelayDaa,
+                buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        } else {
+            checkFrozen(amount, fee, claimDelayDaa, fallbackDelayDaa,
+                buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        }
+        int payout = OpBin2Num(byte[](amount));
+        if (phase == byte[1](0x01)) {
+            payout = payout - OpBin2Num(byte[](fee));
+        }
+        payOne(payout, buyerSpkHash, buyerSpk);
+        require(checkSig(sellerSig, pubkey(sellerPk)));
+    }
+
+    // Relative to the confirmed ACTIVE UTXO, so accepting a link starts no clock.
+    entry claim(
+        sig sellerSig, byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash, byte[] sellerSpk
+    ) {
+        checkActive(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        int delay = OpBin2Num(byte[](claimDelayDaa));
+        require(delay > 0);
+        require(this.ageDaa >= delay);
+        payOne(OpBin2Num(byte[](amount)), sellerSpkHash, sellerSpk);
+        require(checkSig(sellerSig, pubkey(sellerPk)));
+    }
+
+    // The buyer can still freeze after the claim threshold if the seller's
+    // claim has not won the UTXO race. The frozen fallback bounds that delay.
+    entry freeze(
+        sig buyerSig, byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash
+    ) {
+        checkActive(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        byte[32] h = params(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        int payout = OpBin2Num(byte[](amount));
+        int feeAmount = OpBin2Num(byte[](fee));
+        require(payout > feeAmount);
+        require(feeAmount > 0);
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].value == payout);
+        validateOutputState(0, State {
+            stateHash: sha256(byte[1](0x01) + byte[](h))
+        });
+        require(checkSig(buyerSig, pubkey(buyerPk)));
+    }
+
+    entry agree(
+        sig buyerSig, sig sellerSig, byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash,
+        int buyerShare, byte[] buyerSpk, byte[] sellerSpk
+    ) {
+        checkFrozen(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        int net = OpBin2Num(byte[](amount)) - OpBin2Num(byte[](fee));
+        paySplit(buyerShare, net, buyerSpkHash, sellerSpkHash, buyerSpk, sellerSpk);
+        require(checkSig(buyerSig, pubkey(buyerPk)));
+        require(checkSig(sellerSig, pubkey(sellerPk)));
+    }
+
+    // party=0: buyer and mediator; party=1: seller and mediator.
+    // Either pair may enforce an agreed award, but the payout is restricted to
+    // the two destinations fixed before funding.
+    entry arbitrate(
+        sig partySig, sig mediatorSig, byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash,
+        byte[1] party, int buyerShare, byte[] buyerSpk, byte[] sellerSpk
+    ) {
+        checkFrozen(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        int net = OpBin2Num(byte[](amount)) - OpBin2Num(byte[](fee));
+        paySplit(buyerShare, net, buyerSpkHash, sellerSpkHash, buyerSpk, sellerSpk);
+        if (party == byte[1](0x00)) {
+            require(checkSig(partySig, pubkey(buyerPk)));
+        } else {
+            require(party == byte[1](0x01));
+            require(checkSig(partySig, pubkey(sellerPk)));
+        }
+        require(checkSig(mediatorSig, pubkey(mediatorPk)));
+    }
+
+    // Explicit default accepted before funding: seller receives the remaining
+    // amount if no signed resolution spends the FROZEN output first.
+    entry fallbackSeller(
+        sig sellerSig, byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash, byte[] sellerSpk
+    ) {
+        checkFrozen(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        int delay = OpBin2Num(byte[](fallbackDelayDaa));
+        require(delay > 0);
+        require(this.ageDaa >= delay);
+        payOne(OpBin2Num(byte[](amount)) - OpBin2Num(byte[](fee)),
+            sellerSpkHash, sellerSpk);
+        require(checkSig(sellerSig, pubkey(sellerPk)));
+    }
+
+    // If the buyer sent the wrong amount, the deal is not funded. Return this
+    // entire invalid UTXO to the buyer. A second independently authorized
+    // input must pay the transaction fee, so even tiny deposits are recoverable.
+    entry recoverInvalidFunding(
+        sig buyerSig, byte[8] amount, byte[8] fee,
+        byte[8] claimDelayDaa, byte[8] fallbackDelayDaa,
+        byte[32] buyerPk, byte[32] sellerPk, byte[32] mediatorPk,
+        byte[32] buyerSpkHash, byte[32] sellerSpkHash, byte[] buyerSpk
+    ) {
+        byte[32] h = params(amount, fee, claimDelayDaa, fallbackDelayDaa,
+            buyerPk, sellerPk, mediatorPk, buyerSpkHash, sellerSpkHash);
+        require(stateHash == sha256(byte[1](0x00) + byte[](h)));
+        require(tx.inputs.length == 2);
+        int current = tx.inputs[this.activeInputIndex].value;
+        require(current > 0);
+        require(current != OpBin2Num(byte[](amount)) + OpBin2Num(byte[](fee)));
+        payOne(current, buyerSpkHash, buyerSpk);
+        require(checkSig(buyerSig, pubkey(buyerPk)));
+    }
+}

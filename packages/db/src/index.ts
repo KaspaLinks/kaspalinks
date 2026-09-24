@@ -11,6 +11,7 @@ export type {
   EscrowPrototype,
   Giveaway,
   GiveawayEntry,
+  MediatedEscrowPrototype,
   PaymentRequest,
   PaymentEvent,
   PrismaClient,
