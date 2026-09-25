@@ -87,3 +87,19 @@ Mainnet recovery can be offered in the UI.
    relay acceptance matrix. Shipping evidence and dispute communication remain
    off-chain; a Kaspa covenant cannot determine whether a physical item arrived
    or matched its description.
+
+## Private Mainnet canary deployment — 25 September 2026
+
+The normal `/escrow/new` path now opens the persistent mediated V2 creator instead of the
+earlier fixture creator. Existing V1 records and `/escrows/:publicId` URLs remain
+unchanged.
+
+Migration `20260924173000_add_mediated_escrow_v2` passed first against an empty PostgreSQL
+16 container and then against production. The new table contained zero rows after
+deployment. Internal and origin health checks returned the exact release SHA, the app
+stayed healthy with zero restarts, an unauthenticated creator API request returned 401 and
+an unknown public mediated escrow returned 404.
+
+No escrow record or passkey was created, no KAS was sent and no transaction was signed or
+broadcast during the deployment. The browser confirmed the new build; the signed-in
+creator screen and real three-device canary remain the next operational checks.
