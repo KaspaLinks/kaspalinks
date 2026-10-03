@@ -79,6 +79,15 @@ export function buildGiveawayWinnerXPostText(input: {
   return lines.join("\n");
 }
 
+/** Payer voice for sharing a payment page; never includes the amount or a supporter name. */
+export function buildPayShareText(input: { title: string }): string {
+  const title = input.title.trim();
+  const displayTitle = title.length > 50 ? `${title.slice(0, 49)}…` : title;
+  return displayTitle
+    ? `Just supported "${displayTitle}" with $KAS. Wallet-to-wallet, no custody.`
+    : "Just supported a creator with $KAS. Wallet-to-wallet, no custody.";
+}
+
 type XIntentInput =
   | string
   | {

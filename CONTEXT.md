@@ -56,3 +56,15 @@ _Avoid_: Giveaway, funded Giveaway, prize wallet
 **Claimable Link**:
 A browser-signed Kaspa reward whose private claim and refund material never reaches the server or Agent.
 _Avoid_: Agent payment
+
+**Activated Creator**:
+A non-internal Creator whose first on-chain value — a confirmed mainnet payment or a claimed mainnet Claimable Link — lands within seven days of signup.
+_Avoid_: Active user, signup
+
+**Growth Prompt**:
+A single invitation to create a KaspaLinks profile, shown to signed-out visitors only after they completed a payment or claim.
+_Avoid_: Banner, popup, ad
+
+**Signup Source**:
+The fixed Growth Prompt label stored on a Creator at signup; never personal data.
+_Avoid_: Referrer, tracking ID

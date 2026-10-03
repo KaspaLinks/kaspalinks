@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { SESSION_EVENT } from "../BrandNav";
 import { sanitizeInternalNextPath } from "@/lib/internal-next-path";
+import { buildCreateProfileHref, parseSignupSource } from "@/lib/signup-source";
 import { readJsonResponse } from "@/lib/response-json";
 
 const TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
@@ -42,7 +43,15 @@ export function SignInClient({
   const router = useRouter();
   const [signupHref, setSignupHref] = useState("/create-profile");
   useEffect(() => {
-    setSignupHref(`/create-profile?next=${encodeURIComponent(readRequestedDestination())}`);
+    // Carry a Growth Prompt label through the sign-in detour so attribution survives it.
+    setSignupHref(
+      buildCreateProfileHref({
+        next: readRequestedDestination(),
+        signupSource: parseSignupSource(
+          new URLSearchParams(window.location.search).get("utm_source"),
+        ),
+      }),
+    );
   }, []);
   const [username, setUsername] = useState("");
   const [token, setToken] = useState("");

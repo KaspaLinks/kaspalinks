@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { buildSignInHref, type SignupSource } from "@/lib/signup-source";
+
 import { SESSION_EVENT } from "../BrandNav";
 
 const TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
@@ -57,9 +59,11 @@ async function writeClipboardText(value: string): Promise<boolean> {
 export function CreateProfileClient({
   nextPath = "/dashboard",
   onContinue,
+  signupSource = null,
 }: {
   nextPath?: string;
   onContinue?: (identity: { username: string; token: string }) => void;
+  signupSource?: null | SignupSource;
 }) {
   const Wrapper = onContinue ? "div" : "main";
   const Heading = onContinue ? "h2" : "h1";
@@ -94,6 +98,7 @@ export function CreateProfileClient({
         const response = await fetch("/api/creators", {
           body: JSON.stringify({
             displayName: displayName || undefined,
+            signupSource: signupSource ?? undefined,
             username,
           }),
           headers: { "content-type": "application/json" },
@@ -115,7 +120,7 @@ export function CreateProfileClient({
         setSubmitting(false);
       }
     },
-    [displayName, username],
+    [displayName, signupSource, username],
   );
 
   const copyToken = useCallback(async () => {
@@ -194,7 +199,9 @@ export function CreateProfileClient({
                 >
                   {nextPath.startsWith("/toccata-lab/giveaway")
                     ? "Continue to my giveaway"
-                    : "Create your first link"}
+                    : nextPath.startsWith("/claim/create")
+                      ? "Create your first claim link"
+                      : "Create your first link"}
                 </Link>
                 <Link className="btn" href="/dashboard">
                   Open dashboard
@@ -269,7 +276,8 @@ export function CreateProfileClient({
       {!onContinue ? (
         <section className="card card-muted auth-note">
           <p className="muted" style={{ margin: 0 }}>
-            Already have a creator token? <Link href="/sign-in">Sign in</Link>.
+            Already have a creator token?{" "}
+            <Link href={buildSignInHref({ next: nextPath, signupSource })}>Sign in</Link>.
           </p>
         </section>
       ) : null}

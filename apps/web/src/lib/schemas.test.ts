@@ -248,6 +248,19 @@ describe("creator schemas", () => {
     expect(createCreatorInputSchema.safeParse({ username: "admin" }).success).toBe(false);
   });
 
+  it("keeps allowlisted signup sources and drops anything else without failing", () => {
+    expect(
+      createCreatorInputSchema.parse({ signupSource: "claim-success", username: "ada" })
+        .signupSource,
+    ).toBe("claim-success");
+
+    for (const signupSource of ["pay-share", "x", 42, ["pay-success"], "PAY-SUCCESS"]) {
+      const result = createCreatorInputSchema.safeParse({ signupSource, username: "ada" });
+      expect(result.success).toBe(true);
+      expect(result.data?.signupSource).toBeUndefined();
+    }
+  });
+
   it("requires creator login username and token", () => {
     expect(
       creatorLoginInputSchema.safeParse({

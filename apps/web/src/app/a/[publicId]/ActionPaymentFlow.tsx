@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 
 import {
@@ -25,7 +25,9 @@ import { MIN_REQUIRED_NOTE_LENGTH } from "@/lib/note-policy";
 import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 
+import { GrowthPrompt } from "../../GrowthPrompt";
 import { LogoMark } from "../../LogoMark";
+import { PayShareActions } from "./PayShareActions";
 import { WalletConnectCard } from "./WalletConnectCard";
 
 type ActionPaymentFlowProps = {
@@ -956,70 +958,75 @@ export function ActionPaymentFlow({
           <p className="muted">This invoice is complete and no longer accepts new payments.</p>
         </section>
       ) : isConfirmed ? (
-        /* Success hero — replaces the pay surface once the payment lands */
-        <section className="card pay-success" key="success">
-          <div className="pay-success-check" aria-hidden="true">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="3"
-              viewBox="0 0 24 24"
-            >
-              <polyline points="5 13 10 18 19 7" />
-            </svg>
-          </div>
-          <h2 className="pay-success-title">Thank you!</h2>
-          {successAmountKas ? (
-            <p className="pay-success-amount">
-              <strong>{successAmountKas}</strong> <span>KAS received</span>
-            </p>
-          ) : (
-            <p className="pay-success-amount">Payment received</p>
-          )}
-          {successAmountUsdEstimate ? (
-            <p className="amount-usd-estimate pay-amount-usd">
-              {successAmountUsdEstimate} at current KAS price
-            </p>
-          ) : null}
-          <p className="muted" style={{ margin: "4px 0 18px" }}>
-            {paymentRequest?.detectionSource === "mock"
-              ? "Confirmed via mock-confirm (test mode)."
-              : "Confirmed on the Kaspa network."}
-          </p>
-          {successTxId ? (
-            <div className="pay-success-tx">
-              <span className="label">Transaction</span>
-              <p className="value-mono" style={{ margin: "4px 0 0" }}>
-                {compactTxId(successTxId)}
-                {successExplorerUrl ? (
-                  <>
-                    {" · "}
-                    <a href={successExplorerUrl} rel="noreferrer" target="_blank">
-                      View on Kaspa.stream
-                    </a>
-                  </>
-                ) : null}
-              </p>
+        /* Success hero — replaces the pay surface once the payment lands. The share
+           button and Growth Prompt only appear after the payer's task is done. */
+        <Fragment key="success">
+          <section className="card pay-success">
+            <div className="pay-success-check" aria-hidden="true">
+              <svg
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="3"
+                viewBox="0 0 24 24"
+              >
+                <polyline points="5 13 10 18 19 7" />
+              </svg>
             </div>
-          ) : null}
-          {paymentRequest?.supporterMessage ? (
-            <div className="pay-success-note">
-              <span className="label">Your note</span>
-              <p>&ldquo;{paymentRequest.supporterMessage}&rdquo;</p>
-              <p className="muted pay-success-note-disclaimer">
-                Off-chain only. This note is not written into the Kaspa transaction.
+            <h2 className="pay-success-title">Thank you!</h2>
+            {successAmountKas ? (
+              <p className="pay-success-amount">
+                <strong>{successAmountKas}</strong> <span>KAS received</span>
               </p>
-            </div>
-          ) : null}
-          {paymentRequest?.supporterPublic ? (
-            <p className="pay-success-wall-note">
-              Shared on the public supporter wall as{" "}
-              <strong>{paymentRequest.supporterName ?? "Anonymous"}</strong>.
+            ) : (
+              <p className="pay-success-amount">Payment received</p>
+            )}
+            {successAmountUsdEstimate ? (
+              <p className="amount-usd-estimate pay-amount-usd">
+                {successAmountUsdEstimate} at current KAS price
+              </p>
+            ) : null}
+            <p className="muted" style={{ margin: "4px 0 18px" }}>
+              {paymentRequest?.detectionSource === "mock"
+                ? "Confirmed via mock-confirm (test mode)."
+                : "Confirmed on the Kaspa network."}
             </p>
-          ) : null}
-        </section>
+            {successTxId ? (
+              <div className="pay-success-tx">
+                <span className="label">Transaction</span>
+                <p className="value-mono" style={{ margin: "4px 0 0" }}>
+                  {compactTxId(successTxId)}
+                  {successExplorerUrl ? (
+                    <>
+                      {" · "}
+                      <a href={successExplorerUrl} rel="noreferrer" target="_blank">
+                        View on Kaspa.stream
+                      </a>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+            ) : null}
+            {paymentRequest?.supporterMessage ? (
+              <div className="pay-success-note">
+                <span className="label">Your note</span>
+                <p>&ldquo;{paymentRequest.supporterMessage}&rdquo;</p>
+                <p className="muted pay-success-note-disclaimer">
+                  Off-chain only. This note is not written into the Kaspa transaction.
+                </p>
+              </div>
+            ) : null}
+            {paymentRequest?.supporterPublic ? (
+              <p className="pay-success-wall-note">
+                Shared on the public supporter wall as{" "}
+                <strong>{paymentRequest.supporterName ?? "Anonymous"}</strong>.
+              </p>
+            ) : null}
+            {action.network === "mainnet" ? <PayShareActions title={action.title} /> : null}
+          </section>
+          {action.network === "mainnet" ? <GrowthPrompt source="pay-success" /> : null}
+        </Fragment>
       ) : showWaitingHero ? (
         /* Waiting hero — replaces the pay surface from the moment the user
            signs in KasWare until the indexer flips status to CONFIRMED.

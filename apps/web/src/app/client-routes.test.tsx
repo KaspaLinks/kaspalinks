@@ -28,6 +28,24 @@ describe("client route smoke rendering", () => {
     expect(markup).toContain("cannot read the token back later");
   });
 
+  it("keeps next and an allowlisted signup source on the create-profile sign-in link", async () => {
+    const { default: CreateProfilePage } = await import("./create-profile/page");
+    const markup = renderToStaticMarkup(
+      await CreateProfilePage({
+        searchParams: Promise.resolve({ next: "/claim/create", utm_source: "claim-success" }),
+      }),
+    );
+    expect(markup).toContain('href="/sign-in?next=%2Fclaim%2Fcreate&amp;utm_source=claim-success"');
+
+    const unknown = renderToStaticMarkup(
+      await CreateProfilePage({
+        searchParams: Promise.resolve({ next: "/new-link", utm_source: "spam" }),
+      }),
+    );
+    expect(unknown).toContain('href="/sign-in?next=%2Fnew-link"');
+    expect(unknown).not.toContain("spam");
+  });
+
   it("renders client-hydrated route placeholders without crashing", async () => {
     const [
       { default: NewLinkPage },

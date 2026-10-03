@@ -4,6 +4,7 @@ import {
   buildCreatorProfilePath,
   buildGiveawayXPostText,
   buildGiveawayWinnerXPostText,
+  buildPayShareText,
   buildProfileXPostText,
   buildXBioText,
   buildXIntentUrl,
@@ -91,5 +92,21 @@ describe("share text helpers", () => {
     expect(text).not.toContain(
       "kaspa:qpy6l7q6apd79nqw00drvjtr83hrj95ma582r0g24ttlpuh57hmecd09de4en",
     );
+  });
+});
+
+describe("buildPayShareText", () => {
+  it("speaks as the payer without amount or supporter name", () => {
+    expect(buildPayShareText({ title: " Coffee for Ada " })).toBe(
+      'Just supported "Coffee for Ada" with $KAS. Wallet-to-wallet, no custody.',
+    );
+    expect(buildPayShareText({ title: "  " })).toBe(
+      "Just supported a creator with $KAS. Wallet-to-wallet, no custody.",
+    );
+  });
+
+  it("shortens long titles", () => {
+    const text = buildPayShareText({ title: "x".repeat(80) });
+    expect(text).toContain(`"${"x".repeat(49)}…"`);
   });
 });

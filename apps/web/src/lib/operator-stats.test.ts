@@ -20,6 +20,7 @@ const SAFARI_MOBILE =
 
 function line(input: {
   country?: string;
+  headers?: Record<string, string[]>;
   host?: string;
   ip?: string;
   method?: string;
@@ -39,6 +40,7 @@ function line(input: {
         "CF-IPCountry": input.country ? [input.country] : undefined,
         Referer: input.referer ? [input.referer] : undefined,
         "User-Agent": [input.userAgent ?? CHROME_DESKTOP],
+        ...input.headers,
       },
       host: input.host ?? "kaspalinks.com",
       method: input.method ?? "GET",
@@ -115,6 +117,27 @@ describe("operator stats", () => {
     expect(stats.devices).toContainEqual({ count: 1, label: "Mobile" });
     expect(stats.browsers).toContainEqual({ count: 1, label: "Safari" });
     expect(stats.countries.map((country) => country.code).sort()).toEqual(["DE", "US"]);
+  });
+
+  it("ignores Next.js prefetches so a visible link is not counted as a click", () => {
+    const stats = buildOperatorStatsFromText(
+      [
+        line({ uri: "/create-profile?next=%2Fnew-link&utm_source=pay-success" }),
+        line({
+          headers: { "Next-Router-Prefetch": ["1"] },
+          uri: "/create-profile?next=%2Fnew-link&utm_source=pay-success",
+        }),
+        line({
+          headers: { "Sec-Purpose": ["prefetch;prerender"] },
+          uri: "/create-profile?next=%2Fnew-link&utm_source=pay-success",
+        }),
+        line({ headers: { Purpose: ["prefetch"] }, uri: "/create-profile" }),
+      ].join("\n"),
+      { filesRead: 1, now: NOW },
+    );
+
+    expect(stats.pageViews.human).toBe(1);
+    expect(stats.utmSources).toEqual([{ count: 1, label: "pay-success" }]);
   });
 
   it("ignores country headers on direct-origin requests", () => {

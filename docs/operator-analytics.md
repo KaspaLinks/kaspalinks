@@ -23,6 +23,7 @@ This is intentionally server-side and simple:
 - mobile, tablet, desktop, and bot/previews
 - browser mix
 - country dots on a lightweight built-in map when a trusted proxy country header is available
+- the activation funnel described below
 
 Country data is best-effort. Plain Caddy access logs do not know the visitor country by
 themselves. `deploy/Caddyfile` is prepared for Cloudflare by trusting Cloudflare edge IP ranges,
@@ -38,6 +39,27 @@ To make country dots appear:
    once Cloudflare is active.
 
 Without Cloudflare or another trusted GeoIP proxy, most visits will appear as unknown country.
+
+## Activation
+
+The activation section reports Activated Creators (see `docs/adr/0006-activation-is-on-chain-value.md`):
+creators whose first confirmed mainnet payment or claimed mainnet claimable link lands within seven
+days of signup. Creators still inside their seven days count as pending and stay out of rates.
+
+- Headline (last 30 days): activated creators, new creators, prompt clicks, and visits from shared
+  pay pages (`utm_source=pay-share`).
+- Source table: Growth Prompt clicks (distinct daily visitors on `/create-profile` per allowlisted
+  `utm_source`) → signups → activated, plus all other signups.
+- Cohort table: signups grouped by UTC week starting Monday; a week stays open until seven days
+  after it ends.
+
+Signups store only a fixed prompt label in `Creator.signupSource`. Usernames listed in
+`INTERNAL_CREATOR_USERNAMES` (comma-separated) are excluded. Next.js prefetch requests
+(`Next-Router-Prefetch`, `Purpose: prefetch`) are ignored as page views since 2026-10-03; older
+stored counts may include prefetch noise.
+
+Page views are imported only when the dashboard loads and Caddy keeps 30 days of logs, so open the
+dashboard at least once a month to keep the funnel complete.
 
 ## Access Control
 

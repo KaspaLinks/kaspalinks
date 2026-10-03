@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
 import { prisma } from "@kaspa-actions/db";
 
+import { loadActivationFunnel } from "@/lib/activation-funnel";
 import { resolveClaimableOnChain } from "@/lib/claimable-onchain";
 import type { RankedMetric } from "@/lib/operator-stats";
 import { loadPersistentOperatorStatsFromAccessLogs } from "@/lib/operator-stats";
+
+import { ActivationSection } from "./ActivationSection";
+import { MetricCard } from "./MetricCard";
 
 export const dynamic = "force-dynamic";
 
@@ -73,16 +77,6 @@ function sompiToKas(sompi: bigint): string {
   const whole = sompi / 100000000n;
   const frac = (sompi % 100000000n).toString().padStart(8, "0").replace(/0+$/, "");
   return frac ? `${whole.toString()}.${frac}` : whole.toString();
-}
-
-function MetricCard({ detail, label, value }: { detail: string; label: string; value: string }) {
-  return (
-    <article className="metric-card metric-card-balanced">
-      <span className="metric-label">{label}</span>
-      <p className="metric-value">{value}</p>
-      <p className="metric-delta metric-delta-muted">{detail}</p>
-    </article>
-  );
 }
 
 function RankedList({ empty, rows }: { empty: string; rows: RankedMetric[] }) {
@@ -158,6 +152,11 @@ async function refreshClaimableStatsSnapshot() {
 
 export default async function OperatorStatsPage() {
   const stats = await loadPersistentOperatorStatsFromAccessLogs(prisma);
+  // Runs after the log import so today's prompt clicks are already stored.
+  const activation = await loadActivationFunnel(prisma).catch((error: unknown) => {
+    console.error("Activation funnel unavailable", error);
+    return null;
+  });
   await refreshClaimableStatsSnapshot();
 
   // Links the creator removed from My Links stay in the table for the audit
@@ -235,6 +234,8 @@ export default async function OperatorStatsPage() {
           value={formatNumber(stats.pageViews.human)}
         />
       </section>
+
+      <ActivationSection funnel={activation} />
 
       <section className="card">
         <div className="section-heading-row">
@@ -382,6 +383,8 @@ export default async function OperatorStatsPage() {
           This page reads rolling server logs, stores deduplicated page views, and shows aggregates
           only. It stores daily visitor hashes instead of raw IP addresses. Country data is
           best-effort; without a trusted proxy or GeoIP enrichment it will mostly show as unknown.
+          Activation counts read creator signup dates, fixed prompt labels, and on-chain timestamps;
+          internal accounts are excluded.
         </p>
         {stats.parseErrors > 0 ? (
           <p className="form-error">

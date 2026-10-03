@@ -94,6 +94,9 @@ model Creator {
   // Whitelisted public social links shown on /u/<username>. JSON keeps
   // platform additions additive while validation stays in app code.
   socialLinks             Json?
+  // Fixed Growth Prompt label captured at signup (allowlist in apps/web/src/lib/signup-source.ts).
+  // Never personal data; NULL for direct signups and creators created before this column.
+  signupSource            String?
   defaultRecipientAddress String?
   timezone                String                @default("UTC")
   telegramBetaEnabled     Boolean               @default(false)

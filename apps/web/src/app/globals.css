@@ -4435,6 +4435,38 @@ a.type-segment:hover {
   color: var(--fg-strong);
 }
 
+/* Growth Prompt — one invitation shown only after a completed payment or claim
+   (docs/adr/0005). Quiet card under the success state, never inside it. */
+.pay-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.growth-prompt {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  text-align: center;
+}
+
+.growth-prompt p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.92rem;
+}
+
+.claimable-closed-hero + .growth-prompt {
+  margin-top: 14px;
+}
+
 /* PENDING after broadcast — waiting hero
    Mirrors the success hero shape but with the brand teal accent and a
    spinning disc instead of a check. Replaces the entire pay-card so
@@ -5222,6 +5254,64 @@ a.type-segment:hover {
 
 .operator-empty {
   margin: 10px 0 0;
+}
+
+.operator-stack {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.operator-table-wrap {
+  margin-top: 10px;
+  overflow-x: auto;
+}
+
+.operator-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.operator-table th,
+.operator-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.operator-table th:first-child {
+  text-align: left;
+}
+
+.operator-table thead th {
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.operator-table tbody th {
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+
+.operator-table-total th,
+.operator-table-total td {
+  border-bottom: 0;
+  color: var(--fg-strong);
+  font-weight: 700;
+}
+
+.operator-table-row-open th,
+.operator-table-row-open td {
+  color: var(--fg-muted);
+}
+
+.operator-footnote {
+  margin: 14px 0 0;
+  font-size: 0.8rem;
 }
 
 .operator-note p {

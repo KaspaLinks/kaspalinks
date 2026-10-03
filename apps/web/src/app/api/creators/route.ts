@@ -57,6 +57,7 @@ export async function POST(request: Request) {
     creator = await prisma.creator.create({
       data: {
         displayName: parsed.data.displayName,
+        signupSource: parsed.data.signupSource ?? null,
         tokenHash: hashCreatorToken(creatorToken),
         username: parsed.data.username,
       },
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
     creatorId: creator.id,
     event: "creator.created",
     ipHash,
-    metadata: { username: creator.username },
+    metadata: { signupSource: creator.signupSource, username: creator.username },
   });
 
   return apiJson(

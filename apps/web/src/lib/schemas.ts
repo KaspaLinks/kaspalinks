@@ -6,6 +6,7 @@ import {
 import { z } from "zod";
 
 import { assertReliableMainnetOutputAmount } from "./mainnet-amount-policy";
+import { signupSourceSchema } from "./signup-source";
 import { normalizeSocialLinksRecord } from "./social-links";
 
 const KASPA_ACTION_TYPES = [
@@ -357,6 +358,8 @@ export const createActionInputSchema = actionInputBaseSchema
 
 export const createCreatorInputSchema = z.object({
   displayName: optionalTrimmedString(DISPLAY_NAME_MAX),
+  // Attribution must never block a signup: unknown or forged labels are dropped.
+  signupSource: signupSourceSchema.optional().catch(undefined),
   username: usernameSchema,
 });
 

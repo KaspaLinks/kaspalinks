@@ -39,10 +39,18 @@ const BOT_UA_RE =
 // matter which path the scanner invents. A 3xx is the redirect hop of a visit
 // whose 200 is already counted, so counting it doubles that visitor; 304 is a
 // genuine cached revisit and stays.
-function countsAsPageView(status: number): boolean {
+export function countsAsPageView(status: number): boolean {
   if (status >= 500) return false;
   if (status >= 400) return false;
   return status < 300 || status === 304;
+}
+
+// Next.js prefetches linked pages in the background. Those requests are not visits,
+// and counting them would record clicks on links nobody followed.
+function isPrefetchRequest(headers: Record<string, unknown>): boolean {
+  if (headerValue(headers, "Next-Router-Prefetch") !== null) return true;
+  const purpose = headerValue(headers, "Sec-Purpose") ?? headerValue(headers, "Purpose") ?? "";
+  return /prefetch/i.test(purpose);
 }
 
 // Vulnerability scanners send an ordinary Chrome or Safari user agent, so the
@@ -713,7 +721,7 @@ function parseCaddyAccessLogLine(line: string): ParsedLine {
       host,
       ipHash: createHash("sha256").update(`${ip}:${ua}`).digest("hex").slice(0, 24),
       isBot,
-      isPageView: isPageView({ method, pathName, status }),
+      isPageView: !isPrefetchRequest(headers) && isPageView({ method, pathName, status }),
       method,
       path: pathName,
       referrer: normalizeReferrer(headerValue(headers, "Referer"), host),

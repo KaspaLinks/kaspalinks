@@ -39,6 +39,17 @@ describe("Prisma schema", () => {
     expect(schema).toMatch(/amountSompi\s+BigInt/);
   });
 
+  it("records an optional signup source on creators", () => {
+    const creator = schema.match(/model Creator \{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(creator).toMatch(/signupSource\s+String\?/);
+    const sql = readFileSync(
+      "packages/db/prisma/migrations/20261003120000_creator_signup_source/migration.sql",
+      "utf8",
+    );
+    expect(sql).toContain('ALTER TABLE "Creator" ADD COLUMN "signupSource" TEXT;');
+    expect(sql).not.toMatch(/NOT NULL|DROP|DELETE FROM/);
+  });
+
   it("stores only public claimable batch contract metadata", () => {
     const batchModel = schema.match(/model ClaimableBatch \{[\s\S]*?\n\}/)?.[0] ?? "";
 

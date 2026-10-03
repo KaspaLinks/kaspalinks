@@ -55,6 +55,7 @@ import { FundingQrCode } from "@/lib/funding-qr";
 
 import { SESSION_EVENT } from "../BrandNav";
 import { CreatorSignInGate } from "../CreatorSignInGate";
+import { GrowthPrompt } from "../GrowthPrompt";
 
 import {
   buildClaimableSpendInBrowser,
@@ -2736,55 +2737,64 @@ export function ToccataLabClient({
                     </div>
                   ) : null}
                   {claimAlreadyClosed ? (
-                    <div className="claimable-closed-hero" role="status">
-                      <div className="claimable-closed-mark" aria-hidden="true">
-                        {claimBroadcast ? "Done" : "Closed"}
-                      </div>
-                      <div>
-                        <span className="label">Claim status</span>
-                        {claimBroadcast ? (
-                          <>
-                            <strong>You successfully claimed</strong>
-                            <p>
-                              The KAS is on its way to your address. This claim link is now closed
-                              and cannot be used again.
-                            </p>
-                            <a
-                              href={kaspaStreamTransactionUrl(
-                                claimBroadcast.submittedTransactionId,
-                              )}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              View your claim transaction
-                            </a>
-                          </>
-                        ) : (
-                          <>
-                            <strong>
-                              {labLink.status === "refunded"
-                                ? "Refunded by the creator"
-                                : labLink.status === "claimed"
-                                  ? "Already claimed"
-                                  : "Already spent on-chain"}
-                            </strong>
-                            <p>
-                              This claim link is closed and cannot be used again. Kaspa Links only
-                              labels it claimed when the claim transaction was recorded.
-                            </p>
-                            {labLink.fundingMatch ? (
+                    <>
+                      <div className="claimable-closed-hero" role="status">
+                        <div className="claimable-closed-mark" aria-hidden="true">
+                          {claimBroadcast ? "Done" : "Closed"}
+                        </div>
+                        <div>
+                          <span className="label">Claim status</span>
+                          {claimBroadcast ? (
+                            <>
+                              <strong>You successfully claimed</strong>
+                              <p>
+                                The KAS is on its way to your address. This claim link is now closed
+                                and cannot be used again.
+                              </p>
                               <a
-                                href={kaspaStreamTransactionUrl(labLink.fundingMatch.transactionId)}
+                                href={kaspaStreamTransactionUrl(
+                                  claimBroadcast.submittedTransactionId,
+                                )}
                                 rel="noreferrer"
                                 target="_blank"
                               >
-                                View funding transaction
+                                View your claim transaction
                               </a>
-                            ) : null}
-                          </>
-                        )}
+                            </>
+                          ) : (
+                            <>
+                              <strong>
+                                {labLink.status === "refunded"
+                                  ? "Refunded by the creator"
+                                  : labLink.status === "claimed"
+                                    ? "Already claimed"
+                                    : "Already spent on-chain"}
+                              </strong>
+                              <p>
+                                This claim link is closed and cannot be used again. Kaspa Links only
+                                labels it claimed when the claim transaction was recorded.
+                              </p>
+                              {labLink.fundingMatch ? (
+                                <a
+                                  href={kaspaStreamTransactionUrl(
+                                    labLink.fundingMatch.transactionId,
+                                  )}
+                                  rel="noreferrer"
+                                  target="_blank"
+                                >
+                                  View funding transaction
+                                </a>
+                              ) : null}
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                      {/* Only after this visitor's own claim, never for an already-closed link.
+                        A sibling of the hero, whose link styles would recolor the button. */}
+                      {claimOnlyView && claimBroadcast ? (
+                        <GrowthPrompt source="claim-success" />
+                      ) : null}
+                    </>
                   ) : claimWindowExpired ? (
                     <div className="claimable-expired-hero" role="status">
                       <div className="claimable-expired-mark" aria-hidden="true">

@@ -1,4 +1,5 @@
 import { sanitizeInternalNextPath } from "@/lib/internal-next-path";
+import { parseSignupSource } from "@/lib/signup-source";
 import type { Metadata } from "next";
 
 import { CreateProfileClient } from "./CreateProfileClient";
@@ -15,12 +16,13 @@ export const metadata: Metadata = {
 export default async function CreateProfilePage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string | string[] }>;
+  searchParams: Promise<{ next?: string | string[]; utm_source?: string | string[] }>;
 }) {
   const query = await searchParams;
   return (
     <CreateProfileClient
       nextPath={sanitizeInternalNextPath(typeof query.next === "string" ? query.next : undefined)}
+      signupSource={parseSignupSource(query.utm_source)}
     />
   );
 }
