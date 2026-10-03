@@ -5,6 +5,7 @@ const m = vi.hoisted(() => ({
   updateMany: vi.fn(),
   update: vi.fn(),
   audit: vi.fn(),
+  auditCreate: vi.fn(),
   execute: vi.fn(),
   chain: vi.fn(),
   utxos: vi.fn(),
@@ -14,8 +15,9 @@ const m = vi.hoisted(() => ({
 vi.mock("@kaspa-actions/db", () => ({
   prisma: {
     covenantPrototype: { findMany: m.findMany, updateMany: m.updateMany, update: m.update },
-    auditLog: { findFirst: m.audit },
+    auditLog: { create: m.auditCreate, findFirst: m.audit },
   },
+  AuditActorType: { SYSTEM: "SYSTEM" },
 }));
 vi.mock("./giveaway-covenant-execution", () => ({ executeCovenantAction: m.execute }));
 vi.mock("./giveaway-prize-v3-chain", () => ({
@@ -104,6 +106,9 @@ describe("automatic covenant processing", () => {
     m.payout.mockResolvedValue({ confirmed: true });
     await processCovenantGiveaways();
     expect(m.execute).not.toHaveBeenCalled();
+    expect(m.auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ event: "giveaway.covenant_payout_confirmed" }),
+    });
     expect(m.update.mock.calls[0]![0].data.automationFinishedAt).toBeInstanceOf(Date);
   });
   it("leaves transient failures retryable and ignores unrelated dust", async () => {
@@ -144,6 +149,9 @@ describe("automatic covenant processing", () => {
     m.refund.mockResolvedValue({ confirmed: true });
     await processCovenantGiveaways();
     expect(m.execute).not.toHaveBeenCalled();
+    expect(m.auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ event: "giveaway.covenant_refund_confirmed" }),
+    });
     expect(m.update.mock.calls[0]![0].data.automationFinishedAt).toBeInstanceOf(Date);
   });
 });

@@ -40,12 +40,14 @@ const TYPE_LABEL: Record<string, string> = {
   KASPA_CLAIMABLE: "Claimable",
   KASPA_DONATION: "Donation",
   KASPA_GOAL: "Goal",
+  KASPA_GIVEAWAY: "Giveaway",
   KASPA_INVOICE: "Invoice",
   KASPA_TIP: "Tip",
   KASPA_TRANSFER: "Transfer",
   "kaspa.claimable": "Claimable",
   "kaspa.donation": "Donation",
   "kaspa.goal": "Goal",
+  "kaspa.giveaway": "Giveaway",
   "kaspa.invoice": "Invoice",
   "kaspa.tip": "Tip",
   "kaspa.transfer": "Transfer",
@@ -111,7 +113,17 @@ async function loadStats() {
       sompi: bigint | null;
     }>
   >`
-    WITH confirmed_events AS (
+    WITH covenant_payouts AS (
+      SELECT DISTINCT ON (al.metadata->>'prototypeId')
+             (al.metadata->>'prizeSompi')::bigint AS "amountSompi",
+             al."createdAt" AS "confirmedAt",
+             al.metadata->>'transactionId' AS "txId"
+      FROM "AuditLog" al
+      WHERE al.event = 'giveaway.covenant_payout_confirmed'
+        AND al.metadata->>'prototypeId' IS NOT NULL
+        AND al.metadata->>'prizeSompi' ~ '^[0-9]+$'
+      ORDER BY al.metadata->>'prototypeId', al."createdAt" ASC
+    ), confirmed_events AS (
       SELECT pr."amountSompi"::bigint AS "amountSompi",
              pr."confirmedAt" AS "confirmedAt"
       FROM "PaymentRequest" pr
@@ -125,6 +137,9 @@ async function loadStats() {
       FROM "ClaimableLink" cl
       WHERE cl.status = 'claimed'
         AND cl.network = 'MAINNET'
+      UNION ALL
+      SELECT cp."amountSompi", cp."confirmedAt"
+      FROM covenant_payouts cp
     )
     SELECT 'all_time'::text AS kind,
            COUNT(*)::bigint AS payments,
@@ -143,8 +158,10 @@ async function loadStats() {
   const [
     actionLinks,
     claimableLinks,
+    covenantGiveaways,
     actionLinksDelta7d,
     claimableLinksDelta7d,
+    covenantGiveawaysDelta7d,
     activeCreators,
     newCreators7d,
     typeBreakdown,
@@ -152,15 +169,20 @@ async function loadStats() {
   ] = await Promise.all([
     prisma.action.count({ where: { network: "MAINNET" } }),
     prisma.claimableLink.count({ where: { network: "MAINNET" } }),
+    prisma.covenantPrototype.count({ where: { publicTitle: { not: null } } }),
     prisma.action.count({
       where: { createdAt: { gte: sevenDaysAgo }, network: "MAINNET" },
     }),
     prisma.claimableLink.count({ where: { createdAt: { gte: sevenDaysAgo }, network: "MAINNET" } }),
+    prisma.covenantPrototype.count({
+      where: { createdAt: { gte: sevenDaysAgo }, publicTitle: { not: null } },
+    }),
     prisma.creator.count({
       where: {
         OR: [
           { actions: { some: { deletedAt: null, network: "MAINNET" } } },
           { claimableLinks: { some: { deletedAt: null, network: "MAINNET" } } },
+          { covenantPrototypes: { some: { publicTitle: { not: null } } } },
         ],
       },
     }),
@@ -182,6 +204,11 @@ async function loadStats() {
               some: { createdAt: { gte: sevenDaysAgo }, deletedAt: null, network: "MAINNET" },
             },
           },
+          {
+            covenantPrototypes: {
+              some: { createdAt: { gte: sevenDaysAgo }, publicTitle: { not: null } },
+            },
+          },
         ],
       },
     }),
@@ -199,6 +226,15 @@ async function loadStats() {
           FROM "ClaimableLink" cl
           WHERE cl.status = 'claimed'
             AND cl.network = 'MAINNET'
+          UNION ALL
+          SELECT 'kaspa.giveaway'::text AS type
+          FROM (
+            SELECT DISTINCT ON (al.metadata->>'prototypeId') al.id
+            FROM "AuditLog" al
+            WHERE al.event = 'giveaway.covenant_payout_confirmed'
+              AND al.metadata->>'prototypeId' IS NOT NULL
+            ORDER BY al.metadata->>'prototypeId', al."createdAt" ASC
+          ) confirmed_giveaways
         ) confirmed_by_type
         GROUP BY type
       `,
@@ -234,13 +270,28 @@ async function loadStats() {
           FROM "ClaimableLink" cl
           WHERE cl.status = 'claimed'
             AND cl.network = 'MAINNET'
+          UNION ALL
+          SELECT (al.metadata->>'prizeSompi')::bigint AS "amountSompi",
+                 al."createdAt" AS "confirmedAt",
+                 'MAINNET'::text AS network,
+                 al.metadata->>'transactionId' AS "txId",
+                 'kaspa.giveaway'::text AS type,
+                 al."createdAt" AS "sortCreatedAt"
+          FROM (
+            SELECT DISTINCT ON (metadata->>'prototypeId') *
+            FROM "AuditLog"
+            WHERE event = 'giveaway.covenant_payout_confirmed'
+              AND metadata->>'prototypeId' IS NOT NULL
+              AND metadata->>'prizeSompi' ~ '^[0-9]+$'
+            ORDER BY metadata->>'prototypeId', "createdAt" ASC
+          ) al
         ) recent_confirmations
         ORDER BY "confirmedAt" DESC NULLS LAST, "sortCreatedAt" DESC
         LIMIT ${RECENT_LIMIT}
       `,
   ]);
-  const totalLinks = actionLinks + claimableLinks;
-  const totalLinksDelta7d = actionLinksDelta7d + claimableLinksDelta7d;
+  const totalLinks = actionLinks + claimableLinks + covenantGiveaways;
+  const totalLinksDelta7d = actionLinksDelta7d + claimableLinksDelta7d + covenantGiveawaysDelta7d;
 
   return {
     activeCreators,

@@ -5,6 +5,7 @@ const { mockPrisma } = vi.hoisted(() => ({
     $queryRaw: vi.fn(),
     action: { count: vi.fn() },
     claimableLink: { count: vi.fn() },
+    covenantPrototype: { count: vi.fn() },
     creator: { count: vi.fn() },
   },
 }));
@@ -21,6 +22,7 @@ describe("GET /api/public/stats", () => {
     vi.clearAllMocks();
     mockPrisma.action.count.mockResolvedValueOnce(10).mockResolvedValueOnce(2);
     mockPrisma.claimableLink.count.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
+    mockPrisma.covenantPrototype.count.mockResolvedValueOnce(2).mockResolvedValueOnce(1);
     mockPrisma.creator.count.mockResolvedValueOnce(3).mockResolvedValueOnce(1);
     mockPrisma.$queryRaw
       .mockResolvedValueOnce([
@@ -40,8 +42,8 @@ describe("GET /api/public/stats", () => {
         activeCreators: 3,
         confirmedPayments: 4,
         totalKasReceived: "8",
-        totalLinks: 15,
-        totalLinksDelta7d: 3,
+        totalLinks: 17,
+        totalLinksDelta7d: 4,
       }),
     );
     expect(mockPrisma.action.count).toHaveBeenNthCalledWith(1, {
@@ -55,6 +57,7 @@ describe("GET /api/public/stats", () => {
         OR: [
           { actions: { some: { deletedAt: null, network: "MAINNET" } } },
           { claimableLinks: { some: { deletedAt: null, network: "MAINNET" } } },
+          { covenantPrototypes: { some: { publicTitle: { not: null } } } },
         ],
       },
     });

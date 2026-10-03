@@ -1,4 +1,4 @@
-import { prisma } from "@kaspa-actions/db";
+import { AuditActorType, prisma } from "@kaspa-actions/db";
 import { executeCovenantAction } from "./giveaway-covenant-execution";
 import {
   prototypeManifestSchema,
@@ -60,6 +60,18 @@ export async function processCovenantGiveaways(now = new Date()) {
         .object({ transactionId: z.string().regex(/^[0-9a-f]{64}$/) })
         .safeParse(submitted?.metadata);
       if (tx.success && (await readPrototypePayout(tx.data.transactionId, m)).confirmed) {
+        await prisma.auditLog.create({
+          data: {
+            actorType: AuditActorType.SYSTEM,
+            creatorId: row.creatorId,
+            event: "giveaway.covenant_payout_confirmed",
+            metadata: {
+              prizeSompi: m.prizeSompi,
+              prototypeId: row.id,
+              transactionId: tx.data.transactionId,
+            },
+          },
+        });
         await prisma.covenantPrototype.update({
           where: { id: row.id },
           data: { automationFinishedAt: new Date() },
@@ -81,7 +93,22 @@ export async function processCovenantGiveaways(now = new Date()) {
       const refundTx = z
         .object({ transactionId: z.string().regex(/^[0-9a-f]{64}$/) })
         .safeParse(refundSubmission?.metadata);
-      if (refundTx.success && (await readPrototypeRefund(refundTx.data.transactionId)).confirmed) {
+      const confirmedRefund = refundTx.success
+        ? await readPrototypeRefund(refundTx.data.transactionId)
+        : null;
+      if (refundTx.success && confirmedRefund?.confirmed) {
+        await prisma.auditLog.create({
+          data: {
+            actorType: AuditActorType.SYSTEM,
+            creatorId: row.creatorId,
+            event: "giveaway.covenant_refund_confirmed",
+            metadata: {
+              amountSompi: confirmedRefund.amount,
+              prototypeId: row.id,
+              transactionId: refundTx.data.transactionId,
+            },
+          },
+        });
         await prisma.covenantPrototype.update({
           where: { id: row.id },
           data: { automationFinishedAt: new Date() },
