@@ -121,7 +121,7 @@ echo "kaspa-backup: wrote $daily_file ($size)"
 # OFF-VPS UPLOAD (optional, off by default)
 #
 # Backups stored only on this VPS share the VPS's fate. If you've provisioned
-# a Hetzner Storage Box (or any other rsync-over-SSH target), set
+# an off-site storage box (any rsync-over-SSH target), set
 # STORAGE_BOX_REMOTE in /etc/default/kaspa-backup to enable mirrored uploads,
 # e.g.:
 #

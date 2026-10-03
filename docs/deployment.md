@@ -1,6 +1,6 @@
 # Deployment
 
-This guide describes how to self-host Kaspa Actions on a Hetzner VPS (or any Linux host with Docker) using Docker Compose.
+This guide describes how to self-host Kaspa Actions on a Linux VPS with Docker using Docker Compose.
 
 The deployment runs a non-custodial payment-link layer with optional indexer-backed on-chain
 detection and a client-only KasWare send bridge. Normal payment links never require server signing,
@@ -63,7 +63,7 @@ the `$` characters inside the bcrypt value. When the project goes public, remove
 block from `deploy/Caddyfile` and restart Caddy deliberately instead of leaving a shared beta
 password in place.
 
-Never commit `.env`, SSH keys, Hetzner credentials, wallet credentials, private keys, or seed phrases.
+Never commit `.env`, SSH keys, hosting credentials, wallet credentials, private keys, or seed phrases.
 
 ## Network Notes
 

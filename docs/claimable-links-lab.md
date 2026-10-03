@@ -319,7 +319,7 @@ unconfirmed part:
      artifact. `labs/claimable-script/claimable_ui_scriptbuilder_tests.rs`
      pins the exact UI redeem-script bytes and runs claim/refund/wrong-key and
      output-tamper cases through the same v2.0.1 `TxScriptEngine`. Result on
-     2026-07-05: 7/7 tests passed on the Hetzner lab checkout. This keeps the
+     2026-07-05: 7/7 tests passed on the lab checkout. This keeps the
      current `/toccata-lab` proof scoped to the artifact it actually funds.
 3. **Mainnet canary** in the existing operator-only lab frame: fund → claim →
    refund with 0.2–1 KAS whose total loss is priced in. Only after 1 + 2 give

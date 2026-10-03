@@ -5,7 +5,7 @@ weekly / monthly retention and an optional off-VPS rsync upload step.
 
 ## Why this exists
 
-The app runs Postgres in a single Docker volume on a single Hetzner VPS. If
+The app runs Postgres in a single Docker volume on a single VPS. If
 that volume gets corrupted, the disk dies, or someone runs
 `docker compose down -v` by accident, **every creator + payment record is
 gone**. These backups are the one thing standing between "small embarrassment"
@@ -57,13 +57,12 @@ To confirm the timer is scheduled:
 systemctl list-timers kaspa-backup.timer
 ```
 
-## Optional: mirror to a Hetzner Storage Box (off-VPS)
+## Optional: mirror to an off-site storage box
 
 Local-only backups die with the VPS. To survive a full-VPS loss, mirror to a
-Hetzner Storage Box (~€3/month for 100 GB, separate physical infrastructure
-inside the same DC region).
+storage box on separate physical infrastructure that accepts rsync over SSH.
 
-1. Create a Storage Box in the Hetzner console and enable SSH access.
+1. Create a storage box with your provider and enable SSH access.
 2. Generate a dedicated SSH key on the VPS:
    ```bash
    ssh-keygen -t ed25519 -f /root/.ssh/storage_box_ed25519 -N ''

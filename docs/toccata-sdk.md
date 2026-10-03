@@ -52,7 +52,7 @@ The project now points `@kaspa-actions/kaspa` at the vendored package via:
 "kaspa-wasm": "file:../../vendor/kaspa-wasm-v2.0.1"
 ```
 
-This keeps local development and Hetzner Docker builds reproducible without
+This keeps local development and server Docker builds reproducible without
 downloading release artifacts during deployment.
 
 ## Capability Gate
@@ -139,8 +139,8 @@ Mainnet lab:
   smoke transaction and returned it unchanged (same id, empty inputs, output
   intact, no error) and rejected the legacy PSKT wrapper — confirming that
   rusty-kaspa `serializeToSafeJSON()` output is directly compatible with
-	  KasWare's documented signing surface. Remaining wallet gate: the same probe
-	  with a real wallet-owned input and explicit `signInputs`.
+  KasWare's documented signing surface. Remaining wallet gate: the same probe
+  with a real wallet-owned input and explicit `signInputs`.
 - `/api/toccata-lab/claimable-spend` is deliberately closed. The old protected
   server-side spend-signing bridge must not be used by client code, and the
   web app library no longer exposes a helper/schema that accepts claim/refund
