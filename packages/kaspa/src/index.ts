@@ -62,6 +62,7 @@ export {
 } from "./toccata-constants";
 
 export * from "./giveaway-prize-v4";
+export * from "./giveaway-prize-v5";
 export * from "./escrow-v1";
 export * from "./escrow-v1-transaction";
 export * from "./escrow-v2";

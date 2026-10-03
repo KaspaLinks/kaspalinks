@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   chain: vi.fn(),
   utxos: vi.fn(),
   payout: vi.fn(),
+  refund: vi.fn(),
 }));
 vi.mock("@kaspa-actions/db", () => ({
   prisma: {
@@ -21,13 +22,22 @@ vi.mock("./giveaway-prize-v3-chain", () => ({
   readPrototypeChain: m.chain,
   readPrototypeUtxos: m.utxos,
   readPrototypePayout: m.payout,
+  readPrototypeRefund: m.refund,
 }));
 import { processCovenantGiveaways } from "./giveaway-covenant-automation";
 import { createPrototypeManifest } from "./giveaway-prize-v3-prototype";
 const sdk = createRequire(import.meta.url)("kaspa-wasm");
 const pk = new sdk.PrivateKey("22".repeat(32)).toPublicKey().toXOnlyPublicKey().toString();
 const manifest = createPrototypeManifest(
-  { publicTitle: "Auto test", creatorPublicKeyHex: pk, prizeSompi: "100000000", addresses: [] },
+  {
+    publicTitle: "Auto test",
+    refundAddress: new sdk.PrivateKey("44".repeat(32))
+      .toPublicKey()
+      .toAddress("mainnet")
+      .toString(),
+    prizeSompi: "100000000",
+    addresses: [],
+  },
   { daa: 10000n, blueScore: 10000n, platformPublicKeyHex: pk },
 );
 const row = {
@@ -44,15 +54,19 @@ beforeEach(() => {
   m.updateMany.mockResolvedValue({ count: 1 });
   m.chain.mockResolvedValue({ daa: 14000n, blueScore: 14000n });
   m.utxos.mockResolvedValue([]);
+  m.refund.mockResolvedValue({ confirmed: false });
   m.execute.mockResolvedValue(new Response("{}"));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
 });
 describe("automatic covenant processing", () => {
-  it("claims due V4 trials and submits freeze without creator credentials", async () => {
+  it("claims due public trials and submits freeze without creator credentials", async () => {
     await processCovenantGiveaways();
-    expect(m.findMany.mock.calls[0]![0].where.manifest).toEqual({ path: ["version"], equals: 4 });
+    expect(m.findMany.mock.calls[0]![0].where.OR).toEqual([
+      { manifest: { path: ["version"], equals: 4 } },
+      { manifest: { path: ["version"], equals: 5 } },
+    ]);
     expect(m.execute).toHaveBeenCalledWith({ action: "freeze", id: "trial" }, "owner", "SYSTEM");
   });
   it("does not process work leased elsewhere or before closing", async () => {
@@ -98,5 +112,38 @@ describe("automatic covenant processing", () => {
     m.execute.mockRejectedValue(new Error("unavailable"));
     await expect(processCovenantGiveaways()).resolves.toBeUndefined();
     expect(m.update).not.toHaveBeenCalled();
+  });
+
+  it("submits an immediate V5 auto-return for a frozen empty list", async () => {
+    m.findMany.mockResolvedValue([{ ...row, entriesFrozenAt: new Date() }]);
+    m.utxos.mockResolvedValue([{ amount: "101000000" }]);
+    await processCovenantGiveaways();
+    expect(m.execute).toHaveBeenCalledWith(
+      { action: "auto-refund", id: "trial", phase: "frozen" },
+      "owner",
+      "SYSTEM",
+    );
+  });
+
+  it("submits the V5 fallback return from the open state", async () => {
+    m.chain.mockResolvedValue({ daa: BigInt(manifest.refundDaa) + 1n, blueScore: 50_000n });
+    m.utxos.mockResolvedValueOnce([]).mockResolvedValueOnce([{ amount: "102000000" }]);
+    await processCovenantGiveaways();
+    expect(m.execute).toHaveBeenCalledWith(
+      { action: "auto-refund", id: "trial", phase: "open" },
+      "owner",
+      "SYSTEM",
+    );
+  });
+
+  it("finishes only after the automatic return is confirmed", async () => {
+    m.audit.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      metadata: { transactionId: "cd".repeat(32) },
+      createdAt: new Date(0),
+    });
+    m.refund.mockResolvedValue({ confirmed: true });
+    await processCovenantGiveaways();
+    expect(m.execute).not.toHaveBeenCalled();
+    expect(m.update.mock.calls[0]![0].data.automationFinishedAt).toBeInstanceOf(Date);
   });
 });

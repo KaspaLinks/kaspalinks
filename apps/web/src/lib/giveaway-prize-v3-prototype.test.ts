@@ -29,6 +29,23 @@ const make = () =>
         .toString(),
     },
   );
+const makePublic = () =>
+  createPrototypeManifest(
+    {
+      publicTitle: "Automatic return test",
+      refundAddress: address("66"),
+      prizeSompi: "100000000",
+      addresses: [],
+    },
+    {
+      daa: 536_000_000n,
+      blueScore: 535_000_000n,
+      platformPublicKeyHex: new sdk.PrivateKey("11".repeat(32))
+        .toPublicKey()
+        .toXOnlyPublicKey()
+        .toString(),
+    },
+  );
 const utxo = {
   transactionId: "ab".repeat(32),
   index: 0,
@@ -158,6 +175,49 @@ describe("mainnet covenant prototype", () => {
         signatureHex: "55".repeat(64),
       }),
     ).toThrow(/exactly/);
+  });
+
+  it("builds public V5 giveaways with a committed keyless return", () => {
+    const m = makePublic();
+    expect(m.version).toBe(5);
+    if (m.version !== 5) throw new Error("expected V5 manifest");
+    expect(m.refundAddress).toBe(address("66"));
+    expect(m.refundScriptPublicKeyHex).toBe("0000" + sdk.payToAddressScript(address("66")).script);
+
+    const prepared = buildPrototypeTransaction({
+      manifest: m,
+      mode: "refund",
+      phase: "open",
+      utxo,
+      // A caller-supplied destination must never override the committed one.
+      refundAddress: address("55"),
+    });
+    const tx = JSON.parse(prepared.transactionSafeJson);
+    expect(tx.inputs).toHaveLength(1);
+    expect(tx.outputs).toEqual([
+      expect.objectContaining({
+        value: "101000000",
+        scriptPublicKey: m.refundScriptPublicKeyHex,
+      }),
+    ]);
+    expect(tx.lockTime).toBe(m.refundDaa);
+    expect(BigInt(prepared.feeSompi)).toBeGreaterThan(BigInt(prepared.minimumFeeSompi));
+    expect(() => prototypeTerms({ ...m, refundAddress: address("55") })).toThrow(/committed/);
+  });
+
+  it("requires a valid mainnet return wallet before creating a public giveaway", () => {
+    const input = {
+      publicTitle: "Automatic return test",
+      prizeSompi: "100000000",
+      addresses: [],
+    };
+    expect(prototypeCreateSchema.safeParse(input).success).toBe(false);
+    expect(() =>
+      createPrototypeManifest(
+        { ...input, refundAddress: "kaspatest:invalid" },
+        { daa: 1n, blueScore: 1n, platformPublicKeyHex: publicKey.toString() },
+      ),
+    ).toThrow(/mainnet/);
   });
 });
 

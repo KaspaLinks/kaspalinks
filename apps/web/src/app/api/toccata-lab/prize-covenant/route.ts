@@ -94,7 +94,12 @@ export async function GET(request: Request) {
         event: "giveaway.covenant_prototype_submitted",
         AND: [
           { metadata: { path: ["prototypeId"], equals: row.id } },
-          { metadata: { path: ["mode"], equals: "broadcast-refund" } },
+          {
+            OR: [
+              { metadata: { path: ["mode"], equals: "broadcast-refund" } },
+              { metadata: { path: ["mode"], equals: "auto-refund" } },
+            ],
+          },
         ],
       },
       orderBy: { createdAt: "desc" },

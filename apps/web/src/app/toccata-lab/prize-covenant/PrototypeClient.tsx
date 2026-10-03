@@ -5,11 +5,7 @@ import Image from "next/image";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { writeClipboardText } from "@/lib/clipboard";
 import { savePrivateRecoveryFile } from "@/lib/private-recovery-download";
-import {
-  createPrototypeRecoveryKey,
-  signPrototypeRefund,
-  verifyPrototypeRecoveryKey,
-} from "./browser";
+import { signPrototypeRefund, verifyPrototypeRecoveryKey } from "./browser";
 
 import {
   studioState,
@@ -132,11 +128,10 @@ export default function PrototypeClient() {
   }, [selectedId, refresh, run]);
   const create = () =>
     run(async () => {
-      const key = await createPrototypeRecoveryKey();
       const created = await api<Trial>(endpoint, {
         action: "create",
         input: {
-          creatorPublicKeyHex: key.publicKeyHex,
+          refundAddress,
           prizeSompi: prize,
           durationMinutes,
           addresses: [],
@@ -144,8 +139,8 @@ export default function PrototypeClient() {
         },
       });
       setTrials((current) => [created, ...current]);
-      setRecovery({ id: created.id, privateKeyHex: key.privateKeyHex });
-      setSaved(false);
+      setRecovery(null);
+      setSaved(true);
       setTxId(null);
       await refresh(created.id);
     });
@@ -162,7 +157,19 @@ export default function PrototypeClient() {
     });
   const recover = (phase: "open" | "frozen") =>
     run(async () => {
-      if (!detail || recovery?.id !== detail.id)
+      if (!detail) return;
+      if (detail.manifest.version === 5) {
+        const result = await api<{ transactionId: string }>(endpoint, {
+          action: "auto-refund",
+          id: detail.id,
+          phase,
+        });
+        setTxId(result.transactionId);
+        setMessage("Automatic return submitted. Refresh after confirmation.");
+        await refresh(detail.id);
+        return;
+      }
+      if (recovery?.id !== detail.id)
         throw new Error("Import this prototype's recovery file first.");
       const prepared = await api<{ transactionSafeJson: string }>(endpoint, {
         action: "prepare-refund",
@@ -209,7 +216,9 @@ export default function PrototypeClient() {
       active = false;
     };
   }, [fundingUri]);
-  const backedUp = Boolean(detail && saved && recovery?.id === detail.id);
+  const backedUp = Boolean(
+    detail && (detail.manifest.version === 5 || (saved && recovery?.id === detail.id)),
+  );
   const state = detail ? studioState(detail, chainFresh, backedUp) : "backup";
   const step = detail ? studioStep(studioState(detail, true, backedUp)) : 0;
   const confirmed = state === "paid" || state === "refunded";
@@ -301,6 +310,8 @@ export default function PrototypeClient() {
   const importRecovery = (file: File) =>
     run(async () => {
       if (!detail) return;
+      if (detail.manifest.version === 5)
+        throw new Error("This giveaway returns automatically and has no recovery file.");
       if (file.size > 100_000) throw new Error("Recovery file is too large.");
       const data = JSON.parse(await file.text());
       if (
@@ -361,7 +372,16 @@ export default function PrototypeClient() {
   );
   const returnForm = detail && (
     <div className="studio-return">
-      {recovery?.id !== detail.id ? (
+      {detail.manifest.version === 5 ? (
+        <div className="studio-hint">
+          <strong>Committed return wallet</strong>
+          <p className="studio-address">{detail.manifest.refundAddress}</p>
+          <p>
+            SilverScript permits this return only to the wallet chosen before funding. No key or
+            recovery file is needed.
+          </p>
+        </div>
+      ) : recovery?.id !== detail.id ? (
         <>
           <p>Choose the recovery file you saved for this giveaway.</p>
           {upload}
@@ -369,17 +389,19 @@ export default function PrototypeClient() {
       ) : (
         <p className="studio-check">✓ Recovery file matched</p>
       )}
-      <label className="field">
-        <span className="label">Return KAS to this wallet address</span>
-        <input
-          value={refundAddress}
-          onChange={(e) => setRefundAddress(e.target.value)}
-          placeholder="kaspa:…"
-          autoCapitalize="none"
-          spellCheck={false}
-          disabled={busy}
-        />
-      </label>
+      {detail.manifest.version !== 5 && (
+        <label className="field">
+          <span className="label">Return KAS to this wallet address</span>
+          <input
+            value={refundAddress}
+            onChange={(e) => setRefundAddress(e.target.value)}
+            placeholder="kaspa:…"
+            autoCapitalize="none"
+            spellCheck={false}
+            disabled={busy}
+          />
+        </label>
+      )}
       <button
         className="btn btn-primary"
         disabled={
@@ -388,15 +410,16 @@ export default function PrototypeClient() {
           !returnPhase ||
           state === "refunding" ||
           (state === "drawing" && Boolean(detail.payout)) ||
-          recovery?.id !== detail.id ||
-          !refundAddress.trim()
+          (detail.manifest.version !== 5 && (recovery?.id !== detail.id || !refundAddress.trim()))
         }
         onClick={() => returnPhase && void recover(returnPhase)}
       >
-        Return KAS to my wallet
+        {detail.manifest.version === 5 ? "Retry automatic return" : "Return KAS to my wallet"}
       </button>
       <p className="studio-caption">
-        Fee: 0.01 KAS per refund. Signing happens only in this browser.
+        {detail.manifest.version === 5
+          ? "Fee: 0.01 KAS. The worker normally submits this automatically."
+          : "Fee: 0.01 KAS per refund. Signing happens only in this browser."}
       </p>
     </div>
   );
@@ -418,7 +441,10 @@ export default function PrototypeClient() {
         <p>Create a prize, share your link, and let the giveaway run.</p>
       </header>
       <ol className="studio-steps" aria-label="Giveaway setup progress">
-        {["Set up", "Save recovery", "Fund prize", "Share & track"].map((label, index) => (
+        {(detail?.manifest.version === 5 || !detail
+          ? ["Set up", "Return wallet", "Fund prize", "Share & track"]
+          : ["Set up", "Save recovery", "Fund prize", "Share & track"]
+        ).map((label, index) => (
           <li
             key={label}
             aria-current={index === step ? "step" : undefined}
@@ -516,6 +542,23 @@ export default function PrototypeClient() {
                       ))}
                     </select>
                   </label>
+                  <label className="field">
+                    <span className="label">Return wallet</span>
+                    <input
+                      id="refund-address"
+                      placeholder="kaspa:…"
+                      required
+                      value={refundAddress}
+                      onChange={(e) => setRefundAddress(e.target.value.trim())}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      disabled={busy}
+                    />
+                    <small>
+                      If no winner can be paid, SilverScript returns the KAS only to this address.
+                    </small>
+                  </label>
                   <div className="studio-cost">
                     <span>Total funding</span>
                     <strong>{kas(total)}</strong>
@@ -523,7 +566,12 @@ export default function PrototypeClient() {
                   </div>
                   <button
                     className="btn btn-primary studio-primary"
-                    disabled={busy || !accessReady || title.trim().length < 3}
+                    disabled={
+                      busy ||
+                      !accessReady ||
+                      title.trim().length < 3 ||
+                      !refundAddress.startsWith("kaspa:")
+                    }
                   >
                     Review giveaway →
                   </button>
@@ -548,11 +596,16 @@ export default function PrototypeClient() {
                       <dt>Total to fund</dt>
                       <dd>{kas(total)}</dd>
                     </div>
+                    <div>
+                      <dt>Automatic return</dt>
+                      <dd className="studio-address">{refundAddress}</dd>
+                    </div>
                   </dl>
                   <div className="studio-hint">
                     <strong>Your timer starts when you create.</strong>
                     <p>
-                      Have your wallet ready. Next, save recovery and fund before entries close.
+                      Have your wallet ready. Next, fund before entries close. The return address
+                      cannot be changed after creation.
                     </p>
                   </div>
                   <div className="studio-actions">
@@ -561,10 +614,10 @@ export default function PrototypeClient() {
                     </button>
                     <button
                       className="btn btn-primary"
-                      disabled={busy || !accessReady}
+                      disabled={busy || !accessReady || !refundAddress.startsWith("kaspa:")}
                       onClick={() => void create()}
                     >
-                      {busy ? "Creating…" : "Create & save recovery →"}
+                      {busy ? "Creating…" : "Create giveaway →"}
                     </button>
                   </div>
                 </div>
@@ -583,8 +636,8 @@ export default function PrototypeClient() {
               <h2>How it works</h2>
               <ol>
                 <li>
-                  <strong>Save your recovery file</strong>
-                  <span>Keep control if the prize needs to come back.</span>
+                  <strong>Choose your return wallet</strong>
+                  <span>SilverScript locks this destination before funding.</span>
                 </li>
                 <li>
                   <strong>Fund the prize</strong>
@@ -596,7 +649,7 @@ export default function PrototypeClient() {
                 </li>
               </ol>
               <p className="studio-caption">
-                No participants? Recover after the empty list is confirmed.
+                No participants? The prize returns automatically after the empty list is confirmed.
               </p>
             </section>
             <section className="card studio-history">
@@ -777,7 +830,7 @@ export default function PrototypeClient() {
                 </div>
                 {share}
                 <p className="studio-caption">
-                  {detail.manifest.version === 4
+                  {detail.manifest.version >= 4
                     ? "The draw and payout run automatically. You can close this page."
                     : "This older giveaway needs you to freeze and draw under Advanced below."}
                 </p>
@@ -840,12 +893,14 @@ export default function PrototypeClient() {
                   </span>
                   <h3>No entries this time</h3>
                   <p>
-                    {detail.manifest.version === 4
-                      ? "We’re confirming the empty list. Your refund action will appear here automatically."
-                      : `Recovery unlocks in approximately ${remainingTime(detail.manifest.refundDaa, detail.chain.daa)} under this giveaway’s original rules.`}
+                    {detail.manifest.version === 5
+                      ? `We’re confirming the empty list. The KAS will return automatically to ${detail.manifest.refundAddress}.`
+                      : detail.manifest.version === 4
+                        ? "We’re confirming the empty list. Your refund action will appear here automatically."
+                        : `Recovery unlocks in approximately ${remainingTime(detail.manifest.refundDaa, detail.chain.daa)} under this giveaway’s original rules.`}
                   </p>
                 </div>
-                {recovery?.id !== detail.id && (
+                {detail.manifest.version !== 5 && recovery?.id !== detail.id && (
                   <>
                     <p>You can select your recovery file while you wait.</p>
                     {upload}
@@ -859,7 +914,7 @@ export default function PrototypeClient() {
                 </span>
                 <h3>Entries closed · drawing the winner</h3>
                 <p>
-                  {detail.manifest.version === 4
+                  {detail.manifest.version >= 4
                     ? "The list is being locked and the committed randomness block confirmed. The winner is paid automatically."
                     : "Use the manual controls under Advanced to finish this older giveaway."}
                 </p>
@@ -921,13 +976,13 @@ export default function PrototypeClient() {
           <details className="card studio-advanced">
             <summary>Advanced · recovery & transaction details</summary>
             <div className="studio-advanced-body">
-              {recovery?.id === detail.id && (
+              {detail.manifest.version !== 5 && recovery?.id === detail.id && (
                 <button className="btn" disabled={busy} onClick={() => void saveRecovery()}>
                   Save recovery file again
                 </button>
               )}
-              {manualRecoveryBlock}
-              {upload}
+              {detail.manifest.version !== 5 && manualRecoveryBlock}
+              {detail.manifest.version !== 5 && upload}
               {!confirmed && state !== "refund" && returnForm}
               <h3>Manual processing</h3>
               <p className="studio-caption">
@@ -970,6 +1025,12 @@ export default function PrototypeClient() {
                 </button>
               </div>
               <dl className="studio-summary">
+                {detail.manifest.version === 5 && (
+                  <div>
+                    <dt>Committed return wallet</dt>
+                    <dd className="studio-address">{detail.manifest.refundAddress}</dd>
+                  </div>
+                )}
                 <div>
                   <dt>Close DAA</dt>
                   <dd>{detail.manifest.closesAtDaa}</dd>
@@ -1004,9 +1065,10 @@ export default function PrototypeClient() {
         <p>
           Funds go into the SilverScript covenant. Two processing fees of 0.01 KAS are reserved;
           funding-wallet fees are separate. The platform confirms the participant list and
-          randomness block. New giveaways run automatically after closing and block confirmation. A
-          confirmed empty list enables browser-signed recovery; other unspent prizes use the
-          committed fallback deadline. Keep your recovery file private.
+          randomness block. New giveaways run automatically after closing and block confirmation.
+          The return wallet is committed before funding. If no winner can be paid, the covenant
+          permits only the exact remaining balance, minus 0.01 KAS, to that wallet. Anyone can
+          submit that transaction, but nobody can redirect it.
         </p>
       </details>
     </main>

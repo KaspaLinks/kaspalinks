@@ -3,7 +3,9 @@ import { z } from "zod";
 import {
   buildGiveawayPrizeV3Address,
   buildGiveawayPrizeV4Address,
+  buildGiveawayPrizeV5Address,
   GIVEAWAY_PRIZE_V3_DISPATCH_TAGS,
+  GIVEAWAY_PRIZE_V5_DISPATCH_TAGS,
 } from "@kaspa-actions/kaspa";
 import {
   giveawayV3Draw,
@@ -12,6 +14,7 @@ import {
   giveawayV3FrozenStateHash,
   giveawayV3OpenStateHash,
   giveawayV3ParamsHash,
+  giveawayV5ParamsHash,
 } from "./giveaway-prize-v3-proof";
 
 const kaspa = createRequire(import.meta.url)("kaspa-wasm") as typeof import("kaspa-wasm");
@@ -35,7 +38,8 @@ export const prototypeCreateSchema = z
       ])
       .optional(),
     publicTitle: z.string().trim().min(3).max(100).optional(),
-    creatorPublicKeyHex: hex32,
+    creatorPublicKeyHex: hex32.optional(),
+    refundAddress: z.string().trim().min(20).max(150).optional(),
     prizeSompi: decimal.refine(
       (v) => BigInt(v) >= 20_000_000n && BigInt(v) <= 100_000_000n,
       "Prototype prize must be between 0.2 and 1 KAS.",
@@ -43,35 +47,48 @@ export const prototypeCreateSchema = z
     addresses: z.array(z.string().trim().min(20).max(150)).max(100),
   })
   .strict()
-  .refine(
-    (v) => (v.publicTitle ? v.addresses.length === 0 : v.addresses.length >= 2),
-    "Public giveaways start with an empty list; fixed trials need at least two addresses.",
-  );
-export const prototypeManifestSchema = z
-  .object({
-    version: z.union([z.literal(3), z.literal(4)]),
-    network: z.literal("mainnet"),
-    creatorPublicKeyHex: hex32,
-    platformPublicKeyHex: hex32,
-    prizeSompi: decimal,
-    drawFeeSompi: z.literal("1000000"),
-    freezeFeeSompi: z.literal("1000000"),
-    closesAtDaa: decimal,
-    refundDaa: decimal,
-    entropyTargetBlueScore: decimal,
-    entries: z
-      .array(
-        z
-          .object({
-            address: z.string(),
-            scriptPublicKeyHex: z.string().regex(/^0000[0-9a-f]+$/),
-            hash: hex32,
-          })
-          .strict(),
-      )
-      .max(100),
-  })
-  .strict();
+  .superRefine((v, ctx) => {
+    if (v.publicTitle && v.addresses.length !== 0)
+      ctx.addIssue({ code: "custom", message: "Public giveaways start with an empty list." });
+    if (v.publicTitle && !v.refundAddress)
+      ctx.addIssue({ code: "custom", message: "Public giveaways need a return address." });
+    if (!v.publicTitle && v.addresses.length < 2)
+      ctx.addIssue({ code: "custom", message: "Fixed trials need at least two addresses." });
+    if (!v.publicTitle && !v.creatorPublicKeyHex)
+      ctx.addIssue({ code: "custom", message: "Fixed trials need a recovery public key." });
+  });
+const prototypeManifestBase = z.object({
+  network: z.literal("mainnet"),
+  platformPublicKeyHex: hex32,
+  prizeSompi: decimal,
+  drawFeeSompi: z.literal("1000000"),
+  freezeFeeSompi: z.literal("1000000"),
+  closesAtDaa: decimal,
+  refundDaa: decimal,
+  entropyTargetBlueScore: decimal,
+  entries: z
+    .array(
+      z
+        .object({
+          address: z.string(),
+          scriptPublicKeyHex: z.string().regex(/^0000[0-9a-f]+$/),
+          hash: hex32,
+        })
+        .strict(),
+    )
+    .max(100),
+});
+export const prototypeManifestSchema = z.discriminatedUnion("version", [
+  prototypeManifestBase.extend({ version: z.literal(3), creatorPublicKeyHex: hex32 }).strict(),
+  prototypeManifestBase.extend({ version: z.literal(4), creatorPublicKeyHex: hex32 }).strict(),
+  prototypeManifestBase
+    .extend({
+      version: z.literal(5),
+      refundAddress: z.string().trim().min(20).max(150),
+      refundScriptPublicKeyHex: z.string().regex(/^0000[0-9a-f]+$/),
+    })
+    .strict(),
+]);
 export type PrototypeManifest = z.infer<typeof prototypeManifestSchema>;
 export const prototypeEntropySchema = z
   .object({ blockHash: hex32, blockBlueScore: decimal, seedHex: hex32 })
@@ -86,10 +103,14 @@ export type PrototypeUtxo = {
 export type PrototypeMode = "freeze" | "draw" | "refund";
 
 function addressScript(address: string): string {
-  const parsed = new kaspa.Address(address);
-  if (parsed.prefix !== "kaspa") throw new Error("Only mainnet addresses are supported.");
-  const spk = kaspa.payToAddressScript(parsed);
-  return "0000" + spk.script;
+  try {
+    const parsed = new kaspa.Address(address);
+    if (parsed.prefix !== "kaspa") throw new Error();
+    const spk = kaspa.payToAddressScript(parsed);
+    return "0000" + spk.script;
+  } catch {
+    throw new Error("Only valid mainnet addresses are supported.");
+  }
 }
 
 export function createPrototypeManifest(
@@ -100,14 +121,20 @@ export function createPrototypeManifest(
     platformPublicKeyHex: string;
   },
 ): PrototypeManifest {
-  // Parsing as an x-only curve point prevents funding a permanently unrefundable key.
-  new kaspa.XOnlyPublicKey(input.creatorPublicKeyHex);
+  // Legacy fixed trials still use a creator recovery signature.
+  if (!input.publicTitle) new kaspa.XOnlyPublicKey(input.creatorPublicKeyHex!);
   const entries = prototypeEntries(input.addresses);
   const duration = BigInt(input.durationMinutes ?? 5) * 600n;
+  const refund = input.publicTitle
+    ? {
+        refundAddress: input.refundAddress!,
+        refundScriptPublicKeyHex: addressScript(input.refundAddress!),
+      }
+    : {};
   return prototypeManifestSchema.parse({
-    creatorPublicKeyHex: input.creatorPublicKeyHex,
+    ...(input.publicTitle ? refund : { creatorPublicKeyHex: input.creatorPublicKeyHex! }),
     prizeSompi: input.prizeSompi,
-    version: input.publicTitle ? 4 : 3,
+    version: input.publicTitle ? 5 : 3,
     network: "mainnet",
     platformPublicKeyHex: chain.platformPublicKeyHex,
     entries,
@@ -132,17 +159,33 @@ export function prototypeEntries(addresses: string[]) {
 }
 
 export function prototypeTerms(m: PrototypeManifest) {
-  const paramsHashHex = giveawayV3ParamsHash({
-    prizeSompi: BigInt(m.prizeSompi),
-    drawFeeSompi: BigInt(m.drawFeeSompi),
-    closesAtDaa: BigInt(m.closesAtDaa),
-    refundDaa: BigInt(m.refundDaa),
-    creatorPublicKeyHex: m.creatorPublicKeyHex,
-  });
+  if (m.version === 5 && addressScript(m.refundAddress) !== m.refundScriptPublicKeyHex)
+    throw new Error("Refund address does not match its committed script.");
+  const paramsHashHex =
+    m.version === 5
+      ? giveawayV5ParamsHash({
+          prizeSompi: BigInt(m.prizeSompi),
+          drawFeeSompi: BigInt(m.drawFeeSompi),
+          closesAtDaa: BigInt(m.closesAtDaa),
+          refundDaa: BigInt(m.refundDaa),
+          refundScriptPublicKeyHex: m.refundScriptPublicKeyHex,
+        })
+      : giveawayV3ParamsHash({
+          prizeSompi: BigInt(m.prizeSompi),
+          drawFeeSompi: BigInt(m.drawFeeSompi),
+          closesAtDaa: BigInt(m.closesAtDaa),
+          refundDaa: BigInt(m.refundDaa),
+          creatorPublicKeyHex: m.creatorPublicKeyHex,
+        });
   const entriesRootHex = m.entries.length
     ? giveawayV3EntriesRoot(m.entries.map((e) => e.hash))
     : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-  const buildAddress = m.version === 4 ? buildGiveawayPrizeV4Address : buildGiveawayPrizeV3Address;
+  const buildAddress =
+    m.version === 5
+      ? buildGiveawayPrizeV5Address
+      : m.version === 4
+        ? buildGiveawayPrizeV4Address
+        : buildGiveawayPrizeV3Address;
   const open = buildAddress({
     platformPublicKeyHex: m.platformPublicKeyHex,
     stateHashHex: giveawayV3OpenStateHash(paramsHashHex),
@@ -174,19 +217,23 @@ export function prototypeWitness(
   m: PrototypeManifest,
   mode: PrototypeMode,
   phase: "open" | "frozen",
-  signatureHex: string,
+  signatureHex?: string,
   entropy?: PrototypeEntropy,
 ): { signatureScriptHex: string; winnerAddress: string | null } {
-  if (!new RegExp(`^[0-9a-f]{${mode === "refund" ? 130 : 128}}$`).test(signatureHex))
+  const keylessRefund = m.version === 5 && mode === "refund";
+  if (
+    !keylessRefund &&
+    !new RegExp(`^[0-9a-f]{${mode === "refund" ? 130 : 128}}$`).test(signatureHex ?? "")
+  )
     throw new Error("Invalid signature length.");
   const terms = prototypeTerms(m);
   const args = [
-    signatureHex,
+    ...(keylessRefund ? [] : [signatureHex!]),
     le8(m.prizeSompi),
     le8(m.drawFeeSompi),
     le8(m.closesAtDaa),
     le8(m.refundDaa),
-    m.creatorPublicKeyHex,
+    m.version === 5 ? m.refundScriptPublicKeyHex : m.creatorPublicKeyHex,
   ];
   let winnerAddress: string | null = null;
   if (mode === "freeze") args.push(terms.entriesRootHex, "00".repeat(32));
@@ -213,7 +260,9 @@ export function prototypeWitness(
     );
   const witness = new kaspa.ScriptBuilder({ flags: { covenantsEnabled: true } });
   args.forEach((arg) => witness.addData(arg));
-  witness.addData(GIVEAWAY_PRIZE_V3_DISPATCH_TAGS[mode]);
+  witness.addData(
+    m.version === 5 ? GIVEAWAY_PRIZE_V5_DISPATCH_TAGS[mode] : GIVEAWAY_PRIZE_V3_DISPATCH_TAGS[mode],
+  );
   // The legacy free function uses pre-Toccata limits and rejects this 746-byte script.
   const redeem = kaspa.ScriptBuilder.fromScript(terms[phase].redeemScriptHex, {
     flags: { covenantsEnabled: true },
@@ -229,7 +278,7 @@ export function buildPrototypeTransaction(input: {
   mode: PrototypeMode;
   phase: "open" | "frozen";
   utxo: PrototypeUtxo;
-  signatureHex: string;
+  signatureHex?: string;
   entropy?: PrototypeEntropy;
   refundAddress?: string;
 }) {
@@ -244,10 +293,12 @@ export function buildPrototypeTransaction(input: {
   if (mode !== "refund" && utxo.amount !== expectedAmount)
     throw new Error("Funding amount must match the prototype exactly.");
   const witness = prototypeWitness(m, mode, phase, input.signatureHex, input.entropy);
+  const refundAddress =
+    mode === "refund" && m.version === 5 ? m.refundAddress : (input.refundAddress ?? "");
   const outputScript =
     mode === "freeze"
       ? terms.frozen.scriptPublicKeyHex
-      : addressScript(mode === "draw" ? witness.winnerAddress! : (input.refundAddress ?? ""));
+      : addressScript(mode === "draw" ? witness.winnerAddress! : refundAddress);
   if (BigInt(utxo.amount) <= PROTOTYPE_FEE_SOMPI)
     throw new Error("Output cannot cover the reserved recovery fee.");
   const value =
@@ -321,7 +372,7 @@ export function validatePrototypeRefundTransaction(
 }
 
 export function prototypeRefundDaa(m: PrototypeManifest, phase: "open" | "frozen") {
-  return m.version === 4 && phase === "frozen" && m.entries.length === 0
+  return m.version >= 4 && phase === "frozen" && m.entries.length === 0
     ? m.closesAtDaa
     : m.refundDaa;
 }

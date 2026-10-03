@@ -162,6 +162,33 @@ export function giveawayV3ParamsHash(params: {
   ).toString("hex");
 }
 
+/**
+ * V5 commits to the exact return script instead of a recovery public key.
+ * This lets anybody submit the deterministic return after its deadline while
+ * preventing the destination or amount from being changed.
+ */
+export function giveawayV5ParamsHash(params: {
+  prizeSompi: bigint;
+  drawFeeSompi: bigint;
+  closesAtDaa: bigint;
+  refundDaa: bigint;
+  refundScriptPublicKeyHex: string;
+}): string {
+  if (params.prizeSompi <= 0n || params.drawFeeSompi <= 0n) {
+    throw new Error("Prize and draw fee must be positive.");
+  }
+  if (params.closesAtDaa <= 0n || params.refundDaa <= params.closesAtDaa) {
+    throw new Error("Refund must follow the positive entry-close DAA score.");
+  }
+  return sha256(
+    u64le(params.prizeSompi, "Prize"),
+    u64le(params.drawFeeSompi, "Draw fee"),
+    u64le(params.closesAtDaa, "Entry close DAA score"),
+    u64le(params.refundDaa, "Refund DAA score"),
+    requireHex(params.refundScriptPublicKeyHex, "Refund script public key"),
+  ).toString("hex");
+}
+
 /** State before the entry list is frozen. The entry root is still all zeroes. */
 export function giveawayV3OpenStateHash(paramsHashHex: string): string {
   return sha256(

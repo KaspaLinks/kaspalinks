@@ -31,7 +31,10 @@ const manifest = createPrototypeManifest(
     publicTitle: "Public trial",
     addresses: [],
     prizeSompi: "100000000",
-    creatorPublicKeyHex: publicKey,
+    refundAddress: new sdk.PrivateKey("33".repeat(32))
+      .toPublicKey()
+      .toAddress("mainnet")
+      .toString(),
   },
   { daa: 10000n, blueScore: 10000n, platformPublicKeyHex: publicKey },
 );
@@ -103,9 +106,20 @@ describe("public covenant admission", () => {
         }),
       }),
     );
+    const legacyManifest = createPrototypeManifest(
+      {
+        addresses: [
+          new sdk.PrivateKey("44".repeat(32)).toPublicKey().toAddress("mainnet").toString(),
+          new sdk.PrivateKey("55".repeat(32)).toPublicKey().toAddress("mainnet").toString(),
+        ],
+        prizeSompi: "100000000",
+        creatorPublicKeyHex: publicKey,
+      },
+      { daa: 10000n, blueScore: 10000n, platformPublicKeyHex: publicKey },
+    );
     mocks.tx.covenantPrototype.findFirst.mockResolvedValue({
       ...row,
-      manifest: { ...manifest, version: 3 },
+      manifest: { ...legacyManifest, entries: [] },
     });
     await expect(freezePublicCovenant("test", "owner")).rejects.toThrow(/No participants/);
   });

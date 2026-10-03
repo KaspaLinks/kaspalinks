@@ -1,5 +1,5 @@
 export type CovenantDrawProof = {
-  version: 3 | 4;
+  version: 3 | 4 | 5;
   entryHashes: string[];
   entriesRoot: string;
   seedHex: string;

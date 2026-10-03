@@ -29,7 +29,7 @@ export type StudioState =
   | "closed";
 export function studioRefundReady(d: StudioDetail, phase: "open" | "frozen") {
   const threshold =
-    d.manifest.version === 4 && phase === "frozen" && d.manifest.entries.length === 0
+    d.manifest.version >= 4 && phase === "frozen" && d.manifest.entries.length === 0
       ? d.manifest.closesAtDaa
       : d.manifest.refundDaa;
   return (
@@ -55,7 +55,7 @@ export function studioState(d: StudioDetail, fresh: boolean, backedUp: boolean):
   if (d.frozen.length) return "drawing";
   if (d.open.some((e) => e.amount === d.terms.fundingSompi)) return "active";
   if (hasOutputs) return "mismatch";
-  return backedUp ? "fund" : "backup";
+  return backedUp || d.manifest.version === 5 ? "fund" : "backup";
 }
 export function studioStep(state: StudioState) {
   return state === "backup" ? 1 : state === "fund" || state === "mismatch" ? 2 : 3;

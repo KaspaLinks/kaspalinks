@@ -146,7 +146,11 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
         ) : closed && row._count.registrations === 0 ? (
           <div className="giveaway-result-state">
             <h2>No winner this time</h2>
-            <p>The creator can recover the prize under this giveaway's refund rules.</p>
+            <p>
+              {m.version === 5
+                ? "The remaining KAS returns automatically under this giveaway's SilverScript rules."
+                : "The creator can recover the prize under this giveaway's refund rules."}
+            </p>
           </div>
         ) : null}
         <EntryClient
@@ -186,9 +190,11 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
           not guarantee one person per wallet.
         </p>
         <p>
-          {m.version === 4
-            ? "After closing, the server automatically freezes the list and submits the payout when the committed block is confirmed. An empty frozen list allows browser-signed recovery."
-            : "This older giveaway uses creator-triggered freeze and draw, with its original refund deadline."}{" "}
+          {m.version === 5
+            ? "After closing, the server freezes the list and submits the payout automatically. If no winner can be paid, SilverScript permits only a return to the wallet committed before funding."
+            : m.version === 4
+              ? "After closing, the server automatically freezes the list and submits the payout when the committed block is confirmed. An empty frozen list allows browser-signed recovery."
+              : "This older giveaway uses creator-triggered freeze and draw, with its original refund deadline."}{" "}
           The platform attests the list and randomness block; SilverScript enforces the payout.
           Server or chain outages can delay processing.
         </p>

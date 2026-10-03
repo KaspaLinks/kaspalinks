@@ -31,6 +31,13 @@ export const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.enum(["freeze", "draw"]), id: z.string().cuid() }).strict(),
   z
     .object({
+      action: z.literal("auto-refund"),
+      id: z.string().cuid(),
+      phase: z.enum(["open", "frozen"]),
+    })
+    .strict(),
+  z
+    .object({
       action: z.enum(["prepare-refund", "broadcast-refund"]),
       id: z.string().cuid(),
       phase: z.enum(["open", "frozen"]),
@@ -84,7 +91,17 @@ export async function executeCovenantAction(
     const manifest = prototypeManifestSchema.parse(row.manifest);
     const terms = prototypeTerms(manifest);
     const chain = await readPrototypeChain();
-    const refund = input.action === "prepare-refund" || input.action === "broadcast-refund";
+    const refund =
+      input.action === "prepare-refund" ||
+      input.action === "broadcast-refund" ||
+      input.action === "auto-refund";
+    if (input.action === "auto-refund" && manifest.version !== 5)
+      throw new Error("Automatic return is not available for this covenant version.");
+    if (
+      (input.action === "prepare-refund" || input.action === "broadcast-refund") &&
+      manifest.version === 5
+    )
+      throw new Error("This giveaway uses the automatic return path.");
     const phase = refund ? input.phase : input.action === "freeze" ? "open" : "frozen";
     const utxos = await readPrototypeUtxos(terms[phase].address);
     const expectedAmount =
@@ -127,7 +144,9 @@ export async function executeCovenantAction(
       await verifyPrototypeEntropy(entropy);
     }
     const signatureHex = refund
-      ? "00".repeat(65)
+      ? manifest.version === 5
+        ? undefined
+        : "00".repeat(65)
       : input.action === "freeze"
         ? signGiveawayV3EntriesAttestation({
             ...terms,
@@ -145,7 +164,10 @@ export async function executeCovenantAction(
       mode: input.action === "freeze" ? "freeze" : input.action === "draw" ? "draw" : "refund",
       signatureHex,
       entropy,
-      refundAddress: refund ? input.refundAddress : undefined,
+      refundAddress:
+        input.action === "prepare-refund" || input.action === "broadcast-refund"
+          ? input.refundAddress
+          : undefined,
     });
     if (input.action === "prepare-refund") return apiJson({ ...prepared, phase, manifest });
     const transactionSafeJson =
@@ -171,7 +193,7 @@ export async function executeCovenantAction(
     // Never include raw SDK/DB errors, request bodies, or configuration in responses or logs.
     const known =
       error instanceof Error &&
-      /^(This step|The covenant deadline|The draw window|The committed entropy|Entropy |The configured platform key|Funding amount|Each payout address|Only mainnet|Refund must|Signed refund|Reserved fee)/.test(
+      /^(This step|The covenant deadline|The draw window|The committed entropy|Entropy |The configured platform key|Funding amount|Each payout address|Only mainnet|Refund must|Signed refund|Reserved fee|Automatic return|This giveaway uses)/.test(
         error.message,
       );
     return apiError(

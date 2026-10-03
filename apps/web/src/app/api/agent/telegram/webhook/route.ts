@@ -159,7 +159,7 @@ const helpText = [
   "/goal <KAS target> <title> — fundraising target",
   "/giveaway <KAS prize> <duration> <title> — open setup; choose details in the Mini App",
   "",
-  "SilverScript Mini App: set up → save recovery → fund → share.",
+  "SilverScript Mini App: set up → choose return wallet → fund → share.",
   "A KaspaLinks account is optional in Telegram. Prizes: 0.2, 0.5 or 1 KAS; duration up to 24h.",
   "Example: /giveaway 0.5 24h Weekend KAS",
   "Example: /link 5.5 Design payment",
@@ -182,7 +182,7 @@ const telegramOnlyHelpText = [
   "/stop — turn off giveaway result reminders",
   "",
   "Example: /giveaway 0.5 24h Weekend KAS",
-  "The Mini App keeps recovery material on your device. KaspaLinks and Telegram never receive your private key.",
+  "Choose the return wallet before funding. SilverScript can return unspent KAS only to that address; no private key or recovery file is sent to KaspaLinks or Telegram.",
 ].join("\n");
 
 function isTelegramOnlyCreator(creator: { accountKind?: string }) {
@@ -265,7 +265,7 @@ async function executeMenuAction(
               `${row.publicTitle} · ${row._count.registrations} participants\n${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/giveaways/${row.id}`,
           )
           .join("\n\n")
-      : "Create your first SilverScript giveaway below. Save recovery, fund the prize and share your link.";
+      : "Create your first SilverScript giveaway below. Choose a return wallet, fund the prize and share your link.";
   }
   if (action === "giveaways") return "SilverScript giveaways are not enabled for this account yet.";
   if (action === "links") return renderLinks(creatorId);
@@ -706,7 +706,7 @@ async function handleMessage(
     if (isTelegramOnlyCreator(connection.creator)) {
       await client.sendMessage({
         chatId,
-        text: "This Telegram chat is the access to your account-free giveaways, so it cannot be disconnected. Your private recovery material remains only on your device.",
+        text: "This Telegram chat is the access to your account-free giveaways, so it cannot be disconnected. New giveaways use a return wallet committed in SilverScript and need no recovery file.",
       });
       return;
     }

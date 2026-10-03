@@ -15,6 +15,7 @@ import {
   giveawayV3ParamsHash,
   giveawayV3SortEntryHashes,
   giveawayV3WinnerIndex,
+  giveawayV5ParamsHash,
 } from "./giveaway-prize-v3-proof";
 
 const SEED = "5c".repeat(32);
@@ -130,6 +131,22 @@ describe("giveaway v3 proof", () => {
       { ...base, creatorPublicKeyHex: "23".repeat(32) },
     ].map(giveawayV3ParamsHash);
     expect(new Set([...variants, PARAMS]).size).toBe(6);
+  });
+
+  it("binds V5 auto-return terms to the exact destination script", () => {
+    const base = {
+      prizeSompi: 100_000_000n,
+      drawFeeSompi: 1_000_000n,
+      closesAtDaa: 200_000_000n,
+      refundDaa: 200_100_000n,
+      refundScriptPublicKeyHex: "000020" + "44".repeat(32) + "ac",
+    };
+    expect(giveawayV5ParamsHash(base)).not.toBe(
+      giveawayV5ParamsHash({
+        ...base,
+        refundScriptPublicKeyHex: "000020" + "45".repeat(32) + "ac",
+      }),
+    );
   });
 
   it("separates the open and frozen states", () => {

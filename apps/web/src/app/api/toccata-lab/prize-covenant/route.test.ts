@@ -76,6 +76,26 @@ const trial = () => ({
   ),
   entropy: null,
 });
+const publicTrial = () => ({
+  id,
+  manifest: createPrototypeManifest(
+    {
+      publicTitle: "Automatic return test",
+      refundAddress: new sdk.PrivateKey("66".repeat(32))
+        .toPublicKey()
+        .toAddress("mainnet")
+        .toString(),
+      prizeSompi: "100000000",
+      addresses: [],
+    },
+    {
+      daa: 536000000n,
+      blueScore: 535000000n,
+      platformPublicKeyHex: giveawayPrizeV3PlatformPublicKey(),
+    },
+  ),
+  entropy: null,
+});
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv("GIVEAWAY_COVENANT_PROTOTYPE_ENABLED", "true");
@@ -130,7 +150,12 @@ describe("prototype access and transitions", () => {
       creatorId: "creator",
       AND: [
         { metadata: { path: ["prototypeId"], equals: id } },
-        { metadata: { path: ["mode"], equals: "broadcast-refund" } },
+        {
+          OR: [
+            { metadata: { path: ["mode"], equals: "broadcast-refund" } },
+            { metadata: { path: ["mode"], equals: "auto-refund" } },
+          ],
+        },
       ],
     });
   });
@@ -207,6 +232,44 @@ describe("prototype access and transitions", () => {
       ).status,
     ).toBe(409);
     expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+  it("broadcasts V5 auto-return only to the pre-funded committed wallet", async () => {
+    const row = publicTrial();
+    mocks.db.covenantPrototype.findFirst.mockResolvedValue(row);
+    expect((await post({ action: "auto-refund", id, phase: "frozen" })).status).toBe(200);
+    expect(mocks.broadcast).toHaveBeenCalledOnce();
+    const transaction = JSON.parse(mocks.broadcast.mock.calls[0]![0].transactionSafeJson);
+    expect(transaction.outputs).toEqual([
+      expect.objectContaining({
+        value: "100000000",
+        scriptPublicKey:
+          row.manifest.version === 5 ? row.manifest.refundScriptPublicKeyHex : "unreachable",
+      }),
+    ]);
+    expect(mocks.audit).toHaveBeenCalledWith(
+      mocks.db,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ mode: "auto-refund" }),
+      }),
+    );
+  });
+  it("rejects a caller-selected V5 return address and auto-return on legacy contracts", async () => {
+    mocks.db.covenantPrototype.findFirst.mockResolvedValue(publicTrial());
+    expect(
+      (
+        await post({
+          action: "auto-refund",
+          id,
+          phase: "frozen",
+          refundAddress: new sdk.PrivateKey("55".repeat(32))
+            .toPublicKey()
+            .toAddress("mainnet")
+            .toString(),
+        })
+      ).status,
+    ).toBe(400);
+    mocks.db.covenantPrototype.findFirst.mockResolvedValue(trial());
+    expect((await post({ action: "auto-refund", id, phase: "frozen" })).status).toBe(409);
   });
   it("ignores a dust output when selecting the funded covenant output", async () => {
     const row = trial();

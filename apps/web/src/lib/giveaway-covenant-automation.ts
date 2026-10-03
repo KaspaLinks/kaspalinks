@@ -1,9 +1,14 @@
 import { prisma } from "@kaspa-actions/db";
 import { executeCovenantAction } from "./giveaway-covenant-execution";
-import { prototypeManifestSchema, prototypeTerms } from "./giveaway-prize-v3-prototype";
+import {
+  prototypeManifestSchema,
+  prototypeRefundDaa,
+  prototypeTerms,
+} from "./giveaway-prize-v3-prototype";
 import { z } from "zod";
 import {
   readPrototypePayout,
+  readPrototypeRefund,
   readPrototypeChain,
   readPrototypeUtxos,
 } from "./giveaway-prize-v3-chain";
@@ -12,7 +17,10 @@ export async function processCovenantGiveaways(now = new Date()) {
   const due = await prisma.covenantPrototype.findMany({
     where: {
       publicTitle: { not: null },
-      manifest: { path: ["version"], equals: 4 },
+      OR: [
+        { manifest: { path: ["version"], equals: 4 } },
+        { manifest: { path: ["version"], equals: 5 } },
+      ],
       automationFinishedAt: null,
       automationNextAt: { lte: now },
     },
@@ -29,7 +37,7 @@ export async function processCovenantGiveaways(now = new Date()) {
       const m = prototypeManifestSchema.parse(row.manifest);
       const chain = await readPrototypeChain();
       if (chain.daa <= BigInt(m.closesAtDaa)) continue;
-      if (chain.daa >= BigInt(m.refundDaa)) {
+      if (m.version === 4 && chain.daa >= BigInt(m.refundDaa)) {
         await prisma.covenantPrototype.update({
           where: { id: row.id },
           data: { automationFinishedAt: new Date() },
@@ -58,8 +66,62 @@ export async function processCovenantGiveaways(now = new Date()) {
         });
         continue;
       }
+      const refundSubmission = await prisma.auditLog.findFirst({
+        where: {
+          creatorId: row.creatorId,
+          event: "giveaway.covenant_prototype_submitted",
+          AND: [
+            { metadata: { path: ["prototypeId"], equals: row.id } },
+            { metadata: { path: ["mode"], equals: "auto-refund" } },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        select: { metadata: true, createdAt: true },
+      });
+      const refundTx = z
+        .object({ transactionId: z.string().regex(/^[0-9a-f]{64}$/) })
+        .safeParse(refundSubmission?.metadata);
+      if (refundTx.success && (await readPrototypeRefund(refundTx.data.transactionId)).confirmed) {
+        await prisma.covenantPrototype.update({
+          where: { id: row.id },
+          data: { automationFinishedAt: new Date() },
+        });
+        continue;
+      }
+      if (
+        refundTx.success &&
+        refundSubmission &&
+        refundSubmission.createdAt.getTime() > now.getTime() - 120_000
+      )
+        continue;
       const terms = prototypeTerms(m);
       const frozen = await readPrototypeUtxos(terms.frozen.address);
+      if (m.version === 5) {
+        const frozenReady =
+          chain.daa > BigInt(prototypeRefundDaa(m, "frozen")) &&
+          frozen.some((u) => BigInt(u.amount) > BigInt(m.drawFeeSompi));
+        const open = frozenReady ? [] : await readPrototypeUtxos(terms.open.address);
+        const openReady =
+          chain.daa > BigInt(prototypeRefundDaa(m, "open")) &&
+          open.some((u) => BigInt(u.amount) > BigInt(m.drawFeeSompi));
+        if (frozenReady || openReady) {
+          const response = await executeCovenantAction(
+            {
+              action: "auto-refund",
+              id: row.id,
+              phase: frozenReady ? "frozen" : "open",
+            },
+            row.creatorId,
+            "SYSTEM",
+          );
+          if (response.ok)
+            await prisma.covenantPrototype.update({
+              where: { id: row.id },
+              data: { automationNextAt: new Date(Date.now() + 15_000) },
+            });
+          continue;
+        }
+      }
       if (
         row.entriesFrozenAt &&
         m.entries.length === 0 &&

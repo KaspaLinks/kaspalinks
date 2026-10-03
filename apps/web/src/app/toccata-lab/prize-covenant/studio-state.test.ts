@@ -26,6 +26,17 @@ describe("studio guidance", () => {
     expect(studioState(detail(), true, false)).toBe("backup");
     expect(studioState(detail(), true, true)).toBe("fund");
   });
+  it("takes V5 directly to funding because its return needs no recovery key", () => {
+    const d = detail();
+    if (d.manifest.version === 5) throw new Error("fixture must be legacy");
+    d.manifest = {
+      ...d.manifest,
+      version: 5,
+      refundAddress: "kaspa:return",
+      refundScriptPublicKeyHex: "000051",
+    } as StudioDetail["manifest"];
+    expect(studioState(d, true, false)).toBe("fund");
+  });
   it("distinguishes exact funding from dust or wrong amount", () => {
     const d = detail();
     d.open = [{ amount: "1" }];

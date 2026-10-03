@@ -468,7 +468,7 @@ describe("SilverScript bot handoff", () => {
       "/disconnect",
     ])
       expect(sent.text).toContain(command);
-    expect(sent.text).toContain("set up → save recovery → fund → share");
+    expect(sent.text).toContain("set up → choose return wallet → fund → share");
     expect(JSON.stringify(sent.buttons)).toContain("/toccata-lab/prize-covenant");
     expect(JSON.stringify(sent.buttons)).not.toContain("/toccata-lab/giveaway");
   });
