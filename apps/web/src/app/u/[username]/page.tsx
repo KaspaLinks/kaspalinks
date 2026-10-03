@@ -39,9 +39,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     return { title: "Creator profile" };
   }
 
-  const creator = await prisma.creator.findUnique({
+  const creator = await prisma.creator.findFirst({
     select: { bio: true, displayName: true, username: true },
-    where: { username: normalized },
+    where: { accountKind: "REGISTERED", username: normalized },
   });
 
   if (!creator) {
@@ -108,8 +108,8 @@ export default async function CreatorProfilePage({ params }: PageProps) {
     notFound();
   }
 
-  const creator = await prisma.creator.findUnique({
-    where: { username: normalized },
+  const creator = await prisma.creator.findFirst({
+    where: { accountKind: "REGISTERED", username: normalized },
   });
 
   if (!creator) {

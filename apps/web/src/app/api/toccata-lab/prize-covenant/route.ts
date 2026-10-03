@@ -18,7 +18,10 @@ async function guardRequest(request: Request) {
       ok: false as const,
       response: apiError(ErrorCodes.NOT_FOUND, "Prototype is disabled.", 404),
     };
-  const guard = await requireCreator(request, prisma, { allowTelegramMiniApp: true });
+  const guard = await requireCreator(request, prisma, {
+    allowTelegramMiniApp: true,
+    allowTelegramOnly: true,
+  });
   if (!guard.ok) return guard;
   if (!guard.creator.prizeCovenantEnabled)
     return {

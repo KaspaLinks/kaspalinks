@@ -12,9 +12,9 @@ prepare browser handoffs. It never receives or stores wallet keys, seed phrases,
 refund codes, recovery bundles, or signed wallet credentials. It never signs or broadcasts a
 Creator transaction.
 
-`/giveaway` creates a ten-minute Giveaway Setup Draft containing only amount, title, entry window,
-and winner-claim window. The Creator completes prize funding, recovery setup, and browser signing
-on the existing Giveaway page. Claimable Links and Claim Drops do not enter the payment notification pipeline.
+`/giveaway` opens the SilverScript Mini App. The user completes prize setup, recovery and funding
+in the browser; the bot never receives the recovery key. Claimable Links and Claim Drops do not
+enter the payment notification pipeline.
 Public Giveaway result subscriptions use their own opt-in model and outbox kind; see
 [Telegram giveaways](telegram-giveaways.md).
 
@@ -46,6 +46,19 @@ renamed or beta access later expands.
 Telegram usernames are display metadata only and are never authentication identifiers. Group and
 channel messages are ignored. Each `update_id` is durably deduplicated, and callback ownership is
 checked against the connected Telegram user and private chat.
+
+### Account-free SilverScript giveaways
+
+`/start`, `/help`, `/giveaway`, or `/giveaways` can create a private `TELEGRAM_ONLY` workspace when
+SilverScript giveaways are enabled. Telegram's signed, recent Mini App `initData` authenticates the
+workspace; no public Creator profile, Creator token, username selection, or connection code is
+required. The internal owner exists only to preserve the existing resource ownership and audit
+boundaries.
+
+Telegram-only authorization is accepted only by the SilverScript prize-covenant route. Payment
+links, payment history, stats, Claimable Links and Escrow still require a normally connected
+Creator account. `/disconnect` cannot orphan a Telegram-only workspace. The private recovery key
+remains in the Mini App browser and is never stored by Telegram or KaspaLinks.
 
 ## Commands
 

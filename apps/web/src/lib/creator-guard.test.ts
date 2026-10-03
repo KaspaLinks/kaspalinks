@@ -82,4 +82,35 @@ describe("requireCreator Telegram Mini App scope", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(401);
   });
+
+  it("limits Telegram-only identities to routes that explicitly allow giveaway workspaces", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", BOT_TOKEN);
+    const creator = {
+      accountKind: "TELEGRAM_ONLY",
+      id: "creator-tg",
+      telegramBetaEnabled: true,
+      username: "tg_internal",
+    };
+    const prisma = {
+      telegramConnection: {
+        findUnique: vi.fn().mockResolvedValue({ creator, creatorId: creator.id }),
+      },
+    };
+    const request = new Request("https://kaspalinks.test/api/creator/claimable-links", {
+      headers: { "x-telegram-mini-app-init-data": signedInitData("123") },
+    });
+
+    const rejected = await requireCreator(request, prisma as never, {
+      allowTelegramMiniApp: true,
+    });
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.response.status).toBe(403);
+
+    await expect(
+      requireCreator(request, prisma as never, {
+        allowTelegramMiniApp: true,
+        allowTelegramOnly: true,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ creator, ok: true }));
+  });
 });

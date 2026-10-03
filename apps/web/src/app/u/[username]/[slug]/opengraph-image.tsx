@@ -37,7 +37,7 @@ export default async function CreatorActionOpenGraphImage({ params }: ImageProps
       type: true,
     },
     where: {
-      creator: { username },
+      creator: { accountKind: "REGISTERED", username },
       deletedAt: null,
       slug,
     },

@@ -19,9 +19,9 @@ export default async function ProfileOpenGraphImage({ params }: ImageProps) {
   const { username } = await params;
   const normalized = username.trim().toLowerCase();
 
-  const creator = await prisma.creator.findUnique({
+  const creator = await prisma.creator.findFirst({
     select: { bio: true, displayName: true, username: true },
-    where: { username: normalized },
+    where: { accountKind: "REGISTERED", username: normalized },
   });
 
   if (!creator) {

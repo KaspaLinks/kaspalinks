@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   stopSubscriptions: vi.fn(),
   answerCallbackQuery: vi.fn(),
   createGiveawaySetupDraft: vi.fn(),
+  ensureWorkspace: vi.fn(),
   createUpdate: vi.fn(),
   consumeTelegramConnectCode: vi.fn(),
   findConnection: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("@kaspa-actions/application", () => ({
   ApplicationError: class extends Error {},
   consumeTelegramConnectCodeTool: mocks.consumeTelegramConnectCode,
   createGiveawaySetupDraftTool: mocks.createGiveawaySetupDraft,
+  ensureTelegramGiveawayWorkspaceTool: mocks.ensureWorkspace,
   setGiveawayResultSubscription: mocks.subscribe,
   stopGiveawayResultSubscriptions: mocks.stopSubscriptions,
 }));
@@ -119,7 +121,7 @@ describe("Telegram Agent webhook", () => {
     );
   });
 
-  it("explains how an unconnected private chat completes the connection", async () => {
+  it("explains account-free giveaways and optional account connection to an unconnected chat", async () => {
     mocks.findConnection.mockResolvedValue(null);
 
     const response = await POST(
@@ -137,7 +139,7 @@ describe("Telegram Agent webhook", () => {
     expect(response.status).toBe(200);
     expect(mocks.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringContaining("send /connect followed by that code"),
+        text: expect.stringContaining("Use /giveaway"),
       }),
     );
   });
@@ -421,6 +423,20 @@ describe("SilverScript bot handoff", () => {
     mocks.createUpdate.mockResolvedValue({});
     mocks.updateUpdate.mockResolvedValue({});
     mocks.sendMessage.mockResolvedValue({ message_id: 1 });
+    mocks.ensureWorkspace.mockResolvedValue({
+      connection: {
+        creatorId: "creator-tg",
+        telegramChatId: "123",
+        telegramUserId: "123",
+      },
+      created: true,
+      creator: {
+        accountKind: "TELEGRAM_ONLY",
+        id: "creator-tg",
+        prizeCovenantEnabled: true,
+        telegramBetaEnabled: true,
+      },
+    });
     mocks.findConnection.mockResolvedValue({
       creatorId: "creator-1",
       telegramUserId: "123",
@@ -473,6 +489,46 @@ describe("SilverScript bot handoff", () => {
         ]),
       }),
     );
+  });
+  it("creates a Telegram-only workspace before opening SilverScript", async () => {
+    mocks.findConnection.mockResolvedValue(null);
+
+    expect((await POST(request("/giveaway 0.5 24h Test"))).status).toBe(200);
+
+    expect(mocks.ensureWorkspace).toHaveBeenCalledWith(expect.anything(), {
+      telegramChatId: "123",
+      telegramUserId: "123",
+    });
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttons: expect.arrayContaining([
+          [
+            {
+              text: "Create giveaway",
+              web_app: { url: "https://kaspalinks.com/toccata-lab/prize-covenant" },
+            },
+          ],
+        ]),
+      }),
+    );
+  });
+  it("shows giveaway-only help for a Telegram-only workspace", async () => {
+    mocks.findConnection.mockResolvedValue({
+      creatorId: "creator-tg",
+      telegramUserId: "123",
+      telegramChatId: "123",
+      creator: {
+        accountKind: "TELEGRAM_ONLY",
+        prizeCovenantEnabled: true,
+        telegramBetaEnabled: true,
+      },
+    });
+
+    expect((await POST(request("/help"))).status).toBe(200);
+    const sent = mocks.sendMessage.mock.calls[0][0];
+    expect(sent.text).toContain("No KaspaLinks account is required");
+    expect(sent.text).not.toContain("/payments");
+    expect(JSON.stringify(sent.buttons)).toContain("Create giveaway");
   });
   it("lists only the connected creator covenant giveaways and opens management", async () => {
     expect((await POST(request("/giveaways"))).status).toBe(200);

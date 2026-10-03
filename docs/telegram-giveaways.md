@@ -73,10 +73,21 @@ participant, recovery or authorization data is copied. A Creator sign-in or new
 profile preserves the destination, including the template. Issued Creator tokens
 still must be saved by the user and remain in sessionStorage only.
 
-Creator signup remains controlled by the existing deployment setting. This change
-does not bypass the beta allowlist for linking a Creator account to the bot.
-Participants do not need that allowlist. A signed-in web Creator may create and
-fund through the normal browser workflow.
+Creator signup remains controlled by the existing deployment setting for ordinary Creator-owned
+links. SilverScript giveaways can additionally use an account-free Telegram workspace as described
+below. Participants do not need a Creator account or beta allowlist.
+
+## Account-free SilverScript creation
+
+When the covenant feature is enabled, `/start`, `/help`, `/giveaway`, and `/giveaways` provision one
+private `TELEGRAM_ONLY` workspace for an otherwise unconnected Telegram user. The stable numeric
+Telegram user ID and private chat are bound to the workspace; the mutable Telegram username is
+never trusted. The Mini App validates Telegram-signed, recent `initData` on every creator request.
+
+The internal owner has no public profile and cannot use the normal Creator-token login. Its Mini
+App authorization is scoped to the SilverScript prize-covenant endpoint, so it cannot open
+Claimable Link or Escrow creator APIs. No creator token is returned or retained. Recovery material
+and transaction signing stay in the browser exactly as in the connected-Creator flow.
 
 ## Related reliability fixes
 

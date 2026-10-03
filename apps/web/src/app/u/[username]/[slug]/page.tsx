@@ -37,7 +37,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       type: true,
     },
     where: {
-      creator: { username },
+      creator: { accountKind: "REGISTERED", username },
       deletedAt: null,
       slug,
     },
@@ -88,7 +88,7 @@ export default async function CreatorActionPage({ params }: PageProps) {
 
   const action = await prisma.action.findFirst({
     where: {
-      creator: { username },
+      creator: { accountKind: "REGISTERED", username },
       deletedAt: null,
       slug,
     },

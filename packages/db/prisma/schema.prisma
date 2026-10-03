@@ -85,8 +85,14 @@ enum GiveawayStatus {
   CANCELLED
 }
 
+enum CreatorAccountKind {
+  REGISTERED
+  TELEGRAM_ONLY
+}
+
 model Creator {
   id                      String                @id @default(cuid())
+  accountKind             CreatorAccountKind    @default(REGISTERED)
   username                String                @unique
   displayName             String?
   // Short public-facing description shown on /u/<username>. Optional.
@@ -136,6 +142,7 @@ model Creator {
   aiUsageEvents           AiUsageEvent[]
   notificationRules       NotificationRule[]
 
+  @@index([accountKind])
   @@index([tipActionId])
   @@index([createdAt])
 }

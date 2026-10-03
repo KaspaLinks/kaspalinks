@@ -265,6 +265,7 @@ export async function loadActivationFunnel(
       LEFT JOIN first_payment fp ON fp."creatorId" = c.id
       LEFT JOIN first_claim fc ON fc."creatorId" = c.id
       WHERE c."createdAt" >= ${since}
+        AND c."accountKind" = 'REGISTERED'
     `,
     prisma.operatorPageView.findMany({
       select: { seenAt: true, status: true, utmSource: true, visitorDayHash: true },

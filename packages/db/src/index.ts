@@ -26,6 +26,7 @@ export {
   ActionType,
   AgentIntentStatus,
   AuditActorType,
+  CreatorAccountKind,
   GiveawayStatus,
   Network,
   NotificationRuleKind,

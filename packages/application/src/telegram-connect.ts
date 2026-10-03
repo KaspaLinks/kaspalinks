@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { AuditActorType, type PrismaClient } from "@kaspa-actions/db";
+import { AuditActorType, CreatorAccountKind, Prisma, type PrismaClient } from "@kaspa-actions/db";
 
 import type { ActorContext } from "./actor.ts";
 import { ApplicationError } from "./errors.ts";
@@ -8,6 +8,88 @@ import { ApplicationError } from "./errors.ts";
 const CONNECT_CODE_TTL_MS = 10 * 60_000;
 const ATTEMPT_WINDOW_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 8;
+const TELEGRAM_ONLY_USERNAME_PREFIX = "tg_";
+
+function telegramOnlyCreatorData() {
+  return {
+    accountKind: CreatorAccountKind.TELEGRAM_ONLY,
+    prizeCovenantEnabled: true,
+    telegramBetaEnabled: true,
+    // This token is never shown and has no usable plaintext counterpart. Telegram
+    // Mini App initData is the only authentication path for this workspace.
+    tokenHash: randomBytes(32).toString("hex"),
+    username: `${TELEGRAM_ONLY_USERNAME_PREFIX}${randomBytes(12).toString("hex")}`,
+  };
+}
+
+export async function ensureTelegramGiveawayWorkspaceTool(
+  prisma: PrismaClient,
+  input: { telegramChatId: string; telegramUserId: string },
+) {
+  const current = await prisma.telegramConnection.findUnique({
+    include: { creator: true },
+    where: { telegramUserId: input.telegramUserId },
+  });
+  if (current) {
+    if (current.telegramChatId !== input.telegramChatId) {
+      throw new ApplicationError(
+        "TELEGRAM_CHAT_MISMATCH",
+        "This Telegram identity is already connected to another private chat.",
+        409,
+      );
+    }
+    return { connection: current, created: false, creator: current.creator };
+  }
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const existing = await tx.telegramConnection.findUnique({
+        include: { creator: true },
+        where: { telegramUserId: input.telegramUserId },
+      });
+      if (existing) {
+        if (existing.telegramChatId !== input.telegramChatId) {
+          throw new ApplicationError(
+            "TELEGRAM_CHAT_MISMATCH",
+            "This Telegram identity is already connected to another private chat.",
+            409,
+          );
+        }
+        return { connection: existing, created: false, creator: existing.creator };
+      }
+
+      const creator = await tx.creator.create({ data: telegramOnlyCreatorData() });
+      const connection = await tx.telegramConnection.create({
+        data: {
+          creatorId: creator.id,
+          telegramChatId: input.telegramChatId,
+          telegramUserId: input.telegramUserId,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorType: AuditActorType.CREATOR,
+          creatorId: creator.id,
+          event: "agent.telegram_giveaway_workspace_created",
+        },
+      });
+      return { connection, created: true, creator };
+    });
+  } catch (error) {
+    // Two identical Telegram updates can race before webhook deduplication has
+    // settled. Return the winning workspace instead of creating a second owner.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const existing = await prisma.telegramConnection.findUnique({
+        include: { creator: true },
+        where: { telegramUserId: input.telegramUserId },
+      });
+      if (existing?.telegramChatId === input.telegramChatId) {
+        return { connection: existing, created: false, creator: existing.creator };
+      }
+    }
+    throw error;
+  }
+}
 
 export function hashTelegramConnectCode(code: string): string {
   return createHash("sha256").update(code.trim()).digest("hex");

@@ -1,10 +1,11 @@
 import type { PrismaClient } from "@kaspa-actions/db";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { actorContext } from "./actor.ts";
 import {
   consumeTelegramConnectCodeTool,
   createTelegramConnectCodeTool,
+  ensureTelegramGiveawayWorkspaceTool,
   hashTelegramConnectCode,
 } from "./telegram-connect.ts";
 
@@ -255,5 +256,101 @@ describe("Telegram connection codes", () => {
       ),
     ).rejects.toMatchObject({ code: "CONNECT_RATE_LIMITED" });
     expect(state.attempts.get("999")?.attempts).toBe(8);
+  });
+});
+
+describe("account-free Telegram giveaway workspaces", () => {
+  it("creates a private Telegram-only owner and never returns a creator token", async () => {
+    const creator = {
+      accountKind: "TELEGRAM_ONLY",
+      id: "creator-tg",
+      prizeCovenantEnabled: true,
+      telegramBetaEnabled: true,
+      tokenHash: "a".repeat(64),
+      username: "tg_0123456789abcdef01234567",
+    };
+    const connection = {
+      creatorId: creator.id,
+      id: "connection-tg",
+      telegramChatId: "123",
+      telegramUserId: "123",
+    };
+    const tx = {
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+      creator: { create: vi.fn().mockResolvedValue(creator) },
+      telegramConnection: {
+        create: vi.fn().mockResolvedValue(connection),
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) => operation(tx)),
+      telegramConnection: { findUnique: vi.fn().mockResolvedValue(null) },
+    } as unknown as PrismaClient;
+
+    const result = await ensureTelegramGiveawayWorkspaceTool(prisma, {
+      telegramChatId: "123",
+      telegramUserId: "123",
+    });
+
+    expect(result).toEqual({ connection, created: true, creator });
+    expect(tx.creator.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountKind: "TELEGRAM_ONLY",
+        prizeCovenantEnabled: true,
+        telegramBetaEnabled: true,
+        tokenHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        username: expect.stringMatching(/^tg_[0-9a-f]{24}$/),
+      }),
+    });
+    expect(result).not.toHaveProperty("creatorToken");
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        creatorId: creator.id,
+        event: "agent.telegram_giveaway_workspace_created",
+      }),
+    });
+  });
+
+  it("reuses the owner already bound to the signed Telegram identity", async () => {
+    const creator = { accountKind: "TELEGRAM_ONLY", id: "creator-tg" };
+    const connection = {
+      creator,
+      creatorId: creator.id,
+      telegramChatId: "123",
+      telegramUserId: "123",
+    };
+    const prisma = {
+      $transaction: vi.fn(),
+      telegramConnection: { findUnique: vi.fn().mockResolvedValue(connection) },
+    } as unknown as PrismaClient;
+
+    await expect(
+      ensureTelegramGiveawayWorkspaceTool(prisma, {
+        telegramChatId: "123",
+        telegramUserId: "123",
+      }),
+    ).resolves.toEqual({ connection, created: false, creator });
+    expect(
+      (prisma as never as { $transaction: ReturnType<typeof vi.fn> }).$transaction,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("does not move an existing Telegram identity to another private chat", async () => {
+    const prisma = {
+      telegramConnection: {
+        findUnique: vi.fn().mockResolvedValue({
+          creator: { id: "creator-tg" },
+          telegramChatId: "456",
+        }),
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      ensureTelegramGiveawayWorkspaceTool(prisma, {
+        telegramChatId: "123",
+        telegramUserId: "123",
+      }),
+    ).rejects.toMatchObject({ code: "TELEGRAM_CHAT_MISMATCH", status: 409 });
   });
 });

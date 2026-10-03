@@ -26,7 +26,9 @@ export async function POST(request: Request) {
     return apiError(ErrorCodes.INVALID_BODY, formatZodErrorMessage(parsed.error), 400);
   }
 
-  const creator = await prisma.creator.findUnique({ where: { username: parsed.data.username } });
+  const creator = await prisma.creator.findFirst({
+    where: { accountKind: "REGISTERED", username: parsed.data.username },
+  });
   if (!creator || !verifyCreatorToken(parsed.data.token, creator.tokenHash)) {
     await writeAuditLog(prisma, {
       actorType: AuditActorType.CREATOR,

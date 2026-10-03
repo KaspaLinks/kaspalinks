@@ -20,6 +20,7 @@ type CreatorGuardFailure = {
 
 type CreatorGuardOptions = {
   allowTelegramMiniApp?: boolean;
+  allowTelegramOnly?: boolean;
 };
 
 export async function requireCreator(
@@ -73,6 +74,24 @@ export async function requireCreator(
           ErrorCodes.CREATOR_TOKEN_INVALID,
           "This Telegram account is not connected to an enabled KaspaLinks creator.",
           401,
+        ),
+      };
+    }
+
+    if (connection.creator.accountKind === "TELEGRAM_ONLY" && options.allowTelegramOnly !== true) {
+      await writeAuditLog(prisma, {
+        actorType: AuditActorType.CREATOR,
+        creatorId: connection.creatorId,
+        event: "creator.telegram_mini_app_auth_failed",
+        ipHash,
+        metadata: { reason: "telegram_only_scope" },
+      });
+      return {
+        ok: false,
+        response: apiError(
+          ErrorCodes.CREATOR_TOKEN_INVALID,
+          "This Telegram workspace can only access SilverScript giveaways.",
+          403,
         ),
       };
     }

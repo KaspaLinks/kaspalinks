@@ -24,6 +24,7 @@ import {
   createIntentDraftTool,
   createActionTool,
   disconnectTelegramTool,
+  ensureTelegramGiveawayWorkspaceTool,
   getCreatorStatsTool,
   listActionsTool,
   listPaymentsTool,
@@ -159,7 +160,7 @@ const helpText = [
   "/giveaway <KAS prize> <duration> <title> — open setup; choose details in the Mini App",
   "",
   "SilverScript Mini App: set up → save recovery → fund → share.",
-  "Requires account access. Prizes: 0.2, 0.5 or 1 KAS; duration up to 24h.",
+  "A KaspaLinks account is optional in Telegram. Prizes: 0.2, 0.5 or 1 KAS; duration up to 24h.",
   "Example: /giveaway 0.5 24h Weekend KAS",
   "Example: /link 5.5 Design payment",
   "",
@@ -170,6 +171,32 @@ const helpText = [
   "/giveaways — recent giveaways",
   "/disconnect — disconnect this chat",
 ].join("\n");
+
+const telegramOnlyHelpText = [
+  "SilverScript giveaways",
+  "",
+  "Create and manage giveaways with your Telegram account. No KaspaLinks account is required.",
+  "",
+  "/giveaway <KAS prize> <duration> <title> — open setup",
+  "/giveaways — manage your giveaways",
+  "/stop — turn off giveaway result reminders",
+  "",
+  "Example: /giveaway 0.5 24h Weekend KAS",
+  "The Mini App keeps recovery material on your device. KaspaLinks and Telegram never receive your private key.",
+].join("\n");
+
+function isTelegramOnlyCreator(creator: { accountKind?: string }) {
+  return creator.accountKind === "TELEGRAM_ONLY";
+}
+
+function canCreateAccountFreeGiveaway(command: ReturnType<typeof parseTelegramCommand>) {
+  return (
+    command?.kind === "start" ||
+    command?.kind === "help" ||
+    command?.kind === "prepare_giveaway" ||
+    command?.kind === "giveaways"
+  );
+}
 
 function isUniqueUpdateError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
@@ -607,7 +634,9 @@ async function handleMessage(
     if (existing?.telegramChatId === chatId && !existing.blockedAt) {
       await client.sendMessage({
         chatId,
-        text: `Already connected to KaspaLinks creator ${existing.creator.username}. Try /help to continue.`,
+        text: isTelegramOnlyCreator(existing.creator)
+          ? "This chat already has account-free SilverScript giveaway access. Connecting that workspace to a Creator account is not available yet."
+          : `Already connected to KaspaLinks creator ${existing.creator.username}. Try /help to continue.`,
       });
       return;
     }
@@ -629,16 +658,32 @@ async function handleMessage(
     return;
   }
 
-  const connection = await connectedCreator(telegramUserId);
+  let connection = await connectedCreator(telegramUserId);
+  if (!connection && canCreateAccountFreeGiveaway(command)) {
+    if (process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED !== "true") {
+      if (command?.kind === "prepare_giveaway" || command?.kind === "giveaways") {
+        await client.sendMessage({
+          chatId,
+          text: "SilverScript giveaways are temporarily unavailable. Please try again later.",
+        });
+        return;
+      }
+    } else {
+      const workspace = await ensureTelegramGiveawayWorkspaceTool(prisma, {
+        telegramChatId: chatId,
+        telegramUserId,
+      });
+      connection = { ...workspace.connection, creator: workspace.creator };
+    }
+  }
   if (!connection || connection.telegramChatId !== chatId) {
     await client.sendMessage({
       buttons: [[{ text: "Open Agent settings", url: agentSettingsUrl() }]],
       chatId,
       text:
-        "Open a shared giveaway to participate without a Creator account. Use /stop to disable giveaway reminders. " +
-        "To create giveaways from bot commands, connect a Creator account first. Open KaspaLinks Agent settings, generate a new " +
-        "connection code, then tap Start or send /connect followed by that code. Opening the chat " +
-        "alone does not connect it.",
+        "Use /giveaway to create a SilverScript giveaway without a KaspaLinks account. " +
+        "Payment-link, payment and stats commands still require a connected Creator account. " +
+        "Open KaspaLinks Agent settings and send /connect followed by its connection code to use those features.",
     });
     return;
   }
@@ -649,13 +694,22 @@ async function handleMessage(
   }
   if (command.kind === "start" || command.kind === "help") {
     await client.sendMessage({
-      buttons: helpButtons(usesCovenantStudio(connection.creator)),
+      buttons: isTelegramOnlyCreator(connection.creator)
+        ? giveawayAppButtons(usesCovenantStudio(connection.creator))
+        : helpButtons(usesCovenantStudio(connection.creator)),
       chatId,
-      text: helpText,
+      text: isTelegramOnlyCreator(connection.creator) ? telegramOnlyHelpText : helpText,
     });
     return;
   }
   if (command.kind === "disconnect") {
+    if (isTelegramOnlyCreator(connection.creator)) {
+      await client.sendMessage({
+        chatId,
+        text: "This Telegram chat is the access to your account-free giveaways, so it cannot be disconnected. Your private recovery material remains only on your device.",
+      });
+      return;
+    }
     await disconnectTelegramTool(prisma, actorContext(connection.creatorId, "telegram"));
     await client.sendMessage({ chatId, text: "Telegram disconnected from KaspaLinks." });
     return;
@@ -666,6 +720,13 @@ async function handleMessage(
     command.kind === "payments" ||
     command.kind === "stats"
   ) {
+    if (isTelegramOnlyCreator(connection.creator) && command.kind !== "giveaways") {
+      await client.sendMessage({
+        chatId,
+        text: "That command needs a connected KaspaLinks Creator account. Account-free Telegram access currently covers SilverScript giveaways.",
+      });
+      return;
+    }
     await client.sendMessage({
       ...(command.kind === "giveaways"
         ? { buttons: giveawayAppButtons(usesCovenantStudio(connection.creator)) }
