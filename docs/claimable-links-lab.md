@@ -467,6 +467,40 @@ Kaspa Links maximum. Older lab links below 1 KAS can still be resolved for
 claim/refund testing as long as the spend keeps the final output above the
 storage-mass floor.
 
+## Script v2: Auto-Return
+
+Decision record: [ADR 0007](./adr/0007-claimable-links-return-automatically.md). New single
+links (behind `CLAIMABLE_AUTO_RETURN_ENABLED`) replace the refund key with a committed return
+address:
+
+```text
+OpIf     <linkPk> OpCheckSig                                   // claim: unchanged
+OpElse   OpTxLockTime <refundAfter> OpGreaterThanOrEqual OpVerify
+         OpTxInputCount 1 OpNumEqualVerify
+         OpTxOutputCount 1 OpNumEqualVerify
+         0 OpTxOutputSpk <returnSpk> OpEqualVerify
+         0 OpTxOutputAmount OpTxInputIndex OpTxInputAmount <fee> OpSub OpGreaterThanOrEqual
+OpEndIf
+```
+
+- The return branch needs no signature. After expiry anyone may broadcast it, but the only valid
+  transaction pays the single input, minus at most the committed fee, to the return address.
+- One input only: merging two UTXOs of the same address into one output would otherwise satisfy
+  the amount check for the larger input and let the smaller one burn as fee.
+- The fee cap is the link's own claim fee (default 0.002 KAS, at most 0.1 KAS). A stranger who
+  triggers the return can therefore cost the sender at most that fee.
+- The claim branch stays valid after expiry (Kaspa only enforces lower bounds on time), but the
+  Kaspa Links relay stops broadcasting claims once the window has passed.
+- Every UTXO at the address is returned in its own transaction, so overpayments and repeated
+  payments come back too. Dust below the 0.2 KAS output floor stays.
+- The agent worker calls `POST /api/internal/claimable-returns/tick` about once a minute; any
+  visitor can call `POST /api/claimable-links/:linkKey/return`. Keyless transactions are
+  deterministic, so parallel or repeated broadcasts submit the identical transaction.
+- With `CLAIMABLE_ANONYMOUS_ENABLED`, single v2 links can be registered without an account via
+  `POST /api/claimable-links` (rate-limited per IP in memory, nothing IP-derived stored with the
+  link). Unfunded account-free links are deleted a week after expiry once their address is empty.
+- Engine tests: `labs/claimable-script/claimable_autoreturn_tests.rs`.
+
 ## Server Data
 
 Allowed:

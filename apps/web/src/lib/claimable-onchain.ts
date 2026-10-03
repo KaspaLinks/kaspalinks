@@ -107,6 +107,63 @@ export async function isClaimableFundingAddressEmpty(fundingAddress: string): Pr
   return z.array(z.unknown()).parse(await response.json()).length === 0;
 }
 
+export type ClaimableFundingUtxo = {
+  amountSompi: bigint;
+  outputIndex: number;
+  transactionId: string;
+};
+
+/** Every UTXO currently sitting at a funding address. A failed lookup throws. */
+export async function listClaimableFundingUtxos(
+  fundingAddress: string,
+): Promise<ClaimableFundingUtxo[]> {
+  const response = await fetch(
+    `${KASPA_REST_BASE_URL}/addresses/${encodeURIComponent(fundingAddress)}/utxos`,
+    {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(UTXO_REQUEST_TIMEOUT_MS),
+    },
+  );
+  if (!response.ok) throw new Error("Could not read claimable funding outputs.");
+  const payload = z.array(z.unknown()).parse(await response.json());
+  return payload.flatMap((entry) => {
+    if (!isRecord(entry) || !isRecord(entry.outpoint) || !isRecord(entry.utxoEntry)) return [];
+    const transactionId = entry.outpoint.transactionId;
+    const outputIndex = entry.outpoint.index;
+    const amountSompi = parseSompi(entry.utxoEntry.amount);
+    if (
+      typeof transactionId !== "string" ||
+      !/^[0-9a-fA-F]{64}$/.test(transactionId) ||
+      typeof outputIndex !== "number" ||
+      !Number.isSafeInteger(outputIndex) ||
+      outputIndex < 0 ||
+      amountSompi === null
+    ) {
+      return [];
+    }
+    return [{ amountSompi, outputIndex, transactionId: transactionId.toLowerCase() }];
+  });
+}
+
+export async function readCurrentMainnetDaaScore(): Promise<bigint> {
+  const response = await fetch(`${KASPA_REST_BASE_URL}/info/blockdag`, {
+    cache: "no-store",
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(UTXO_REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error("Could not read the current Kaspa DAA score.");
+  const body = (await response.json()) as { networkName?: unknown; virtualDaaScore?: unknown };
+  if (
+    body.networkName !== "kaspa-mainnet" ||
+    typeof body.virtualDaaScore !== "string" ||
+    !/^[0-9]+$/.test(body.virtualDaaScore)
+  ) {
+    throw new Error("Unexpected Kaspa BlockDAG response.");
+  }
+  return BigInt(body.virtualDaaScore);
+}
+
 async function isRefundUnlocked(refundLockTime: string): Promise<boolean> {
   if (!/^[0-9]+$/.test(refundLockTime)) return false;
 

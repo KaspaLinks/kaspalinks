@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCompactClaimUrl,
-  buildClaimableXPostText,
   decodeClaimableFragmentPayload,
   decodeSharedClaimCode,
   encodeClaimableFragmentPayload,
@@ -37,18 +36,6 @@ describe("claimable social sharing", () => {
 
   it("rejects malformed claim codes", () => {
     expect(() => decodeSharedClaimCode("not-a-claim-code")).toThrow("43-character claim code");
-  });
-
-  it("builds X copy without exposing or asking for a claim code", () => {
-    const text = buildClaimableXPostText({
-      netClaimKas: "9.998",
-      title: "Happy weekend",
-    });
-
-    expect(text).toContain("9.998 KAS");
-    expect(text).not.toContain("Claim code");
-    expect(text).not.toContain(encodeClaimCodeForSharing(PRIVATE_KEY));
-    expect(text).not.toContain("kaspalinks.com");
   });
 
   it("moves a legacy claim secret into a compact browser-only fragment", () => {

@@ -39,6 +39,22 @@ describe("Prisma schema", () => {
     expect(schema).toMatch(/amountSompi\s+BigInt/);
   });
 
+  it("lets claimable links exist without a creator and without a refund key", () => {
+    const link = schema.match(/model ClaimableLink \{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(link).toMatch(/creatorId\s+String\?/);
+    expect(link).toMatch(/refundPublicKey\s+String\?/);
+    expect(link).toMatch(/scriptVersion\s+Int\s+@default\(1\)/);
+    expect(link).toMatch(/returnAddress\s+String\?/);
+    expect(link).not.toMatch(/IpHash/);
+    const sql = readFileSync(
+      "packages/db/prisma/migrations/20261004090000_claimable_auto_return/migration.sql",
+      "utf8",
+    );
+    expect(sql).toContain('ALTER COLUMN "creatorId" DROP NOT NULL');
+    expect(sql).toContain('ADD COLUMN "scriptVersion" INTEGER NOT NULL DEFAULT 1');
+    expect(sql).not.toMatch(/DROP TABLE|DELETE FROM|UPDATE "ClaimableLink"/);
+  });
+
   it("records an optional signup source on creators", () => {
     const creator = schema.match(/model Creator \{[\s\S]*?\n\}/)?.[0] ?? "";
     expect(creator).toMatch(/signupSource\s+String\?/);

@@ -14,7 +14,14 @@ function clampCount(value: number): number {
   return Math.min(MAX_LINK_COUNT, Math.max(MIN_LINK_COUNT, Math.trunc(value)));
 }
 
-export function ClaimableCreateChooser({ initialCount = 1 }: { initialCount?: number }) {
+export function ClaimableCreateChooser({
+  accountFree = false,
+  initialCount = 1,
+}: {
+  /** Single links work without an account; Claim Drops still need a profile. */
+  accountFree?: boolean;
+  initialCount?: number;
+}) {
   const router = useRouter();
   const [count, setCount] = useState(() => clampCount(initialCount));
   const [creatorSignedIn, setCreatorSignedIn] = useState<null | boolean>(null);
@@ -38,7 +45,17 @@ export function ClaimableCreateChooser({ initialCount = 1 }: { initialCount?: nu
   }, []);
 
   function continueToFlow() {
-    router.push(isClaimDrop ? `/claim/batch?count=${count}` : "/claim/create/single");
+    if (isClaimDrop) {
+      router.push(`/claim/batch?count=${count}`);
+      return;
+    }
+    // Keep a Growth Prompt label (if any) for the account-free registration.
+    const source = new URLSearchParams(window.location.search).get("utm_source");
+    router.push(
+      source
+        ? `/claim/create/single?utm_source=${encodeURIComponent(source)}`
+        : "/claim/create/single",
+    );
   }
 
   if (creatorSignedIn === null) {
@@ -51,7 +68,7 @@ export function ClaimableCreateChooser({ initialCount = 1 }: { initialCount?: nu
     );
   }
 
-  if (!creatorSignedIn) {
+  if (!creatorSignedIn && !accountFree) {
     return (
       <main className="main-wide claimable-create-entry">
         <CreatorSignInGate
@@ -100,7 +117,7 @@ export function ClaimableCreateChooser({ initialCount = 1 }: { initialCount?: nu
           </output>
           <button
             aria-label="Increase number of claim links"
-            disabled={count === MAX_LINK_COUNT}
+            disabled={count === MAX_LINK_COUNT || !creatorSignedIn}
             onClick={() => setCount((current) => clampCount(current + 1))}
             type="button"
           >
@@ -117,8 +134,13 @@ export function ClaimableCreateChooser({ initialCount = 1 }: { initialCount?: nu
           <p>
             {isClaimDrop
               ? "Each link gets its own on-chain output, private claim code, and refund path. Save the recovery bundle before funding."
-              : "The first person with the link can claim the KAS. If it expires unclaimed, your private refund link recovers it."}
+              : accountFree
+                ? "Send it privately: whoever has the link can claim the KAS. If it expires unclaimed, the KAS returns to your wallet automatically. No account needed."
+                : "The first person with the link can claim the KAS. If it expires unclaimed, your private refund link recovers it."}
           </p>
+          {!creatorSignedIn ? (
+            <p className="muted">Claim Drops with several links need a free profile.</p>
+          ) : null}
         </div>
 
         <button
@@ -131,7 +153,9 @@ export function ClaimableCreateChooser({ initialCount = 1 }: { initialCount?: nu
       </section>
 
       <p className="claimable-create-entry-note">
-        Kaspa Links never holds the funds. Claim and refund transactions remain browser-signed.
+        {accountFree
+          ? "Kaspa Links never holds the funds. Claims are signed in the browser; unclaimed KAS can only go back to your wallet."
+          : "Kaspa Links never holds the funds. Claim and refund transactions remain browser-signed."}
       </p>
     </main>
   );

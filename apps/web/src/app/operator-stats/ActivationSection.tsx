@@ -35,7 +35,7 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
     );
   }
 
-  const { headline } = funnel;
+  const { accountFree, headline } = funnel;
   const decided = headline.signups - headline.pending;
   const totals = funnel.bySource.reduce(
     (sum, row) => ({
@@ -96,6 +96,7 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
                   <th scope="col">Activated</th>
                   <th scope="col">Pending</th>
                   <th scope="col">Click → signup</th>
+                  <th scope="col">No-account links</th>
                 </tr>
               </thead>
               <tbody>
@@ -107,6 +108,7 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
                     <td>{numberFormat.format(row.activated)}</td>
                     <td>{numberFormat.format(row.pending)}</td>
                     <td>{row.key === "other" ? "—" : formatRate(row.signups, row.clicks)}</td>
+                    <td>{numberFormat.format(row.accountFreeLinks)}</td>
                   </tr>
                 ))}
                 <tr className="operator-table-total">
@@ -116,6 +118,34 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
                   <td>{numberFormat.format(totals.activated)}</td>
                   <td>{numberFormat.format(totals.pending)}</td>
                   <td>—</td>
+                  <td>{numberFormat.format(accountFree.created)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article className="card card-muted">
+          <span className="label">Claim links without account</span>
+          <h3>Created → funded → claimed / returned</h3>
+          <div className="operator-table-wrap">
+            <table className="operator-table">
+              <thead>
+                <tr>
+                  <th scope="col">Last {HEADLINE_DAYS} days</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Funded</th>
+                  <th scope="col">Claimed</th>
+                  <th scope="col">Returned</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">No-account links</th>
+                  <td>{numberFormat.format(accountFree.created)}</td>
+                  <td>{numberFormat.format(accountFree.funded)}</td>
+                  <td>{numberFormat.format(accountFree.claimed)}</td>
+                  <td>{numberFormat.format(accountFree.returned)}</td>
                 </tr>
               </tbody>
             </table>
@@ -162,8 +192,9 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
 
       <p className="muted operator-footnote">
         Activated: first confirmed mainnet payment or claimed claimable link within 7 days of
-        signup. Clicks: distinct daily visitors reaching profile creation from a growth prompt.
-        Pending creators are still inside their 7 days and stay out of the rate.
+        signup. Clicks: distinct daily visitors reaching profile creation or the account-free claim
+        form from a growth prompt. Pending creators are still inside their 7 days and stay out of
+        the rate. Links without an account are not creators and never count as activated.
       </p>
     </section>
   );

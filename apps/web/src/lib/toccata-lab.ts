@@ -1,6 +1,7 @@
 import {
   assertToccataSdkReady,
   buildToccataBatchAllocatorLabScript,
+  buildToccataClaimableAutoReturnScript,
   buildToccataClaimableLabScript,
   buildKaspaPaymentUri,
   createToccataPsktSmokePrototype,
@@ -8,6 +9,7 @@ import {
   formatSompiToKaspa,
   parseKaspaAmountToSompi,
   TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
+  TOCCATA_CLAIMABLE_AUTO_RETURN_MAX_FEE_SOMPI,
   TOCCATA_REQUIRED_CAPABILITIES,
   validateKaspaAddress,
   type ToccataPsktSmokePrototype,
@@ -76,6 +78,37 @@ export const toccataClaimableScriptInputSchema = toccataClaimableScriptKeysSchem
   refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
 });
 
+const returnAddressSchema = z
+  .string()
+  .trim()
+  .min(1, "Return address is required.")
+  .max(200)
+  .refine(isValidMainnetAddress, {
+    message: "Return address must be a valid mainnet kaspa: address.",
+  });
+
+const autoReturnFeeSchema = z
+  .string()
+  .regex(/^[0-9]+$/, "Fee must be whole sompi.")
+  .refine((value) => {
+    const feeSompi = BigInt(value);
+    return feeSompi > 0n && feeSompi <= TOCCATA_CLAIMABLE_AUTO_RETURN_MAX_FEE_SOMPI;
+  }, "Fee must be greater than zero and at most 0.1 KAS.");
+
+/** v2 (docs/adr/0007): no refund key; unclaimed KAS can only go back to returnAddress. */
+export const toccataClaimableAutoReturnScriptInputSchema = z.object({
+  feeSompi: autoReturnFeeSchema,
+  linkPublicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, "Claim public key must be 32-byte hex."),
+  refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
+  returnAddress: returnAddressSchema,
+  version: z.literal(2),
+});
+
+export const toccataClaimableScriptRequestSchema = z.union([
+  toccataClaimableAutoReturnScriptInputSchema,
+  toccataClaimableScriptInputSchema,
+]);
+
 const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
 
 export const registeredClaimableMetadataInputSchema = z
@@ -94,12 +127,39 @@ export const registeredClaimableMetadataInputSchema = z
     refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
     refundPublicKey: z
       .string()
-      .regex(/^[0-9a-fA-F]{64}$/, "Refund public key must be 32-byte hex."),
+      .regex(/^[0-9a-fA-F]{64}$/, "Refund public key must be 32-byte hex.")
+      .nullish(),
+    returnAddress: returnAddressSchema.nullish(),
+    scriptVersion: z.union([z.literal(1), z.literal(2)]).default(1),
   })
   .superRefine((value, context) => {
     const amountSompi = BigInt(value.amountSompi);
     const feeSompi = BigInt(value.feeSompi);
     const refundLockTime = BigInt(value.refundLockTime);
+
+    if (value.scriptVersion === 1 && !value.refundPublicKey) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Refund public key must be 32-byte hex.",
+        path: ["refundPublicKey"],
+      });
+    }
+    if (value.scriptVersion === 2) {
+      if (!value.returnAddress) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Return address is required.",
+          path: ["returnAddress"],
+        });
+      }
+      if (feeSompi > TOCCATA_CLAIMABLE_AUTO_RETURN_MAX_FEE_SOMPI) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Fee must be at most 0.1 KAS for auto-return links.",
+          path: ["feeSompi"],
+        });
+      }
+    }
 
     if (amountSompi <= 0n) {
       context.addIssue({
@@ -441,10 +501,36 @@ export function createToccataClaimableLabScript(
   }
 }
 
-export function validateRegisteredClaimableMetadata(
-  input: z.infer<typeof registeredClaimableMetadataInputSchema>,
-  options: { allowLegacyAmount?: boolean } = {},
+export function createToccataClaimableAutoReturnScript(
+  input: Omit<z.infer<typeof toccataClaimableAutoReturnScriptInputSchema>, "version">,
 ) {
+  try {
+    return buildToccataClaimableAutoReturnScript(input);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message.startsWith("Kaspa Toccata SDK is missing")) {
+      throw new ToccataLabSdkUnavailableError(message);
+    }
+    throw error;
+  }
+}
+
+export type CanonicalClaimableMetadata = {
+  amountSompi: bigint;
+  claimPublicKey: string;
+  feeSompi: bigint;
+  fundingAddress: string;
+  redeemScriptHex: string;
+  refundLockTime: string;
+  refundPublicKey: null | string;
+  returnAddress: null | string;
+  scriptVersion: 1 | 2;
+};
+
+export function validateRegisteredClaimableMetadata(
+  input: z.input<typeof registeredClaimableMetadataInputSchema>,
+  options: { allowLegacyAmount?: boolean } = {},
+): CanonicalClaimableMetadata {
   const parsed = registeredClaimableMetadataInputSchema.parse(input);
   const amountSompi = BigInt(parsed.amountSompi);
   if (!options.allowLegacyAmount && amountSompi < TOCCATA_LAB_MIN_SOMPI) {
@@ -458,11 +544,21 @@ export function validateRegisteredClaimableMetadata(
     throw new Error("Claim output is below the reliable mainnet minimum after fees.");
   }
 
-  const canonical = createToccataClaimableLabScript({
-    linkPublicKey: parsed.claimPublicKey,
-    refundLockTime: parsed.refundLockTime,
-    refundPublicKey: parsed.refundPublicKey,
-  });
+  // Rebuild the script from the public inputs: a client cannot register an
+  // address whose script differs from what the stored metadata describes.
+  const canonical =
+    parsed.scriptVersion === 2
+      ? createToccataClaimableAutoReturnScript({
+          feeSompi: spendPlan.feeSompi.toString(),
+          linkPublicKey: parsed.claimPublicKey,
+          refundLockTime: parsed.refundLockTime,
+          returnAddress: parsed.returnAddress ?? "",
+        })
+      : createToccataClaimableLabScript({
+          linkPublicKey: parsed.claimPublicKey,
+          refundLockTime: parsed.refundLockTime,
+          refundPublicKey: parsed.refundPublicKey ?? "",
+        });
 
   if (parsed.fundingAddress !== canonical.fundingAddress) {
     throw new Error("Funding address does not match the canonical claimable script.");
@@ -478,7 +574,9 @@ export function validateRegisteredClaimableMetadata(
     fundingAddress: canonical.fundingAddress,
     redeemScriptHex: canonical.redeemScriptHex,
     refundLockTime: canonical.refundLockTime,
-    refundPublicKey: canonical.refundPublicKey,
+    refundPublicKey: "refundPublicKey" in canonical ? canonical.refundPublicKey : null,
+    returnAddress: "returnAddress" in canonical ? canonical.returnAddress : null,
+    scriptVersion: parsed.scriptVersion,
   };
 }
 
@@ -545,9 +643,10 @@ export async function broadcastToccataClaimableTransaction(
 }
 
 /** Server-only submission after the caller verifies its registered covenant intent. */
-export async function broadcastToccataPreparedTransaction(
-  input: { transactionSafeJson: string; expectedTransactionId?: string },
-): Promise<ToccataClaimableBroadcastResult> {
+export async function broadcastToccataPreparedTransaction(input: {
+  transactionSafeJson: string;
+  expectedTransactionId?: string;
+}): Promise<ToccataClaimableBroadcastResult> {
   const transactionId = validateClaimableBroadcastSafeJson(input.transactionSafeJson);
 
   if (
@@ -753,7 +852,7 @@ export function readClaimableBroadcastSafeJsonSummary(
 export function readClaimableSpendMode(
   signatureScriptHex: string,
   redeemScriptHex: string,
-): "claim" | "refund" {
+): "claim" | "refund" | "return" {
   const normalizedSignatureScript = normalizeEvenHex(signatureScriptHex, "Signature script");
   const normalizedRedeemScript = normalizeEvenHex(redeemScriptHex, "Redeem script");
   const redeemPush = `${encodeScriptDataPushPrefix(normalizedRedeemScript.length / 2)}${normalizedRedeemScript}`;
@@ -763,6 +862,8 @@ export function readClaimableSpendMode(
   }
 
   const innerScript = normalizedSignatureScript.slice(0, -redeemPush.length);
+  // v2 keyless auto-return: only the OpFalse branch selector, no signature.
+  if (innerScript === "00") return "return";
   if (innerScript.length < 4) {
     throw new Error("Signed transaction claimable branch is missing.");
   }

@@ -35,6 +35,14 @@ describe("GrowthPrompt", () => {
     expect(markup).toContain("utm_source=claim-success");
   });
 
+  it("links straight to the account-free claim form when available", () => {
+    mockUseCreatorSession.mockReturnValue({ hydrated: true, signedIn: false });
+    const markup = renderToStaticMarkup(<GrowthPrompt accountFree source="claim-success" />);
+
+    expect(markup).toContain('href="/claim/create/single?utm_source=claim-success"');
+    expect(markup).not.toContain("/create-profile");
+  });
+
   it("stays hidden for signed-in creators and before hydration", () => {
     mockUseCreatorSession.mockReturnValue({ hydrated: true, signedIn: true });
     expect(renderToStaticMarkup(<GrowthPrompt source="pay-success" />)).toBe("");

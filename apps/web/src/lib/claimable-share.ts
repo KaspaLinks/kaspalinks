@@ -118,15 +118,6 @@ export function decodeSharedClaimCode(value: string): string {
   }
 }
 
-export function buildClaimableXPostText(input: { netClaimKas: string; title: string }): string {
-  return [
-    input.title.trim() || "Kaspa to claim",
-    `First come, first served: claim ${input.netClaimKas} KAS.`,
-    "",
-    "Non-custodial. Open the link and claim directly to your own wallet.",
-  ].join("\n");
-}
-
 export function buildCompactClaimUrl(value: string, privateKeyHex?: string): string {
   const url = new URL(withClaimablePreviewVersion(value));
   const claimCode = privateKeyHex ?? extractClaimCodeFromClaimUrl(url.toString());

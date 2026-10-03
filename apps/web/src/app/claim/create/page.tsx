@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { TOCCATA_BATCH_MAX_SAFE_OUTPUTS } from "@kaspa-actions/kaspa/toccata-constants";
 
+import { isClaimableAnonymousEnabled } from "@/lib/claimable-flags";
+
 import { ClaimableCreateChooser } from "./ClaimableCreateChooser";
 
 export const dynamic = "force-dynamic";
@@ -27,5 +29,10 @@ export default async function ClaimableCreatePage({
   searchParams?: Promise<{ count?: string | string[] }>;
 }) {
   const query = (await searchParams) ?? {};
-  return <ClaimableCreateChooser initialCount={parseInitialCount(query.count)} />;
+  return (
+    <ClaimableCreateChooser
+      accountFree={isClaimableAnonymousEnabled()}
+      initialCount={parseInitialCount(query.count)}
+    />
+  );
 }

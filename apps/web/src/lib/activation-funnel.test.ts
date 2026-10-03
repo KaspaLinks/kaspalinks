@@ -139,9 +139,16 @@ describe("buildActivationFunnel", () => {
     });
 
     expect(result.bySource).toEqual([
-      { activated: 1, clicks: 2, key: "pay-success", pending: 0, signups: 1 },
-      { activated: 0, clicks: 1, key: "claim-success", pending: 0, signups: 1 },
-      { activated: 0, clicks: 0, key: "other", pending: 0, signups: 1 },
+      { accountFreeLinks: 0, activated: 1, clicks: 2, key: "pay-success", pending: 0, signups: 1 },
+      {
+        accountFreeLinks: 0,
+        activated: 0,
+        clicks: 1,
+        key: "claim-success",
+        pending: 0,
+        signups: 1,
+      },
+      { accountFreeLinks: 0, activated: 0, clicks: 0, key: "other", pending: 0, signups: 1 },
     ]);
     expect(result.headline.promptClicks).toBe(3);
     expect(result.headline.promptSignups).toBe(2);
@@ -212,15 +219,54 @@ describe("buildActivationFunnel", () => {
   });
 });
 
+describe("account-free claimable links", () => {
+  it("counts them separately and never as activated creators", () => {
+    const result = buildActivationFunnel({
+      accountFreeLinks: [
+        { createdAt: daysAgo(2), fundingTxId: null, source: null, status: "awaiting_funding" },
+        {
+          createdAt: daysAgo(3),
+          fundingTxId: "a".repeat(64),
+          source: "claim-success",
+          status: "claimed",
+        },
+        {
+          createdAt: daysAgo(4),
+          fundingTxId: "b".repeat(64),
+          source: "claim-success",
+          status: "refunded",
+        },
+        { createdAt: daysAgo(40), fundingTxId: "c".repeat(64), source: null, status: "claimed" },
+      ],
+      createProfileViews: [],
+      creators: [],
+      internalUsernames: new Set(),
+      now: NOW,
+      payShareViews: [],
+    });
+
+    expect(result.accountFree).toEqual({ claimed: 1, created: 3, funded: 2, returned: 1 });
+    expect(result.bySource.find((row) => row.key === "claim-success")?.accountFreeLinks).toBe(2);
+    expect(result.bySource.find((row) => row.key === "other")?.accountFreeLinks).toBe(1);
+    expect(result.headline.activated).toBe(0);
+    expect(result.headline.newCreators).toBe(0);
+  });
+});
+
 describe("loadActivationFunnel", () => {
-  it("queries on-chain value and the two page-view sets", async () => {
+  it("queries on-chain value, prompt landings, shared pages and account-free links", async () => {
     const queryRaw = vi.fn(async () => [
       creator({ createdAt: daysAgo(10), firstValueAt: daysAgo(9) }),
     ]);
-    const findMany = vi.fn(async () => []);
+    const pageViews = vi.fn(async () => []);
+    const claimableLinks = vi.fn(async () => []);
 
     const result = await loadActivationFunnel(
-      { $queryRaw: queryRaw, operatorPageView: { findMany } } as never,
+      {
+        $queryRaw: queryRaw,
+        claimableLink: { findMany: claimableLinks },
+        operatorPageView: { findMany: pageViews },
+      } as never,
       { env: { INTERNAL_CREATOR_USERNAMES: "example" }, now: NOW },
     );
 
@@ -232,15 +278,21 @@ describe("loadActivationFunnel", () => {
     expect(sql).toContain("cl.network = 'MAINNET'");
     expect(sql).toContain("LEAST(");
 
-    expect(findMany).toHaveBeenCalledWith(
+    expect(pageViews).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ isBot: false, path: "/create-profile" }),
+        where: expect.objectContaining({
+          isBot: false,
+          path: { in: ["/create-profile", "/claim/create/single"] },
+        }),
       }),
     );
-    expect(findMany).toHaveBeenCalledWith(
+    expect(pageViews).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ isBot: false, utmSource: "pay-share" }),
       }),
+    );
+    expect(claimableLinks).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ creatorId: null }) }),
     );
     expect(result.headline.activated).toBe(1);
   });

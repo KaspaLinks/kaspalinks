@@ -1,5 +1,5 @@
 import { prisma } from "@kaspa-actions/db";
-import { AuditActorType, Network } from "@kaspa-actions/db";
+import { AuditActorType } from "@kaspa-actions/db";
 import { createRestKaspaIndexer } from "@kaspa-actions/kaspa-indexer";
 
 import { writeAuditLog } from "@/lib/audit";
@@ -8,6 +8,12 @@ import { readCreatorActionDailyLimit, rollingDailyWindowStart } from "@/lib/crea
 import { requireCreator } from "@/lib/creator-guard";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 import { isClaimableFundingAddressEmpty, resolveClaimableOnChain } from "@/lib/claimable-onchain";
+import {
+  parseClaimableRegistration,
+  sameImmutableClaimable,
+  serializeClaimableLink as serialize,
+  type ClaimableLinkRow,
+} from "@/lib/claimable-registration";
 import { selectRotatingWindow } from "@/lib/claimable-refresh";
 import { isPrismaUniqueConstraintError } from "@/lib/prisma-errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
@@ -15,68 +21,13 @@ import {
   ToccataLabSdkUnavailableError,
   validateRegisteredClaimableMetadata,
 } from "@/lib/toccata-lab";
-import { z, ZodError } from "zod";
+import { z } from "zod";
 
 // Server-side store for non-custodial claimable links. This holds ONLY
 // non-secret metadata (funding address, public keys, status). The claim/refund
 // private codes never reach the server — they stay in encrypted browser storage
 // and URL fragments. This endpoint gives the creator a durable, cross-device
 // list + accurate status; /my-links merges it with the browser-held secrets.
-
-type ClaimableLinkRow = {
-  id: string;
-  linkKey: string;
-  title: string;
-  description: string | null;
-  amountSompi: bigint;
-  feeSompi: bigint;
-  fundingAddress: string;
-  claimPublicKey: string;
-  refundPublicKey: string;
-  refundLockTime: string;
-  redeemScriptHex: string;
-  fundingTxId: string | null;
-  fundingOutputIndex: number | null;
-  status: string;
-  claimTxId: string | null;
-  claimedAt: Date | null;
-  deletedAt: Date | null;
-  refundTxId: string | null;
-  refundedAt: Date | null;
-  network: Network;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-function serialize(link: ClaimableLinkRow) {
-  return {
-    id: link.id,
-    linkKey: link.linkKey,
-    title: link.title,
-    description: link.description ?? "",
-    amountSompi: link.amountSompi.toString(),
-    feeSompi: link.feeSompi.toString(),
-    fundingAddress: link.fundingAddress,
-    claimPublicKey: link.claimPublicKey,
-    refundPublicKey: link.refundPublicKey,
-    refundLockTime: link.refundLockTime,
-    redeemScriptHex: link.redeemScriptHex,
-    fundingTxId: link.fundingTxId ?? null,
-    fundingOutputIndex: link.fundingOutputIndex ?? null,
-    claimTxId: link.claimTxId,
-    claimedAt: link.claimedAt?.toISOString() ?? null,
-    refundTxId: link.refundTxId,
-    refundedAt: link.refundedAt?.toISOString() ?? null,
-    status: link.status,
-    network: link.network,
-    createdAt: link.createdAt.toISOString(),
-    updatedAt: link.updatedAt.toISOString(),
-  };
-}
-
-function str(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
 
 const NON_TERMINAL = new Set(["awaiting_funding", "funded", "shared", "refundable"]);
 const DELETABLE_STATUSES = new Set(["claimed", "refunded", "spent_unknown"]);
@@ -230,57 +181,11 @@ export async function POST(request: Request) {
   } catch {
     return apiError(ErrorCodes.INVALID_BODY, "Invalid JSON body.", 400);
   }
-  if (typeof body !== "object" || body === null) {
-    return apiError(ErrorCodes.INVALID_BODY, "Invalid body.", 400);
+  const registration = parseClaimableRegistration(body);
+  if (!registration.ok) {
+    return apiError(registration.code, registration.message, registration.status);
   }
-  const b = body as Record<string, unknown>;
-
-  const linkKey = str(b.linkKey);
-  const title = str(b.title);
-  const amountSompi = str(b.amountSompi);
-  const feeSompi = str(b.feeSompi);
-  const fundingAddress = str(b.fundingAddress);
-  const claimPublicKey = str(b.claimPublicKey);
-  const refundPublicKey = str(b.refundPublicKey);
-  const refundLockTime = str(b.refundLockTime);
-  const redeemScriptHex = str(b.redeemScriptHex);
-  const description = typeof b.description === "string" ? b.description.slice(0, 2000) : null;
-
-  if (!linkKey || linkKey.length > 128) {
-    return apiError(ErrorCodes.INVALID_BODY, "linkKey is required.", 400);
-  }
-  if (!title || title.length > 200) {
-    return apiError(ErrorCodes.INVALID_BODY, "title is required.", 400);
-  }
-  let canonical;
-  try {
-    canonical = validateRegisteredClaimableMetadata({
-      amountSompi,
-      claimPublicKey,
-      feeSompi,
-      fundingAddress,
-      redeemScriptHex,
-      refundLockTime,
-      refundPublicKey,
-    });
-  } catch (error) {
-    if (error instanceof ToccataLabSdkUnavailableError) {
-      return apiError(ErrorCodes.SERVER_ERROR, "Claimable link validation is unavailable.", 503);
-    }
-    const message =
-      error instanceof ZodError
-        ? (error.issues[0]?.message ?? "Invalid claimable link metadata.")
-        : error instanceof Error
-          ? error.message
-          : "Invalid claimable link metadata.";
-    return apiError(ErrorCodes.INVALID_BODY, message, 400);
-  }
-  const immutableData = {
-    title,
-    description,
-    ...canonical,
-    network: Network.MAINNET,
-  };
+  const { immutableData, linkKey } = registration;
 
   const existing = await prisma.claimableLink.findUnique({ where: { linkKey } });
   if (existing) {
@@ -398,6 +303,8 @@ export async function PATCH(request: Request) {
       redeemScriptHex: link.redeemScriptHex,
       refundLockTime: link.refundLockTime,
       refundPublicKey: link.refundPublicKey,
+      returnAddress: link.returnAddress,
+      scriptVersion: link.scriptVersion === 2 ? 2 : 1,
     });
   } catch (error) {
     if (error instanceof ToccataLabSdkUnavailableError) {
@@ -622,34 +529,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const methodNotAllowed = () => apiMethodNotAllowed(["GET", "POST", "PATCH", "DELETE"]);
-
-function sameImmutableClaimable(
-  existing: ClaimableLinkRow,
-  expected: {
-    amountSompi: bigint;
-    claimPublicKey: string;
-    description: string | null;
-    feeSompi: bigint;
-    fundingAddress: string;
-    network: Network;
-    redeemScriptHex: string;
-    refundLockTime: string;
-    refundPublicKey: string;
-    title: string;
-  },
-): boolean {
-  return (
-    existing.amountSompi === expected.amountSompi &&
-    existing.claimPublicKey === expected.claimPublicKey &&
-    existing.description === expected.description &&
-    existing.feeSompi === expected.feeSompi &&
-    existing.fundingAddress === expected.fundingAddress &&
-    existing.network === expected.network &&
-    existing.redeemScriptHex === expected.redeemScriptHex &&
-    existing.refundLockTime === expected.refundLockTime &&
-    existing.refundPublicKey === expected.refundPublicKey &&
-    existing.title === expected.title
-  );
-}
 
 export { methodNotAllowed as PUT };

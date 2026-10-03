@@ -12,7 +12,6 @@ import { writeClipboardText } from "@/lib/clipboard";
 import {
   buildCompactClaimUrl,
   buildClaimableManageUrl,
-  buildClaimableXPostText,
   extractClaimableFundingProofFromManageUrl,
 } from "@/lib/claimable-share";
 import {
@@ -465,6 +464,8 @@ type DbClaimableLink = {
   amountSompi: string;
   redeemScriptHex: string;
   refundPublicKey: string;
+  /** 2 = keyless auto-return: unclaimed KAS comes back without a refund link. */
+  scriptVersion?: number;
   status: string;
   refundLockTime: string;
 };
@@ -478,6 +479,7 @@ type DbClaimableBatch = {
 };
 
 type MergedClaimable = {
+  autoReturn: boolean;
   batchKey: string | null;
   batchTitle: string | null;
   dbId: string | null;
@@ -593,6 +595,7 @@ function mergeClaimable(
   for (const db of dbLinks) {
     const batch = batchByLinkKey.get(db.linkKey) ?? null;
     byKey.set(db.linkKey, {
+      autoReturn: db.scriptVersion === 2,
       batchKey: batch?.batchKey ?? null,
       batchTitle: batch?.title ?? null,
       dbId: db.id,
@@ -626,6 +629,7 @@ function mergeClaimable(
       existing.hasLocal = true;
     } else {
       byKey.set(local.id, {
+        autoReturn: false,
         batchKey: null,
         batchTitle: null,
         dbId: null,
@@ -2882,8 +2886,8 @@ export function MyLinksClient() {
             </p>
             {claimableDeleteTarget.hasDb ? (
               <p className="notice notice-critical">
-                Removing this entry does not refund KAS or cancel the on-chain link.
-                A refund still requires the private recovery data.
+                Removing this entry does not refund KAS or cancel the on-chain link. A refund still
+                requires the private recovery data.
               </p>
             ) : !isClaimableTerminal(claimableDeleteTarget.status) &&
               claimableDeleteTarget.status !== "awaiting_funding" ? (
@@ -3380,7 +3384,10 @@ export function MyLinksClient() {
                     ? buildCompactClaimUrl(record.claimUrl)
                     : "";
                   const privateRecoveryMissing =
-                    !record.manageUrl && record.status !== "awaiting_funding" && !terminal;
+                    !record.autoReturn &&
+                    !record.manageUrl &&
+                    record.status !== "awaiting_funding" &&
+                    !terminal;
                   const batchRecoveryMissing =
                     privateRecoveryMissing && record.linkKey.startsWith("batch-");
                   const deletable = canRequestClaimableDeletion(record);
@@ -3591,28 +3598,30 @@ export function MyLinksClient() {
                             {versionedClaimUrl && !expired ? (
                               <button
                                 className="btn"
-                                onClick={() => {
-                                  try {
-                                    const intent = buildXIntentUrl({
-                                      hashtags: ["Kaspa"],
-                                      text: buildClaimableXPostText({
-                                        netClaimKas: record.netClaimKas,
+                                onClick={async () => {
+                                  // Bearer link: whoever opens it first can claim it,
+                                  // so it is sent privately, never posted publicly.
+                                  if (typeof navigator.share === "function") {
+                                    try {
+                                      await navigator.share({
                                         title: record.title,
-                                      }),
-                                      url: versionedClaimUrl,
-                                    });
-                                    window.open(intent, "_blank", "noopener,noreferrer");
-                                  } catch (shareError) {
-                                    setListError(
-                                      shareError instanceof Error
-                                        ? shareError.message
-                                        : "Could not prepare the claim post.",
-                                    );
+                                        url: versionedClaimUrl,
+                                      });
+                                      return;
+                                    } catch (shareError) {
+                                      if (
+                                        shareError instanceof DOMException &&
+                                        shareError.name === "AbortError"
+                                      ) {
+                                        return;
+                                      }
+                                    }
                                   }
+                                  void copy(`claim-share-${record.linkKey}`, versionedClaimUrl);
                                 }}
                                 type="button"
                               >
-                                Post on X
+                                Send privately
                               </button>
                             ) : null}
                             {record.manageUrl ? (

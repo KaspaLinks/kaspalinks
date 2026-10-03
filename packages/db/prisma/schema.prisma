@@ -471,8 +471,9 @@ model OperatorPageView {
 // browser-held secrets.
 model ClaimableLink {
   id                 String    @id @default(cuid())
-  creatorId          String
-  creator            Creator   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  // NULL for links created without a KaspaLinks account (scriptVersion 2 only).
+  creatorId          String?
+  creator            Creator?  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   linkKey            String    @unique
   title              String
   description        String?
@@ -480,9 +481,15 @@ model ClaimableLink {
   feeSompi           BigInt
   fundingAddress     String
   claimPublicKey     String
-  refundPublicKey    String
+  // v1 only. v2 links have no refund key: unclaimed KAS returns to returnAddress.
+  refundPublicKey    String?
   refundLockTime     String
   redeemScriptHex    String
+  // 1 = refund needs the creator's refund key; 2 = keyless auto-return (docs/adr/0007).
+  scriptVersion      Int       @default(1)
+  returnAddress      String?
+  // Fixed Growth Prompt label (allowlist in apps/web/src/lib/signup-source.ts), never personal data.
+  source             String?
   fundingTxId        String?
   fundingOutputIndex Int?
   claimTxId          String?
@@ -503,6 +510,7 @@ model ClaimableLink {
   @@index([claimedAt])
   @@index([refundedAt])
   @@index([fundingAddress])
+  @@index([scriptVersion, status])
 }
 
 // Public, non-secret manifest for a one-time batch allocator. It commits the

@@ -1503,6 +1503,18 @@ textarea {
   margin-top: 16px;
 }
 
+.claimable-private-share-note {
+  margin: 12px 0 0;
+  font-size: 0.85rem;
+}
+
+.claimable-return-now {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .claimable-action-row .btn {
   min-height: 48px;
 }

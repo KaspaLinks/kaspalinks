@@ -106,6 +106,8 @@ export async function POST(request: Request) {
           redeemScriptHex: link.redeemScriptHex,
           refundLockTime: link.refundLockTime,
           refundPublicKey: link.refundPublicKey,
+          returnAddress: link.returnAddress,
+          scriptVersion: link.scriptVersion === 2 ? 2 : 1,
         },
         { allowLegacyAmount: true },
       );
@@ -128,6 +130,15 @@ export async function POST(request: Request) {
       safeJsonSummary.signatureScriptHex,
       canonicalLink.redeemScriptHex,
     );
+    // Keyless v2 returns are built and sent by the server (claimable-links/:key/return);
+    // a v2 link has no refund key, so a signed refund cannot be valid either.
+    if (mode === "return" || (canonicalLink.scriptVersion === 2 && mode !== "claim")) {
+      return apiError(
+        ErrorCodes.INVALID_BODY,
+        "Unclaimed KAS on this link returns automatically after expiry.",
+        400,
+      );
+    }
     if (mode === "claim" && link.prizeForGiveaway) {
       return apiError(
         ErrorCodes.INVALID_STATE,

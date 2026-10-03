@@ -6,6 +6,7 @@ import {
   type PublicClaimableLinkMetadata,
 } from "./ToccataLabClient";
 
+import { isClaimableAnonymousEnabled, isClaimableAutoReturnEnabled } from "@/lib/claimable-flags";
 import {
   getToccataLabCapabilityNames,
   isToccataLabEnabled,
@@ -22,6 +23,8 @@ export async function ClaimableLinksShell({
   mode,
 }: ClaimableLinksShellProps) {
   const enabled = isToccataLabEnabled();
+  const autoReturnEnabled = isClaimableAutoReturnEnabled();
+  const anonymousEnabled = isClaimableAnonymousEnabled();
   let capabilities;
   try {
     capabilities = readToccataLabCapabilities();
@@ -59,8 +62,9 @@ export async function ClaimableLinksShell({
             <span className="hero-eyebrow">Kaspa Links</span>
             <h1 className="hero-title">Create a claimable Kaspa link.</h1>
             <p className="hero-sub">
-              Set the reward and expiry, fund its one-time address, then share. The recipient claims
-              it directly, or you refund it after expiry.
+              {autoReturnEnabled
+                ? "Set the reward and expiry, fund its one-time address, then send it privately. The recipient claims it directly — if nobody does, the KAS returns to your wallet automatically."
+                : "Set the reward and expiry, fund its one-time address, then share. The recipient claims it directly, or you refund it after expiry."}
             </p>
           </>
         )}
@@ -73,6 +77,8 @@ export async function ClaimableLinksShell({
       ) : null}
 
       <ToccataLabClient
+        anonymousEnabled={anonymousEnabled}
+        autoReturnEnabled={autoReturnEnabled}
         capabilities={capabilities}
         enabled={enabled}
         initialMode={mode}

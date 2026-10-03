@@ -202,6 +202,7 @@ export async function POST(request: Request) {
         redeemScriptHex: true,
         refundLockTime: true,
         refundPublicKey: true,
+        scriptVersion: true,
         status: true,
       },
       where: { linkKey: prizeLinkKey },
@@ -216,6 +217,14 @@ export async function POST(request: Request) {
         409,
       );
     }
+    // Giveaway recovery uses the creator's refund key, which auto-return links lack.
+    if (prizeLink.scriptVersion === 2) {
+      return apiError(
+        ErrorCodes.INVALID_STATE,
+        "Giveaway prizes need a classic claimable link with a refund key.",
+        409,
+      );
+    }
     if (["claimed", "refunded", "spent_unknown"].includes(prizeLink.status)) {
       return apiError(ErrorCodes.INVALID_STATE, "That prize link is already closed.", 409);
     }
@@ -227,7 +236,7 @@ export async function POST(request: Request) {
         400,
       );
     }
-    validatedPrizeLink = prizeLink;
+    validatedPrizeLink = { ...prizeLink, refundPublicKey: prizeLink.refundPublicKey ?? "" };
   }
 
   const draw = createGiveawayDrawSeed();

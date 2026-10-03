@@ -16,7 +16,9 @@ export type GiveawayPrizeClaimLink = {
   status: string;
   claimPublicKey: string;
   fundingAddress: string;
-  refundPublicKey: string;
+  refundPublicKey: null | string;
+  returnAddress?: null | string;
+  scriptVersion?: number;
 };
 
 export function verifyPreparedGiveawayPrizeClaim(input: {
@@ -39,6 +41,8 @@ export function verifyPreparedGiveawayPrizeClaim(input: {
       redeemScriptHex: input.link.redeemScriptHex,
       refundLockTime: input.link.refundLockTime,
       refundPublicKey: input.link.refundPublicKey,
+      returnAddress: input.link.returnAddress ?? null,
+      scriptVersion: input.link.scriptVersion === 2 ? 2 : 1,
     },
     { allowLegacyAmount: true },
   );

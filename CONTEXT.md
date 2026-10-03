@@ -68,3 +68,11 @@ _Avoid_: Banner, popup, ad
 **Signup Source**:
 The fixed Growth Prompt label stored on a Creator at signup; never personal data.
 _Avoid_: Referrer, tracking ID
+
+**Return Address**:
+The wallet address committed in a claimable link's script; unclaimed KAS can only go back there.
+_Avoid_: Refund wallet, payout address
+
+**Auto-Return**:
+The keyless spend that sends an expired, unclaimed claimable link back to its Return Address; anyone may broadcast it.
+_Avoid_: Refund, server refund

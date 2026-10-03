@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertToccataSdkReady,
+  buildKaspaAddressScriptPublicKeyHex,
   buildToccataBatchAllocatorLabScript,
+  buildToccataClaimableAutoReturnScript,
   buildToccataClaimableLabScript,
   buildToccataClaimableLabSpend,
+  buildToccataClaimableReturnSpend,
   createToccataPsktSmokePrototype,
   createToccataSafeJsonSmokePrototype,
   inspectToccataSdkCapabilities,
@@ -200,6 +203,126 @@ describe("Toccata SDK capabilities", () => {
         redeemScriptHex: script.redeemScriptHex,
       }),
     ).toThrow("Lab spend output must stay at or above the 0.2 KAS floor.");
+  });
+
+  describe("auto-return claimable script (v2)", () => {
+    const returnAddress = "kaspa:qrpuhc8c998cdp4fkgjljspuwtetvjhy022k0a00da4dxh3kkz89qa96gge5r";
+    const base = {
+      feeSompi: "200000",
+      linkPublicKey: "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+      refundLockTime: "123456789",
+      returnAddress,
+    };
+
+    it("commits the claim key, lock time, return address and fee cap", () => {
+      const script = buildToccataClaimableAutoReturnScript(base);
+      const returnSpk = buildKaspaAddressScriptPublicKeyHex(returnAddress);
+
+      expect(script).toMatchObject({
+        feeSompi: "200000",
+        network: "mainnet",
+        refundLockTime: "123456789",
+        returnAddress,
+        returnScriptPublicKeyHex: returnSpk,
+        version: 2,
+      });
+      expect(script.fundingAddress).toMatch(/^kaspa:p/);
+      // claim branch: OpIf <linkPk> OpCheckSig
+      expect(script.redeemScriptHex.startsWith(`6320${base.linkPublicKey}ac67`)).toBe(true);
+      expect(script.redeemScriptHex).toContain(returnSpk);
+      expect(script.redeemScriptHex).toContain("b3"); // OpTxInputCount
+      expect(script.redeemScriptHex).toContain("b4"); // OpTxOutputCount
+      expect(script.redeemScriptHex).toContain("b9"); // OpTxInputIndex
+      expect(script.redeemScriptHex).toContain("be"); // OpTxInputAmount
+      expect(script.redeemScriptHex).toContain("c2"); // OpTxOutputAmount
+      expect(script.redeemScriptHex).toContain("c3"); // OpTxOutputSpk
+      expect(script.redeemScriptHex.endsWith("94a268")).toBe(true); // OpSub OpGreaterThanOrEqual OpEndIf
+    });
+
+    it("gives every return address and fee its own funding address", () => {
+      const first = buildToccataClaimableAutoReturnScript(base);
+      const otherAddress = buildToccataClaimableAutoReturnScript({
+        ...base,
+        returnAddress: "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j",
+      });
+      const otherFee = buildToccataClaimableAutoReturnScript({ ...base, feeSompi: "300000" });
+      const v1 = buildToccataClaimableLabScript({
+        linkPublicKey: base.linkPublicKey,
+        refundLockTime: base.refundLockTime,
+        refundPublicKey: "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+      });
+
+      expect(new Set([first, otherAddress, otherFee, v1].map((s) => s.fundingAddress)).size).toBe(
+        4,
+      );
+    });
+
+    it("rejects testnet return addresses and oversized fees", () => {
+      expect(() =>
+        buildToccataClaimableAutoReturnScript({
+          ...base,
+          returnAddress: "kaspatest:qqnapngv3zxp305qf06w6hpzmyxtx2r99jjhs04lu980xdyd2ulwwmx9evrfz",
+        }),
+      ).toThrow("mainnet");
+      expect(() =>
+        buildToccataClaimableAutoReturnScript({ ...base, feeSompi: "10000001" }),
+      ).toThrow("0.1 KAS");
+      expect(() => buildToccataClaimableAutoReturnScript({ ...base, feeSompi: "0" })).toThrow(
+        "greater than zero",
+      );
+    });
+
+    it("builds a keyless return to the committed address", () => {
+      const script = buildToccataClaimableAutoReturnScript(base);
+      const spend = buildToccataClaimableReturnSpend({
+        expectedFundingAddress: script.fundingAddress,
+        feeSompi: script.feeSompi,
+        fundingAmountSompi: "25200000",
+        fundingOutputIndex: 1,
+        fundingTransactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+        redeemScriptHex: script.redeemScriptHex,
+        refundLockTime: script.refundLockTime,
+        returnAddress,
+      });
+      const transaction = JSON.parse(spend.transactionSafeJson) as {
+        inputs: Array<{ sequence: string; signatureScript: string }>;
+        lockTime: string;
+        outputs: Array<{ value: string }>;
+      };
+
+      expect(spend).toMatchObject({
+        fundingAddress: script.fundingAddress,
+        lockTime: "123456789",
+        mode: "return",
+        outputAmountSompi: "25000000",
+        returnAddress,
+      });
+      // OpFalse branch selector + pushed redeem script, no signature push.
+      expect(spend.signatureScriptHex.startsWith("00")).toBe(true);
+      expect(spend.signatureScriptHex).toContain(script.redeemScriptHex);
+      expect(transaction.lockTime).toBe("123456789");
+      expect(transaction.inputs).toHaveLength(1);
+      expect(transaction.inputs[0]?.sequence).toBe("0");
+      expect(transaction.outputs).toEqual([expect.objectContaining({ value: "25000000" })]);
+    });
+
+    it("refuses a return whose redeem script does not match the link", () => {
+      const script = buildToccataClaimableAutoReturnScript(base);
+      const other = buildToccataClaimableAutoReturnScript({ ...base, feeSompi: "300000" });
+
+      expect(() =>
+        buildToccataClaimableReturnSpend({
+          expectedFundingAddress: script.fundingAddress,
+          feeSompi: base.feeSompi,
+          fundingAmountSompi: "25200000",
+          fundingOutputIndex: 0,
+          fundingTransactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+          redeemScriptHex: other.redeemScriptHex,
+          refundLockTime: base.refundLockTime,
+          returnAddress,
+        }),
+      ).toThrow("does not match");
+    });
   });
 
   it("creates a JSON-safe PSKT and covenant smoke prototype without signing or funding", () => {

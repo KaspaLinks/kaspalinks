@@ -1,6 +1,8 @@
 import { buildCreateProfileHref, type SignupSource } from "./signup-source";
 
 export type GrowthPromptCopy = {
+  /** Used instead of href when the next step works without a KaspaLinks account. */
+  accountFreeHref?: string;
   body: string;
   cta: string;
   href: string;
@@ -10,7 +12,8 @@ export type GrowthPromptCopy = {
 // fragment cannot end up in a link.
 export const GROWTH_PROMPTS: Record<SignupSource, GrowthPromptCopy> = {
   "claim-success": {
-    body: "Fund a claim link from your wallet and share it. No custody.",
+    accountFreeHref: "/claim/create/single?utm_source=claim-success",
+    body: "Fund a claim link from your wallet and send it privately. No account, no custody.",
     cta: "Send KAS to a friend the same way",
     href: buildCreateProfileHref({ next: "/claim/create", signupSource: "claim-success" }),
   },

@@ -7,6 +7,7 @@ import {
 import { PaymentRequestStatus, prisma } from "@kaspa-actions/db";
 import { createRestKaspaIndexer, type KaspaIndexer } from "@kaspa-actions/kaspa-indexer";
 
+import { processClaimableReturns } from "./claimable-returns.ts";
 import { agentWorkerEnabled, env } from "./config.ts";
 import { deliverOutbox } from "./outbox.ts";
 import { processGiveawayReminders } from "./giveaways.ts";
@@ -88,6 +89,7 @@ async function tick(client: TelegramApiClient) {
       await detectPayments(now);
     })(),
     processGiveawayReminders(now),
+    processClaimableReturns(now),
   ]);
   for (const result of results)
     if (result.status === "rejected") console.error("Agent background processing failed.");

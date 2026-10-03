@@ -57,6 +57,9 @@ const TOCCATA_SMOKE_AMOUNT_SOMPI = 1_000_000n;
 const TOCCATA_SAFE_JSON_SMOKE_AMOUNT_SOMPI = 20_000_000n;
 const TOCCATA_CLAIMABLE_LAB_COMPUTE_BUDGET = 11;
 const TOCCATA_CLAIMABLE_LAB_MIN_OUTPUT_SOMPI = 20_000_000n;
+// Anyone may broadcast an auto-return, so the committed fee is the most a
+// stranger can make the sender lose. Keep it small.
+export const TOCCATA_CLAIMABLE_AUTO_RETURN_MAX_FEE_SOMPI = 10_000_000n;
 const TOCCATA_SMOKE_DUMMY_OUTPOINT = {
   index: 0,
   transactionId: "00".repeat(32),
@@ -177,6 +180,30 @@ export type ToccataClaimableLabScript = {
   warning: string;
 };
 
+export type ToccataClaimableAutoReturnScriptInput = {
+  feeSompi: bigint | string;
+  linkPublicKey: string;
+  refundLockTime: bigint | string;
+  returnAddress: string;
+};
+
+export type ToccataClaimableAutoReturnScript = {
+  feeSompi: string;
+  fundingAddress: string;
+  linkPublicKey: string;
+  network: "mainnet";
+  redeemScriptHex: string;
+  refundLockTime: string;
+  returnAddress: string;
+  returnScriptPublicKeyHex: string;
+  scriptPublicKey: {
+    script: string;
+    version: number;
+  };
+  version: 2;
+  warning: string;
+};
+
 export type ToccataBatchAllocatorLabOutput = {
   amountSompi: bigint | string;
   // `OpTxOutputSpk` exposes the serialized ScriptPublicKey: a two-byte
@@ -240,6 +267,36 @@ export type ToccataClaimableLabSpend = {
   transactionId: string;
   transactionSafeJson: string;
   warning: string;
+};
+
+export type ToccataClaimableReturnSpendInput = {
+  computeBudget?: number;
+  expectedFundingAddress?: null | string;
+  feeSompi: bigint | string;
+  fundingAmountSompi: bigint | string;
+  fundingOutputIndex: number;
+  fundingTransactionId: string;
+  redeemScriptHex: string;
+  refundLockTime: bigint | string;
+  returnAddress: string;
+};
+
+export type ToccataClaimableReturnSpend = {
+  computeBudget: number;
+  feeSompi: string;
+  fundingAddress: string;
+  fundingAmountSompi: string;
+  fundingOutputIndex: number;
+  fundingTransactionId: string;
+  lockTime: string;
+  mode: "return";
+  network: "mainnet";
+  outputAmountSompi: string;
+  redeemScriptHex: string;
+  returnAddress: string;
+  signatureScriptHex: string;
+  transactionId: string;
+  transactionSafeJson: string;
 };
 
 export type ToccataSafeJsonTransactionSubmitInput = {
@@ -581,6 +638,85 @@ export function buildToccataClaimableLabScript(
   };
 }
 
+/**
+ * Claimable link v2 (docs/adr/0007): the claim branch is unchanged, but the
+ * return branch needs no key. After the lock time anyone may broadcast it, and
+ * the script only lets the single input go to the committed return address,
+ * minus at most the committed fee.
+ */
+export function buildToccataClaimableAutoReturnScript(
+  input: ToccataClaimableAutoReturnScriptInput,
+  wasmModule: KaspaWasmModule = loadKaspaWasm(),
+): ToccataClaimableAutoReturnScript {
+  assertToccataSdkReady(wasmModule);
+
+  const linkPublicKey = normalizeXOnlyPublicKey(input.linkPublicKey, "linkPublicKey");
+  const refundLockTime = normalizeRefundLockTime(input.refundLockTime);
+  const feeSompi = normalizeAutoReturnFee(input.feeSompi);
+  const returnAddress = validateMainnetSpendAddress(input.returnAddress);
+  const returnScriptPublicKeyHex = buildKaspaAddressScriptPublicKeyHex(returnAddress, wasmModule);
+
+  // claim(sig):  checkSig(sig, linkPk)
+  // return():    tx.lockTime >= refundAfter
+  //              && tx.inputs.length == 1 && tx.outputs.length == 1
+  //              && outputs[0].spk == returnSpk
+  //              && outputs[0].amount >= inputs[this].amount - fee
+  //
+  // One input only: two UTXOs of this address merged into one output could
+  // otherwise satisfy the amount check for the larger one and burn the rest.
+  const builder = new wasmModule.ScriptBuilder({ flags: { covenantsEnabled: true } });
+  builder.addOp(wasmModule.Opcodes.OpIf);
+  builder.addData(linkPublicKey);
+  builder.addOp(wasmModule.Opcodes.OpCheckSig);
+  builder.addOp(wasmModule.Opcodes.OpElse);
+  builder.addOp(wasmModule.Opcodes.OpTxLockTime);
+  builder.addLockTime(refundLockTime);
+  builder.addOp(wasmModule.Opcodes.OpGreaterThanOrEqual);
+  builder.addOp(wasmModule.Opcodes.OpVerify);
+  builder.addOp(wasmModule.Opcodes.OpTxInputCount);
+  builder.addI64(1n);
+  builder.addOp(wasmModule.Opcodes.OpNumEqualVerify);
+  builder.addOp(wasmModule.Opcodes.OpTxOutputCount);
+  builder.addI64(1n);
+  builder.addOp(wasmModule.Opcodes.OpNumEqualVerify);
+  builder.addI64(0n);
+  builder.addOp(wasmModule.Opcodes.OpTxOutputSpk);
+  builder.addData(returnScriptPublicKeyHex);
+  builder.addOp(wasmModule.Opcodes.OpEqualVerify);
+  builder.addI64(0n);
+  builder.addOp(wasmModule.Opcodes.OpTxOutputAmount);
+  builder.addOp(wasmModule.Opcodes.OpTxInputIndex);
+  builder.addOp(wasmModule.Opcodes.OpTxInputAmount);
+  builder.addI64(feeSompi);
+  builder.addOp(wasmModule.Opcodes.OpSub);
+  builder.addOp(wasmModule.Opcodes.OpGreaterThanOrEqual);
+  builder.addOp(wasmModule.Opcodes.OpEndIf);
+
+  const redeemScriptHex = builder.toString();
+  const scriptPublicKey = wasmModule.payToScriptHashScript(redeemScriptHex);
+  const scriptPublicKeyJson = scriptPublicKey.toJSON() as ScriptPublicKeyJson;
+  const fundingAddress = wasmModule.addressFromScriptPublicKey(scriptPublicKey, "mainnet");
+
+  if (!fundingAddress) {
+    throw new Error("Could not derive auto-return claimable P2SH address.");
+  }
+
+  return {
+    feeSompi: feeSompi.toString(),
+    fundingAddress: fundingAddress.toString(),
+    linkPublicKey,
+    network: "mainnet",
+    redeemScriptHex,
+    refundLockTime: refundLockTime.toString(),
+    returnAddress,
+    returnScriptPublicKeyHex,
+    scriptPublicKey: scriptPublicKeyJson,
+    version: 2,
+    warning:
+      "Claimable link v2. Unclaimed KAS can only return to the committed return address after expiry.",
+  };
+}
+
 export function buildToccataBatchAllocatorLabScript(
   input: ToccataBatchAllocatorLabScriptInput,
   wasmModule: KaspaWasmModule = loadKaspaWasm(),
@@ -778,6 +914,114 @@ export function buildToccataClaimableLabSpend(
   };
 }
 
+/**
+ * Builds the keyless return of an expired v2 claimable link. Nothing is signed:
+ * the script itself pins the destination and amount, so any party (the sender,
+ * our worker, a stranger) can broadcast it once the lock time has passed.
+ */
+export function buildToccataClaimableReturnSpend(
+  input: ToccataClaimableReturnSpendInput,
+  wasmModule: KaspaWasmModule = loadKaspaWasm(),
+): ToccataClaimableReturnSpend {
+  assertToccataSdkReady(wasmModule);
+
+  const redeemScriptHex = normalizeHex(input.redeemScriptHex, "redeemScriptHex");
+  const fundingTransactionId = normalizeTransactionId(input.fundingTransactionId);
+  const fundingOutputIndex = normalizeOutputIndex(input.fundingOutputIndex);
+  const fundingAmountSompi = parsePositiveBigInt(input.fundingAmountSompi, "fundingAmountSompi");
+  const feeSompi = normalizeAutoReturnFee(input.feeSompi);
+  const lockTime = normalizeRefundLockTime(input.refundLockTime);
+  const computeBudget = normalizeComputeBudget(
+    input.computeBudget ?? TOCCATA_CLAIMABLE_LAB_COMPUTE_BUDGET,
+  );
+  const returnAddress = validateMainnetSpendAddress(input.returnAddress);
+
+  if (feeSompi >= fundingAmountSompi) {
+    throw new Error("Return fee must be lower than the funded amount.");
+  }
+  const outputAmountSompi = fundingAmountSompi - feeSompi;
+
+  const scriptPublicKey = wasmModule.payToScriptHashScript(redeemScriptHex);
+  const fundingAddress = wasmModule.addressFromScriptPublicKey(scriptPublicKey, "mainnet");
+  if (!fundingAddress) {
+    throw new Error("Could not derive the claimable funding address from the redeem script.");
+  }
+  const normalizedFundingAddress = fundingAddress.toString();
+  if (
+    input.expectedFundingAddress !== undefined &&
+    input.expectedFundingAddress !== null &&
+    input.expectedFundingAddress !== normalizedFundingAddress
+  ) {
+    throw new Error("Redeem script does not match the expected funding address.");
+  }
+
+  const transaction = wasmModule.Transaction.deserializeFromSafeJSON(
+    stringifySafeTransaction({
+      id: "0".repeat(64),
+      version: 1,
+      inputs: [
+        {
+          transactionId: fundingTransactionId,
+          index: fundingOutputIndex,
+          // A non-final sequence keeps the lock time enforced.
+          sequence: "0",
+          sigOpCount: 0,
+          computeBudget,
+          signatureScript: "",
+          utxo: {
+            amount: fundingAmountSompi.toString(),
+            scriptPublicKey: scriptPublicKey.toJSON(),
+            blockDaaScore: "0",
+            isCoinbase: false,
+          },
+        },
+      ],
+      outputs: [
+        {
+          value: outputAmountSompi.toString(),
+          scriptPublicKey: wasmModule.payToAddressScript(returnAddress).toJSON(),
+        },
+      ],
+      lockTime: lockTime.toString(),
+      subnetworkId: "00".repeat(20),
+      gas: "0",
+      payload: "",
+    }),
+  );
+
+  // Branch selector only: OpFalse picks the return branch, no signature.
+  const innerScript = new wasmModule.ScriptBuilder({ flags: { covenantsEnabled: true } });
+  innerScript.addOp(wasmModule.Opcodes.OpFalse);
+  const signatureScriptHex = wasmModule.payToScriptHashSignatureScript(
+    redeemScriptHex,
+    innerScript.drain(),
+  );
+  const transactionInput = transaction.inputs[0];
+  if (!transactionInput) {
+    throw new Error("Could not build the return input.");
+  }
+  transactionInput.signatureScript = signatureScriptHex;
+  transaction.finalize();
+
+  return {
+    computeBudget,
+    feeSompi: feeSompi.toString(),
+    fundingAddress: normalizedFundingAddress,
+    fundingAmountSompi: fundingAmountSompi.toString(),
+    fundingOutputIndex,
+    fundingTransactionId,
+    lockTime: lockTime.toString(),
+    mode: "return",
+    network: "mainnet",
+    outputAmountSompi: outputAmountSompi.toString(),
+    redeemScriptHex,
+    returnAddress,
+    signatureScriptHex,
+    transactionId: transaction.id,
+    transactionSafeJson: transaction.serializeToSafeJSON(),
+  };
+}
+
 export async function submitToccataSafeJsonTransaction(
   input: ToccataSafeJsonTransactionSubmitInput,
   wasmModule: KaspaWasmModule = loadKaspaWasm(),
@@ -963,6 +1207,14 @@ function validateMainnetSpendAddress(address: string): string {
 
 function stringifySafeTransaction(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function normalizeAutoReturnFee(value: bigint | string): bigint {
+  const feeSompi = parsePositiveBigInt(value, "feeSompi");
+  if (feeSompi > TOCCATA_CLAIMABLE_AUTO_RETURN_MAX_FEE_SOMPI) {
+    throw new Error("Auto-return fee must stay at or below 0.1 KAS.");
+  }
+  return feeSompi;
 }
 
 function normalizeRefundLockTime(value: bigint | string): bigint {

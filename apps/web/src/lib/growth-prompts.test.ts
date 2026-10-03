@@ -16,7 +16,15 @@ describe("growth prompts", () => {
   it("never puts a fragment into a prompt link", () => {
     for (const prompt of Object.values(GROWTH_PROMPTS)) {
       expect(prompt.href).not.toContain("#");
+      expect(prompt.accountFreeHref ?? "").not.toContain("#");
     }
+  });
+
+  it("skips signup after a claim when links work without an account", () => {
+    expect(GROWTH_PROMPTS["claim-success"].accountFreeHref).toBe(
+      "/claim/create/single?utm_source=claim-success",
+    );
+    expect(GROWTH_PROMPTS["pay-success"].accountFreeHref).toBeUndefined();
   });
 });
 

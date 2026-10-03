@@ -195,7 +195,12 @@ export async function POST(request: Request) {
   const childByKey = new Map(childLinks.map((link) => [link.linkKey, link]));
   for (const output of canonical.outputs) {
     const child = childByKey.get(output.linkKey);
-    if (!child || child.amountSompi !== output.amountSompi) {
+    if (
+      !child ||
+      child.amountSompi !== output.amountSompi ||
+      child.scriptVersion === 2 ||
+      !child.refundPublicKey
+    ) {
       return apiError(
         ErrorCodes.INVALID_STATE,
         "Batch output amount does not match its child link.",

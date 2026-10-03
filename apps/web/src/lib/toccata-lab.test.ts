@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createToccataClaimableAutoReturnScript,
   createToccataLabQrUri,
   createToccataLabIntent,
   readClaimableSpendMode,
@@ -170,5 +171,80 @@ describe("Claimable link helpers", () => {
     expect(
       validateRegisteredClaimableMetadata(legacy, { allowLegacyAmount: true }).amountSompi,
     ).toBe(25_000_000n);
+  });
+
+  describe("auto-return (v2) metadata", () => {
+    const v2Script = createToccataClaimableAutoReturnScript({
+      feeSompi: "200000",
+      linkPublicKey: CLAIM_PUBLIC_KEY,
+      refundLockTime: "500000000",
+      returnAddress: MAINNET_ADDRESS,
+    });
+    const v2 = {
+      amountSompi: "100200000",
+      claimPublicKey: CLAIM_PUBLIC_KEY,
+      feeSompi: "200000",
+      fundingAddress: v2Script.fundingAddress,
+      redeemScriptHex: v2Script.redeemScriptHex,
+      refundLockTime: "500000000",
+      returnAddress: MAINNET_ADDRESS,
+      scriptVersion: 2 as const,
+    };
+
+    it("rebuilds the v2 script from public inputs and has no refund key", () => {
+      expect(validateRegisteredClaimableMetadata(v2)).toMatchObject({
+        fundingAddress: v2Script.fundingAddress,
+        refundPublicKey: null,
+        returnAddress: MAINNET_ADDRESS,
+        scriptVersion: 2,
+      });
+    });
+
+    it("rejects a v2 registration whose return address differs from the script", () => {
+      expect(() =>
+        validateRegisteredClaimableMetadata({
+          ...v2,
+          returnAddress: "kaspa:qrpuhc8c998cdp4fkgjljspuwtetvjhy022k0a00da4dxh3kkz89qa96gge5r",
+        }),
+      ).toThrow("does not match the canonical claimable script");
+    });
+
+    it("requires a mainnet return address and a small fee", () => {
+      expect(() => validateRegisteredClaimableMetadata({ ...v2, returnAddress: null })).toThrow(
+        "Return address is required",
+      );
+      expect(() =>
+        validateRegisteredClaimableMetadata({ ...v2, returnAddress: TESTNET_ADDRESS }),
+      ).toThrow("mainnet");
+      expect(() =>
+        validateRegisteredClaimableMetadata({
+          ...v2,
+          amountSompi: "200000000",
+          feeSompi: "20000000",
+        }),
+      ).toThrow("0.1 KAS");
+    });
+
+    it("still requires a refund key for classic links", () => {
+      expect(() =>
+        validateRegisteredClaimableMetadata({
+          amountSompi: "100000000",
+          claimPublicKey: CLAIM_PUBLIC_KEY,
+          feeSompi: "200000",
+          fundingAddress: CLAIMABLE_ADDRESS,
+          redeemScriptHex: CLAIMABLE_SCRIPT,
+          refundLockTime: "500000000",
+          refundPublicKey: null,
+        }),
+      ).toThrow("Refund public key");
+    });
+
+    it("recognizes the keyless return branch selector", () => {
+      const redeemPush = `4c${(v2Script.redeemScriptHex.length / 2).toString(16)}${v2Script.redeemScriptHex}`;
+      expect(readClaimableSpendMode(`00${redeemPush}`, v2Script.redeemScriptHex)).toBe("return");
+      expect(
+        readClaimableSpendMode(`41${"11".repeat(65)}51${redeemPush}`, v2Script.redeemScriptHex),
+      ).toBe("claim");
+    });
   });
 });

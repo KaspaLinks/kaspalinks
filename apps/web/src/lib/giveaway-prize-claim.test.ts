@@ -48,6 +48,8 @@ describe("verifyPreparedGiveawayPrizeClaim", () => {
       redeemScriptHex: link.redeemScriptHex,
       refundLockTime: link.refundLockTime,
       refundPublicKey: link.refundPublicKey,
+      returnAddress: null,
+      scriptVersion: 1,
     });
     readSpendModeMock.mockReturnValue("claim");
     buildAddressScriptMock.mockReturnValue("winner-script");

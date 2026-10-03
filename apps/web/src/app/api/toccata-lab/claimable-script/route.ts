@@ -1,11 +1,13 @@
+import { isClaimableAutoReturnEnabled } from "@/lib/claimable-flags";
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import {
+  createToccataClaimableAutoReturnScript,
   createToccataClaimableLabScript,
   isToccataLabEnabled,
   ToccataLabSdkUnavailableError,
-  toccataClaimableScriptInputSchema,
+  toccataClaimableScriptRequestSchema,
 } from "@/lib/toccata-lab";
 
 export async function POST(request: Request) {
@@ -28,7 +30,7 @@ export async function POST(request: Request) {
     return apiError(ErrorCodes.INVALID_BODY, "Request body must be JSON.", 400);
   }
 
-  const parsed = toccataClaimableScriptInputSchema.safeParse(rawBody);
+  const parsed = toccataClaimableScriptRequestSchema.safeParse(rawBody);
   if (!parsed.success) {
     return apiError(
       ErrorCodes.INVALID_BODY,
@@ -37,11 +39,30 @@ export async function POST(request: Request) {
     );
   }
 
+  if ("version" in parsed.data && !isClaimableAutoReturnEnabled()) {
+    return apiError(
+      ErrorCodes.INVALID_BODY,
+      "Auto-return claimable links are not enabled on this deployment.",
+      400,
+    );
+  }
+
   try {
+    if ("version" in parsed.data) {
+      const { feeSompi, linkPublicKey, refundLockTime, returnAddress } = parsed.data;
+      return apiJson({
+        script: createToccataClaimableAutoReturnScript({
+          feeSompi,
+          linkPublicKey,
+          refundLockTime,
+          returnAddress,
+        }),
+        warning: "The server received only the claim public key and the public return address.",
+      });
+    }
     return apiJson({
       script: createToccataClaimableLabScript(parsed.data),
-      warning:
-        "The server received only public keys and did not store claim/refund secrets.",
+      warning: "The server received only public keys and did not store claim/refund secrets.",
     });
   } catch (error) {
     if (error instanceof ToccataLabSdkUnavailableError) {
