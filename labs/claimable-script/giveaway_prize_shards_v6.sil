@@ -1,0 +1,336 @@
+pragma silverscript ^0.1.0;
+
+// Prize leader for the capital-efficient Giveaway V6 shard family.
+// Activation creates the exact shard set. Freeze consumes every shard,
+// finalizes an on-time pending entry from each shard using its consensus
+// blockDaaScore, and commits the resulting ordered roots and counts.
+contract GiveawayPrizeShardsV6(
+    byte[32] giveawayId,
+    int closesAtDaa,
+    int familySize,
+    int shardCount,
+    int treeDepth,
+    int maxEntriesPerShard,
+    int prizeValue,
+    int shardValue,
+    int entryFee,
+    int activationFee,
+    int freezeFee,
+    int drawFee,
+    int returnFee,
+    int returnAtDaa,
+    int entropyTargetBlueScore,
+    byte[32] entropyImageId,
+    byte[] returnSpk,
+    byte[32] emptyEntriesRoot,
+    byte[32] emptyAddressRoot,
+    byte[32] shardTemplate,
+    int shardPrefixLen,
+    int shardSuffixLen,
+    int initPhase,
+    byte[32] initFrozenRoot,
+    int initEntryCount
+) {
+    struct ShardState {
+        int shardIndex;
+        int count;
+        byte[32] entriesRoot;
+        byte[32] addressRoot;
+        byte[32] pendingHash;
+    }
+
+    // 0 bootstrap, 1 open, 2 frozen.
+    int phase = initPhase;
+    byte[32] frozenRoot = initFrozenRoot;
+    int entryCount = initEntryCount;
+
+    entry activate(byte[] shardPrefix, byte[] shardSuffix) {
+        require(giveawayId != byte[32](0x0000000000000000000000000000000000000000000000000000000000000000));
+        require(closesAtDaa > 0);
+        require(shardCount >= 1);
+        require(shardCount <= 4);
+        require(familySize == shardCount + 1);
+        require(treeDepth >= 1);
+        require(treeDepth <= 16);
+        require(maxEntriesPerShard > 0);
+        require(prizeValue > 0);
+        require(shardValue > 0);
+        require(entryFee > 0);
+        require(activationFee > 0);
+        require(freezeFee > 0);
+        require(drawFee > 0);
+        require(returnFee > 0);
+        require(returnAtDaa > closesAtDaa);
+        require(entropyTargetBlueScore > 0);
+        require(entropyImageId != byte[32](0x0000000000000000000000000000000000000000000000000000000000000000));
+        require(returnSpk.length > 0);
+        require(returnSpk.length <= 128);
+        require(shardValue > maxEntriesPerShard * entryFee);
+        int minimumRemainingReserve = shardCount * (shardValue - maxEntriesPerShard * entryFee);
+        require(minimumRemainingReserve > freezeFee + drawFee);
+        require(minimumRemainingReserve > freezeFee + returnFee);
+        require(shardPrefix.length == shardPrefixLen);
+        require(shardSuffix.length == shardSuffixLen);
+        require(phase == 0);
+        require(frozenRoot == byte[32](0x0000000000000000000000000000000000000000000000000000000000000000));
+        require(entryCount == 0);
+        require(tx.inputs.length == 1);
+        require(tx.outputs.length == familySize);
+        require(tx.inputs[this.activeInputIndex].value == prizeValue + shardCount * shardValue + activationFee);
+        require(tx.outputs[0].value == prizeValue);
+
+        byte[32] covenantId = OpInputCovenantId(this.activeInputIndex);
+        require(OpCovInputCount(covenantId) == 1);
+        require(OpAuthOutputCount(this.activeInputIndex) == familySize);
+        State openPrize = State {
+            phase: 1,
+            frozenRoot: byte[32](0x0000000000000000000000000000000000000000000000000000000000000000),
+            entryCount: 0
+        };
+        validateOutputState(OpAuthOutputIdx(this.activeInputIndex, 0), openPrize);
+
+        for (i, 0, shardCount, 16) {
+            int outputIndex = OpAuthOutputIdx(this.activeInputIndex, i + 1);
+            require(tx.outputs[outputIndex].value == shardValue);
+            ShardState shard = ShardState {
+                shardIndex: i,
+                count: 0,
+                entriesRoot: emptyEntriesRoot,
+                addressRoot: emptyAddressRoot,
+                pendingHash: byte[32](0x0000000000000000000000000000000000000000000000000000000000000000)
+            };
+            validateOutputStateWithTemplate(
+                outputIndex,
+                shard,
+                shardPrefix,
+                shardSuffix,
+                shardTemplate
+            );
+        }
+    }
+
+    entry freeze(byte[32][] pendingSiblings) {
+        require(phase == 1);
+        require(frozenRoot == byte[32](0x0000000000000000000000000000000000000000000000000000000000000000));
+        require(entryCount == 0);
+        require(pendingSiblings.length == shardCount * treeDepth);
+        require(tx.daa >= closesAtDaa);
+        require(tx.inputs.length == familySize);
+        require(tx.outputs.length == 1);
+
+        byte[32] covenantId = OpInputCovenantId(this.activeInputIndex);
+        require(OpCovInputCount(covenantId) == familySize);
+        require(OpCovInputIdx(covenantId, 0) == this.activeInputIndex);
+        require(OpAuthOutputCount(this.activeInputIndex) == 1);
+
+        byte[32] aggregate = sha256(byte[](""));
+        int totalCount = 0;
+        int inputValue = tx.inputs[this.activeInputIndex].value;
+        for (i, 0, shardCount, 16) {
+            int txInputIndex = OpCovInputIdx(covenantId, i + 1);
+            ShardState shard = readInputStateWithTemplate(
+                txInputIndex,
+                shardPrefixLen,
+                shardSuffixLen,
+                shardTemplate
+            );
+            require(shard.shardIndex == i);
+            require(shard.count >= 0);
+            require(shard.count <= maxEntriesPerShard);
+            inputValue = inputValue + tx.inputs[txInputIndex].value;
+
+            byte[32] finalEntriesRoot = shard.entriesRoot;
+            int finalCount = shard.count;
+            if (
+                shard.pendingHash != byte[32](0x0000000000000000000000000000000000000000000000000000000000000000)
+                && OpTxInputDaaScore(txInputIndex) <= closesAtDaa
+            ) {
+                require(shard.count < maxEntriesPerShard);
+                byte[32] oldRoot = sha256(
+                    byte[1](0x00)
+                    + byte[](byte[32](0x0000000000000000000000000000000000000000000000000000000000000000))
+                );
+                byte[32] newRoot = sha256(byte[1](0x01) + byte[](shard.pendingHash));
+                int appendPath = shard.count;
+                for (j, 0, treeDepth, 16) {
+                    byte[32] sibling = pendingSiblings[i * treeDepth + j];
+                    if (appendPath % 2 == 0) {
+                        oldRoot = sha256(byte[1](0x02) + byte[](oldRoot) + byte[](sibling));
+                        newRoot = sha256(byte[1](0x02) + byte[](newRoot) + byte[](sibling));
+                    } else {
+                        oldRoot = sha256(byte[1](0x02) + byte[](sibling) + byte[](oldRoot));
+                        newRoot = sha256(byte[1](0x02) + byte[](sibling) + byte[](newRoot));
+                    }
+                    appendPath = appendPath / 2;
+                }
+                require(oldRoot == shard.entriesRoot);
+                finalEntriesRoot = newRoot;
+                finalCount = shard.count + 1;
+            }
+
+            byte[8] shardIndexBytes = shard.shardIndex as byte[8];
+            byte[8] finalCountBytes = finalCount as byte[8];
+            aggregate = sha256(
+                byte[](aggregate)
+                + byte[](shardIndexBytes)
+                + byte[](finalCountBytes)
+                + byte[](finalEntriesRoot)
+                + byte[](shard.addressRoot)
+            );
+            totalCount = totalCount + finalCount;
+        }
+        require(tx.outputs[0].value == inputValue - freezeFee);
+        State frozenPrize = State {
+            phase: 2,
+            frozenRoot: aggregate,
+            entryCount: totalCount
+        };
+        validateOutputState(OpAuthOutputIdx(this.activeInputIndex, 0), frozenPrize);
+    }
+
+    // The proof guest verifies the candidate header, all of its direct parent
+    // headers, the selected-parent rule, and the first-crossing blue-score
+    // condition. The journal is reconstructed here and bound to this exact
+    // Giveaway, frozen participant state, target, and both chain blocks.
+    entry draw(
+        byte[] proof,
+        byte[32] parentBlockHash,
+        int parentBlueScore,
+        byte[32] candidateBlockHash,
+        int candidateBlueScore,
+        int[] shardCounts,
+        byte[32][] shardEntriesRoots,
+        byte[32][] shardAddressRoots,
+        byte[] winnerSpk,
+        byte[32][] winnerSiblings
+    ) {
+        require(phase == 2);
+        require(entryCount > 0);
+        require(parentBlockHash != byte[32](0x0000000000000000000000000000000000000000000000000000000000000000));
+        require(candidateBlockHash != byte[32](0x0000000000000000000000000000000000000000000000000000000000000000));
+        require(parentBlueScore >= 0);
+        require(parentBlueScore < entropyTargetBlueScore);
+        require(candidateBlueScore >= entropyTargetBlueScore);
+        require(shardCounts.length == shardCount);
+        require(shardEntriesRoots.length == shardCount);
+        require(shardAddressRoots.length == shardCount);
+        require(winnerSpk.length > 0);
+        require(winnerSpk.length <= 128);
+        require(winnerSiblings.length == treeDepth);
+        require(tx.inputs.length == 1);
+        require(tx.outputs.length == 2);
+
+        byte[32] covenantId = OpInputCovenantId(this.activeInputIndex);
+        require(OpCovInputCount(covenantId) == 1);
+        require(OpAuthOutputCount(this.activeInputIndex) == 0);
+
+        byte[32] aggregate = sha256(byte[](""));
+        int totalCount = 0;
+        for (i, 0, shardCount, 16) {
+            require(shardCounts[i] >= 0);
+            require(shardCounts[i] <= maxEntriesPerShard);
+            byte[8] shardIndexBytes = i as byte[8];
+            byte[8] shardCountBytes = shardCounts[i] as byte[8];
+            aggregate = sha256(
+                byte[](aggregate)
+                + byte[](shardIndexBytes)
+                + byte[](shardCountBytes)
+                + byte[](shardEntriesRoots[i])
+                + byte[](shardAddressRoots[i])
+            );
+            totalCount = totalCount + shardCounts[i];
+        }
+        require(aggregate == frozenRoot);
+        require(totalCount == entryCount);
+
+        byte[32] parentSeqCommit = OpChainblockSeqCommit(parentBlockHash);
+        byte[32] candidateSeqCommit = OpChainblockSeqCommit(candidateBlockHash);
+        byte[8] targetBytes = entropyTargetBlueScore as byte[8];
+        byte[8] parentScoreBytes = parentBlueScore as byte[8];
+        byte[8] candidateScoreBytes = candidateBlueScore as byte[8];
+        byte[32] journalHash = sha256(
+            byte[1](0x60)
+            + byte[](giveawayId)
+            + byte[](frozenRoot)
+            + byte[](targetBytes)
+            + byte[](parentBlockHash)
+            + byte[](parentScoreBytes)
+            + byte[](parentSeqCommit)
+            + byte[](candidateBlockHash)
+            + byte[](candidateScoreBytes)
+            + byte[](candidateSeqCommit)
+        );
+
+        byte[32] drawDigest = sha256(
+            byte[1](0x61)
+            + byte[](giveawayId)
+            + byte[](frozenRoot)
+            + byte[](candidateBlockHash)
+            + byte[](candidateSeqCommit)
+        );
+        int winnerIndex = OpBin2Num(drawDigest.slice(0, 4) + byte[1](0x00)) % entryCount;
+        require(winnerIndex >= 0);
+        require(winnerIndex < entryCount);
+
+        int remaining = winnerIndex;
+        int winnerShard = -1;
+        int winnerLocalIndex = -1;
+        for (i, 0, shardCount, 16) {
+            if (winnerShard == -1) {
+                if (remaining < shardCounts[i]) {
+                    winnerShard = i;
+                    winnerLocalIndex = remaining;
+                } else {
+                    remaining = remaining - shardCounts[i];
+                }
+            }
+        }
+        require(winnerShard >= 0);
+        require(winnerLocalIndex >= 0);
+
+        byte[32] winnerCommitment = sha256(winnerSpk);
+        byte[32] winnerRoot = sha256(byte[1](0x01) + byte[](winnerCommitment));
+        int winnerPath = winnerLocalIndex;
+        for (i, 0, treeDepth, 16) {
+            if (winnerPath % 2 == 0) {
+                winnerRoot = sha256(byte[1](0x02) + byte[](winnerRoot) + byte[](winnerSiblings[i]));
+            } else {
+                winnerRoot = sha256(byte[1](0x02) + byte[](winnerSiblings[i]) + byte[](winnerRoot));
+            }
+            winnerPath = winnerPath / 2;
+        }
+        require(winnerRoot == shardEntriesRoots[winnerShard]);
+
+        int inputValue = tx.inputs[this.activeInputIndex].value;
+        require(inputValue > prizeValue + drawFee);
+        require(tx.outputs[0].value == prizeValue);
+        require(tx.outputs[0].scriptPubKey == winnerSpk);
+        require(tx.outputs[1].value == inputValue - prizeValue - drawFee);
+        require(tx.outputs[1].scriptPubKey == returnSpk);
+
+        // Keep the expensive proof verification last so malformed payout and
+        // participant witnesses fail before invoking the precompile.
+        r0.g16.verify(journalHash, proof, entropyImageId);
+    }
+
+    // Anyone may broadcast this spend, but its only possible destination is
+    // the return script committed before funding. Empty Giveaways return as
+    // soon as they have been frozen; non-empty ones use the fallback deadline.
+    entry returnFunds() {
+        require(phase == 2);
+        if (entryCount == 0) {
+            require(tx.daa >= closesAtDaa);
+        } else {
+            require(tx.daa >= returnAtDaa);
+        }
+        require(tx.inputs.length == 1);
+        require(tx.outputs.length == 1);
+        byte[32] covenantId = OpInputCovenantId(this.activeInputIndex);
+        require(OpCovInputCount(covenantId) == 1);
+        require(OpAuthOutputCount(this.activeInputIndex) == 0);
+        int inputValue = tx.inputs[this.activeInputIndex].value;
+        require(inputValue > returnFee);
+        require(tx.outputs[0].value == inputValue - returnFee);
+        require(tx.outputs[0].scriptPubKey == returnSpk);
+    }
+}

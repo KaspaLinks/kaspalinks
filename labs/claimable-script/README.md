@@ -198,3 +198,51 @@ This is not the same safety profile as the engine tests above:
 - Engine tests: no funds. The canary harness: tiny mainnet funds only when the
   operator deliberately funds the printed address and manually submits the JSON.
 - Findings are recorded in `docs/claimable-links-lab.md`, not here.
+
+## Giveaway V6 feasibility work
+
+The Giveaway V6 contracts use SilverScript covenant declarations added after
+the older Claimable-Link pin above. They are currently verified at exact
+SilverScript commit `3ed973335b59269293564805cc2c58a14595ec03` (SilverScript
+1.0 preparation, 2026-09-09). They are feasibility artifacts and are not
+embedded in the web app or approved for Mainnet funding.
+
+- `giveaway_entry_shard_v6.sil` is the capital-efficient production direction:
+  a keyless append-only entry tree plus an exact-address set, with deterministic
+  shard assignment and no one-UTXO-per-participant reserve.
+- `giveaway_prize_shards_v6.sil` activates the exact Prize State and Entry
+  Shard family, freezes every shard into one committed root/count vector,
+  constrains the proof-bound winner payout, and provides keyless empty/fallback
+  returns to the precommitted script.
+- The corresponding Rust files run the contracts against the compiler's real
+  TxScript engine and include rejection tests for state, value, cardinality,
+  ordering, reuse, and late-entry changes.
+
+Run from a checkout at the exact commit:
+
+```sh
+cp /path/to/project/labs/claimable-script/giveaway_entry_shard_v6.sil \
+  /path/to/project/labs/claimable-script/giveaway_prize_shards_v6.sil \
+  /path/to/project/labs/claimable-script/giveaway_entry_shard_v6_tests.rs \
+  /path/to/project/labs/claimable-script/giveaway_sharded_family_v6_tests.rs \
+  silverscript-lang/tests/
+cargo test -p silverscript-lang --test giveaway_entry_shard_v6_tests
+cargo test -p silverscript-lang --test giveaway_sharded_family_v6_tests
+```
+
+The engine suite currently proves the close lock and both return paths. The
+draw entry and its RISC Zero Groth16 precompile compile into the same artifact;
+a successful draw still awaits the exact entropy guest and proof fixture.
+
+The 13 production-direction tests also derive exact Toccata compute budgets.
+The four-shard activation measures 60,949 compute / 179,196 transient mass,
+registration measures 91,111 / 180,164, and the full-family freeze measures
+168,511 / 618,564, below the post-Toccata Mainnet limits of 500,000 /
+1,000,000. The compiled Entry Shard is 37,164 bytes and the Prize State is
+10,252 bytes. Contextual storage, relay fees, and the proof-bearing draw remain
+delivery gates.
+
+The production gate remains the one in
+`docs/giveaway-v6-onchain-protocol.md`: complete payout/return and entropy
+proofs, measured mass and fees, chain-only index reconstruction, a restricted
+Mainnet trial, and independent review.

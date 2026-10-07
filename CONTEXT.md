@@ -76,3 +76,15 @@ _Avoid_: Refund wallet, payout address
 **Auto-Return**:
 The keyless spend that sends an expired, unclaimed claimable link back to its Return Address; anyone may broadcast it.
 _Avoid_: Refund, server refund
+
+**On-Chain Giveaway**:
+A Giveaway whose accepted entries, closed participant set, randomness rule, and payout are committed to and enforced by Kaspa L1. KaspaLinks may relay transactions and present the state but is not the source of truth.
+_Avoid_: Verifiable server draw, trusted Giveaway
+
+**Entry Shard**:
+One of a small fixed set of creator-funded covenant ledgers. It records an append-only participant Merkle root, an exact-address set root, and a confirmed entry count on chain.
+_Avoid_: Database participant list, one UTXO per participant
+
+**Entropy Proof**:
+An on-chain-verified proof that the draw used the unique Kaspa selected-chain block prescribed before the participant set was known.
+_Avoid_: Platform block attestation, random block
