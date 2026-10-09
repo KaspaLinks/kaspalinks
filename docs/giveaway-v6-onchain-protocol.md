@@ -93,7 +93,7 @@ The setup screen must show one total before the Creator funds:
 
 Every confirmed registration consumes one fixed fee from its shard. Freeze consolidates the remaining shard value. The draw returns unused execution budget to the committed Return Address. The UI presents this reserve separately from the prize and explains that unused reserve returns automatically.
 
-The current four-shard prototype was measured with exact Toccata compute budgets. Activation uses 60,945 compute mass and 179,180 transient mass. Registration uses 91,111 compute mass and 180,164 transient mass. A complete freeze with Prize State plus all four shards uses 168,507 compute mass and 618,548 transient mass. The real Groth16 proof-bearing draw uses 163,960 compute mass and 34,800 transient mass. These transactions fit the current post-Toccata Mainnet limits of 500,000 compute mass and 1,000,000 transient mass. The compiled Entry Shard redeem script is 37,164 bytes and the Prize State is 10,252 bytes. Contextual storage mass with production values and relay fees still require end-to-end measurement before funding is enabled.
+The current four-shard prototype was measured with exact Toccata compute budgets. Activation uses 60,957 compute mass and 179,228 transient mass. Registration uses 91,111 compute mass and 180,164 transient mass. A complete freeze with Prize State plus all four shards uses 168,519 compute mass and 618,596 transient mass. The Mainnet-header, twelve-participant Groth16 draw uses 164,374 compute mass and 35,136 transient mass. These transactions fit the current post-Toccata Mainnet limits of 500,000 compute mass and 1,000,000 transient mass. Contextual storage mass with production values and relay fees still require end-to-end measurement before funding is enabled.
 
 ## Mobile experience
 
@@ -119,7 +119,7 @@ PostgreSQL is an index and cache. It may store titles, presentation data, observ
 
 ## Current implementation status
 
-The feasibility contracts and 14 production-direction TxScript-engine tests currently cover exact activation, keyless shard registration, deterministic shard choice, full 256-bit duplicate payout-commitment rejection, late-entry exclusion, complete-family freeze, the absolute close lock, empty return, fallback return, and a real proof-bound draw. The draw verifies the pinned RISC Zero guest receipt, reconstructs the frozen shard commitment, derives the winner, verifies Merkle inclusion, constrains both payout outputs, and rejects a different on-chain sequence commitment.
+The feasibility contracts and 14 production-direction TxScript-engine tests currently cover exact activation, keyless shard registration, deterministic shard choice, full 256-bit duplicate payout-commitment rejection, late-entry exclusion, complete-family freeze, the absolute close lock, empty return, fallback return, and a real proof-bound draw. The draw fixture contains twelve participants over four shards and two independently rehashed Mainnet headers. The draw verifies the pinned RISC Zero guest receipt, reconstructs the frozen shard commitment, derives global winner index 5 in shard 1, verifies Merkle inclusion, constrains both payout outputs, and rejects a different on-chain sequence commitment.
 
 The reproducible entropy guest and host pipeline live in `labs/giveaway-entropy-prover`. Its pinned image ID is `a402f88f9b89afd2eb5e5f6cdc96f67af2ff4d4da70e1e6a4767a99c26b692b1`; the normal test suite verifies the stored Groth16 fixture, and the SilverScript engine accepts its compact Kaspa proof. Mainnet creation remains disabled until the remaining delivery gates below pass.
 
@@ -129,7 +129,7 @@ V6 must not accept Mainnet funding until all of these pass:
 
 - SilverScript engine tests for parallel shard races at realistic concurrency and the already-covered activation, registration, freeze, duplicate rejection, draw, empty return, and timed return;
 - contextual storage-mass and relay-fee measurements at the maximum cap; proof-bearing non-contextual draw mass is already measured;
-- reproducible proof generation from real Mainnet headers using the RISC Zero guest whose image ID is already pinned in source;
+- integrate the now-reproducible Mainnet-header proof generation into the production indexer and submit the draw while both sequence commitments remain available;
 - independent browser verification of the same journal and winner calculation;
 - restart and index-rebuild tests using only chain data;
 - a restricted low-value Mainnet activation, registration, draw, and return trial;

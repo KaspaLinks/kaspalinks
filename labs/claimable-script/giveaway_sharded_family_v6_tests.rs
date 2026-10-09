@@ -21,9 +21,11 @@ use kaspa_txscript::{
     EngineCtx, EngineFlags, SeqCommitAccessor, TxScriptEngine, caches::Cache, covenants::CovenantsContext, pay_to_script_hash_script,
 };
 use risc0_zkvm::{Groth16Receipt, ReceiptClaim};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use silverscript_abi::{ArtifactValue, SilAbiArtifact};
 use silverscript_lang::compiler::{CompileOptions, compile_to_sil_abi_artifact_with_options};
+use std::collections::{BTreeMap, BTreeSet};
 
 const SHARD_SOURCE: &str = include_str!("giveaway_entry_shard_v6.sil");
 const PRIZE_SOURCE: &str = include_str!("giveaway_prize_shards_v6.sil");
@@ -40,21 +42,35 @@ const FREEZE_FEE: u64 = 100;
 const DRAW_FEE: u64 = 100;
 const RETURN_FEE: u64 = 100;
 const RETURN_AT_DAA: u64 = 200;
-const ENTROPY_TARGET_BLUE_SCORE: u64 = 100;
+const ENTROPY_TARGET_BLUE_SCORE: u64 = 559_181_995;
 const ENTROPY_IMAGE_ID: [u8; 32] = [
     0xa4, 0x02, 0xf8, 0x8f, 0x9b, 0x89, 0xaf, 0xd2, 0xeb, 0x5e, 0x5f, 0x6c, 0xdc, 0x96, 0xf6, 0x7a, 0xf2, 0xff, 0x4d, 0x4d, 0xa7,
     0x0e, 0x1e, 0x6a, 0x47, 0x67, 0xa9, 0x9c, 0x26, 0xb6, 0x92, 0xb1,
 ];
 const PARENT_BLOCK_HASH: [u8; 32] = [
-    0x2b, 0x31, 0x60, 0x85, 0xea, 0xfb, 0x97, 0x63, 0x4f, 0xf4, 0xd5, 0x8d, 0x2e, 0xb4, 0x0c, 0x0c, 0xff, 0x63, 0x96, 0x53, 0xed,
-    0xf9, 0x56, 0xba, 0x57, 0x5b, 0x09, 0x3d, 0x97, 0x7e, 0x80, 0xfa,
+    0x49, 0xc3, 0x62, 0x90, 0x73, 0x57, 0xef, 0x61, 0xe3, 0xee, 0xb4, 0xa0, 0xfc, 0xf7, 0xca, 0xe6, 0xb7, 0xdc, 0x05, 0xa0, 0x4b,
+    0x56, 0x6e, 0xc0, 0xa1, 0xfa, 0xe9, 0x17, 0xab, 0x4b, 0xe2, 0xd1,
 ];
 const CANDIDATE_BLOCK_HASH: [u8; 32] = [
-    0x7c, 0x4e, 0xa8, 0x0d, 0x46, 0x08, 0x9f, 0xa8, 0x4d, 0xcd, 0xbb, 0x59, 0xde, 0x9d, 0x51, 0x22, 0x7f, 0xcf, 0x88, 0xc4, 0x6f,
-    0x00, 0xb2, 0x3b, 0xa4, 0xc4, 0xdd, 0x7b, 0xfd, 0x21, 0x6a, 0x2f,
+    0x6f, 0x47, 0xbd, 0x29, 0xcc, 0xfd, 0x40, 0x17, 0x57, 0xa8, 0x5f, 0xf3, 0x60, 0xdc, 0x70, 0x76, 0xc8, 0xe4, 0xb1, 0x67, 0xae,
+    0x4b, 0x3c, 0xcb, 0xee, 0xc7, 0x55, 0x00, 0x28, 0xc0, 0xe5, 0x2b,
 ];
-const PARENT_SEQ_COMMIT: [u8; 32] = [14; 32];
-const CANDIDATE_SEQ_COMMIT: [u8; 32] = [24; 32];
+const PARENT_SEQ_COMMIT: [u8; 32] = [
+    0x30, 0x97, 0xc0, 0x5f, 0xdb, 0x89, 0xce, 0xfd, 0x0b, 0x53, 0x0d, 0xb2, 0x27, 0xc5, 0x23, 0x8f, 0xaf, 0x31, 0x6e, 0xd0, 0x75,
+    0xa4, 0x3e, 0xcb, 0x0f, 0x36, 0xee, 0x12, 0xf8, 0x35, 0x8f, 0x02,
+];
+const CANDIDATE_SEQ_COMMIT: [u8; 32] = [
+    0xbf, 0x3b, 0x86, 0x31, 0xa0, 0xd0, 0x2e, 0x1a, 0x85, 0xdf, 0xf2, 0x28, 0x1e, 0x5d, 0xde, 0x75, 0xa5, 0x92, 0x2e, 0x3d, 0x37,
+    0x6e, 0xef, 0x57, 0xf2, 0x41, 0x21, 0x00, 0xd5, 0xeb, 0x9e, 0xa1,
+];
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParticipantFixture {
+    giveaway_id: String,
+    tree_depth: usize,
+    shards: Vec<Vec<String>>,
+}
 
 fn zero() -> [u8; 32] {
     [0; 32]
@@ -91,6 +107,78 @@ fn update_root(mut current: [u8; 32], mut path: u64, siblings: &[[u8; 32]], doma
         path /= 2;
     }
     current
+}
+
+fn decode_hex(value: &str) -> Vec<u8> {
+    assert!(value.len() % 2 == 0);
+    value.as_bytes().chunks_exact(2).map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()).collect()
+}
+
+fn participant_fixture() -> ([u8; 32], Vec<Vec<Vec<u8>>>) {
+    let fixture: ParticipantFixture =
+        serde_json::from_str(include_str!("fixtures/giveaway_v6_participants.json")).expect("participant fixture decodes");
+    assert_eq!(fixture.tree_depth, TREE_DEPTH);
+    let giveaway_id = decode_hex(&fixture.giveaway_id).try_into().expect("giveaway ID has 32 bytes");
+    let shards = fixture.shards.iter().map(|shard| shard.iter().map(|script| decode_hex(script)).collect()).collect();
+    (giveaway_id, shards)
+}
+
+fn entry_root_and_proof(commitments: &[[u8; 32]], winner_index: usize) -> ([u8; 32], Vec<[u8; 32]>) {
+    let empty_leaf = leaf(0x00, zero());
+    let mut level: Vec<_> = commitments
+        .iter()
+        .map(|commitment| leaf(0x01, *commitment))
+        .chain(std::iter::repeat(empty_leaf))
+        .take(1usize << TREE_DEPTH)
+        .collect();
+    let mut position = winner_index;
+    let mut siblings = Vec::with_capacity(TREE_DEPTH);
+    for _ in 0..TREE_DEPTH {
+        siblings.push(level[position ^ 1]);
+        position /= 2;
+        level = level.chunks_exact(2).map(|pair| node(0x02, pair[0], pair[1])).collect();
+    }
+    (level[0], siblings)
+}
+
+fn entry_root(commitments: &[[u8; 32]]) -> [u8; 32] {
+    entry_root_and_proof(commitments, 0).0
+}
+
+fn shift_right(mut value: [u8; 32]) -> [u8; 32] {
+    let mut carry = 0u8;
+    for byte in value.iter_mut().rev() {
+        let next_carry = *byte & 1;
+        *byte = (*byte >> 1) | (carry << 7);
+        carry = next_carry;
+    }
+    value
+}
+
+fn address_root(commitments: &[[u8; 32]]) -> [u8; 32] {
+    let mut empty = vec![leaf(0x10, zero())];
+    for level in 0..256 {
+        empty.push(node(0x12, empty[level], empty[level]));
+    }
+    let mut nodes: BTreeMap<[u8; 32], [u8; 32]> =
+        commitments.iter().map(|commitment| (*commitment, leaf(0x11, *commitment))).collect();
+    for level in 0..256 {
+        let mut parents = BTreeMap::new();
+        let mut visited = BTreeSet::new();
+        for (position, hash) in &nodes {
+            if !visited.insert(*position) {
+                continue;
+            }
+            let mut sibling_position = *position;
+            sibling_position[0] ^= 1;
+            visited.insert(sibling_position);
+            let sibling = nodes.get(&sibling_position).copied().unwrap_or(empty[level]);
+            let parent = if position[0] & 1 == 0 { node(0x12, *hash, sibling) } else { node(0x12, sibling, *hash) };
+            parents.insert(shift_right(*position), parent);
+        }
+        nodes = parents;
+    }
+    nodes.values().next().copied().unwrap_or(empty[256])
 }
 
 fn compile_shard(
@@ -466,42 +554,67 @@ fn non_empty_frozen_giveaway_uses_the_fallback_deadline() {
 
 #[test]
 fn proof_bound_draw_pays_the_on_chain_winner() {
-    let entry_levels = empty_levels(TREE_DEPTH, 0x00, 0x02);
-    let winner_spk = return_spk();
-    let winner_spk_bytes = spk_bytes(&winner_spk);
-    let winner_commitment = sha256(&winner_spk_bytes);
-    let winner_siblings = entry_levels[..TREE_DEPTH].to_vec();
-    let winner_root = update_root(leaf(0x01, winner_commitment), 0, &winner_siblings, 0x02);
-    let shard_counts = [1u64, 0, 0, 0];
-    let shard_entries_roots = [winner_root, entry_levels[TREE_DEPTH], entry_levels[TREE_DEPTH], entry_levels[TREE_DEPTH]];
-    let shard_address_roots = [[0x33; 32], [0x34; 32], [0x35; 32], [0x36; 32]];
+    let (giveaway_id, shards) = participant_fixture();
+    assert_eq!(giveaway_id, [0x42; 32]);
+    assert_eq!(shards.len(), SHARD_COUNT);
+    let commitments: Vec<Vec<[u8; 32]>> = shards
+        .iter()
+        .enumerate()
+        .map(|(shard_index, scripts)| {
+            scripts
+                .iter()
+                .map(|script| {
+                    let commitment = sha256(script);
+                    assert_eq!(commitment[0] as usize % SHARD_COUNT, shard_index);
+                    commitment
+                })
+                .collect()
+        })
+        .collect();
+    let shard_counts: [u64; SHARD_COUNT] = shards.iter().map(|shard| shard.len() as u64).collect::<Vec<_>>().try_into().unwrap();
+    let shard_entries_roots: [[u8; 32]; SHARD_COUNT] =
+        commitments.iter().map(|shard| entry_root(shard)).collect::<Vec<_>>().try_into().unwrap();
+    let shard_address_roots: [[u8; 32]; SHARD_COUNT] =
+        commitments.iter().map(|shard| address_root(shard)).collect::<Vec<_>>().try_into().unwrap();
 
     let mut frozen_root = sha256(&[]);
     for index in 0..SHARD_COUNT {
         frozen_root =
             aggregate_shard(frozen_root, index as u64, shard_counts[index], shard_entries_roots[index], shard_address_roots[index]);
     }
-    assert_eq!(
-        frozen_root,
-        [
-            0x18, 0x5c, 0xfb, 0xe5, 0x9d, 0xbb, 0x69, 0x2c, 0xce, 0xcd, 0xa5, 0xef, 0xa0, 0xc1, 0x84, 0x8f, 0x5c, 0x4b, 0x86, 0x62,
-            0x79, 0xd6, 0x99, 0xa7, 0x0d, 0x80, 0x9a, 0x62, 0xd1, 0x94, 0xb5, 0x2b,
-        ]
-    );
+    let expected_frozen_root: [u8; 32] =
+        decode_hex("a8780ddf4e63d1779828849df0c56c67703f0a29ebe0df70b233eebb05149f10").try_into().unwrap();
+    assert_eq!(frozen_root, expected_frozen_root);
+
+    let mut draw_preimage = vec![0x61];
+    draw_preimage.extend_from_slice(&giveaway_id);
+    draw_preimage.extend_from_slice(&frozen_root);
+    draw_preimage.extend_from_slice(&CANDIDATE_BLOCK_HASH);
+    draw_preimage.extend_from_slice(&CANDIDATE_SEQ_COMMIT);
+    let draw_digest = sha256(&draw_preimage);
+    let global_index = u32::from_le_bytes(draw_digest[..4].try_into().unwrap()) as usize % 12;
+    assert_eq!(global_index, 5);
+    let winner_shard = 1;
+    let winner_local_index = 2;
+    let winner_spk_bytes = shards[winner_shard][winner_local_index].clone();
+    let winner_spk =
+        ScriptPublicKey::from_vec(u16::from_be_bytes(winner_spk_bytes[..2].try_into().unwrap()), winner_spk_bytes[2..].to_vec());
+    let (winner_root, winner_siblings) = entry_root_and_proof(&commitments[winner_shard], winner_local_index);
+    assert_eq!(winner_root, shard_entries_roots[winner_shard]);
 
     let receipt: Groth16Receipt<ReceiptClaim> =
-        borsh::from_slice(include_bytes!("fixtures/giveaway_entropy_v6_groth16.rcpt")).expect("Groth16 fixture decodes");
+        borsh::from_slice(include_bytes!("fixtures/giveaway_entropy_v6_mainnet_groth16.rcpt")).expect("Groth16 fixture decodes");
     receipt.verify_integrity().expect("Groth16 fixture verifies");
     let proof = kaspa_txscript_zk_sdk::prepare_r0_groth16_proof(&receipt).expect("compact TxScript proof encodes");
 
-    let frozen = compile_prize(2, frozen_root, 1);
+    let frozen = compile_prize(2, frozen_root, 12);
     let input_value = PRIZE_VALUE + SHARD_COUNT as u64 * SHARD_VALUE - FREEZE_FEE;
     let args = [
         ArtifactValue::Bytes(proof),
         ArtifactValue::Bytes(PARENT_BLOCK_HASH.to_vec()),
-        ArtifactValue::Int(99),
+        ArtifactValue::Int(559_181_983),
         ArtifactValue::Bytes(CANDIDATE_BLOCK_HASH.to_vec()),
-        ArtifactValue::Int(100),
+        ArtifactValue::Int(559_181_995),
         ArtifactValue::Array(shard_counts.into_iter().map(|count| ArtifactValue::Int(count as i64)).collect()),
         ArtifactValue::Array(shard_entries_roots.into_iter().map(|root| ArtifactValue::Bytes(root.to_vec())).collect()),
         ArtifactValue::Array(shard_address_roots.into_iter().map(|root| ArtifactValue::Bytes(root.to_vec())).collect()),

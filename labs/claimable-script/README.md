@@ -227,27 +227,29 @@ cp /path/to/project/labs/claimable-script/giveaway_entry_shard_v6.sil \
   /path/to/project/labs/claimable-script/giveaway_sharded_family_v6_tests.rs \
   silverscript-lang/tests/
 mkdir -p silverscript-lang/tests/fixtures
-cp /path/to/project/labs/claimable-script/fixtures/giveaway_entropy_v6_groth16.rcpt \
+cp /path/to/project/labs/claimable-script/fixtures/giveaway_entropy_v6_mainnet_groth16.rcpt \
+  /path/to/project/labs/claimable-script/fixtures/giveaway_v6_participants.json \
   silverscript-lang/tests/fixtures/
 cargo test -p silverscript-lang --test giveaway_entry_shard_v6_tests
 cargo test -p silverscript-lang --test giveaway_sharded_family_v6_tests
 ```
 
 The engine suite now executes the complete proof-bound draw with a real RISC
-Zero Groth16 receipt. It verifies the pinned guest image, reconstructs the
-217-byte journal, anchors both post-Toccata block commitments through the
-sequence-commitment accessor, pays the participant proven by the frozen tree,
-and rejects a changed on-chain sequence commitment. The close lock and both
-return paths remain covered as well.
+Zero Groth16 receipt generated from two rehashed public Mainnet headers and a
+twelve-participant, four-shard fixture. It verifies the pinned guest image,
+reconstructs the 217-byte journal, anchors both post-Toccata block commitments
+through the sequence-commitment accessor, derives the nontrivial winner at
+global index 5 (shard 1, local index 2), and rejects both a redirected payout
+and a changed on-chain sequence commitment. The close lock and both return
+paths remain covered as well.
 
 The 14 production-direction tests also derive exact Toccata compute budgets.
-The four-shard activation measures 60,945 compute / 179,180 transient mass,
+The four-shard activation measures 60,957 compute / 179,228 transient mass,
 registration measures 91,111 / 180,164, and the full-family freeze measures
-168,507 / 618,548, below the post-Toccata Mainnet limits of 500,000 /
-1,000,000. The real proof-bearing draw measures 163,960 / 34,800. The compiled
-Entry Shard is 37,164 bytes and the Prize State is 10,252 bytes. Contextual
-storage, production-value relay fees, and a chain-only reconstruction remain
-delivery gates.
+168,519 / 618,596, below the post-Toccata Mainnet limits of 500,000 /
+1,000,000. The real proof-bearing draw measures 164,374 / 35,136. Contextual
+storage, production-value relay fees, continuous indexer replay, and an
+on-chain canary remain delivery gates.
 
 The production gate remains the one in
 `docs/giveaway-v6-onchain-protocol.md`: complete payout/return and entropy
