@@ -129,8 +129,10 @@ V6 transitions, reproduces the SilverScript fixture's frozen root and winner,
 and rejects broken lineage, duplicate or mis-sharded registrations, mismatched
 freeze state, invalid entropy boundaries, and redirected payouts. Its VSPC v2
 adapter also normalizes confirmed `Full` transaction and header data from a
-network-checked Kaspa node. The SilverScript ABI decoder and reindex worker
-remain delivery gates. See
+network-checked Kaspa node. Its compiler-pinned witness decoder recognizes all
+six V6 dispatch paths, decodes the runtime state and bounded arguments, and
+recomputes the SilverScript template hash. The covenant-family transaction
+projector and reindex worker remain delivery gates. See
 [`giveaway-v6-chain-reconstruction.md`](./giveaway-v6-chain-reconstruction.md)
 for the decoder boundary and rollout sequence.
 

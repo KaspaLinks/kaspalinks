@@ -36,8 +36,18 @@ inputs, previous UTXOs, output covenant bindings, signature scripts, and the
 accepting header, and exposes removed-chain hashes for cache rollback. The
 adapter rejects partial responses instead of inventing missing UTXO context.
 
-The remaining SilverScript ABI decoder must turn those normalized
-transactions into protocol events only after checking all of the following:
+The V6 SilverScript witness decoder is also implemented. It accepts only
+canonical push-only signature scripts, recognizes the compiler-generated
+dispatch tags, separates the redeem script, decodes the fixed runtime state,
+checks every argument's bounded shape, and recomputes SilverScript's BLAKE3
+template hash. Compiler-generated cross-language vectors pin the decoder to
+SilverScript commit `3ed973335b59269293564805cc2c58a14595ec03` and the reviewed
+V6 source hashes. The draw proof itself is not retained by this projection;
+only its SHA-256 audit digest is returned.
+
+The remaining transaction projector must combine those decoded witnesses with
+the normalized transactions and emit protocol events only after checking all
+of the following:
 
 1. The transaction is accepted and belongs to the requested network.
 2. The activation redeem scripts commit to the supplied giveaway ID, closing
@@ -69,7 +79,8 @@ fallback return, strict JSON validation, and deterministic rebuilds.
 ## Production sequence
 
 1. Connect the vendored Kaspa SDK to the private Hetzner node and add the V6
-   SilverScript ABI decoder on top of the completed VSPC v2 adapter.
+   covenant-family transaction projector on top of the completed VSPC v2 and
+   SilverScript witness decoders.
 2. Run reconstruction as an idempotent worker and store only derived snapshots
    plus the last verified chain position.
 3. Expose the snapshot and its transaction/header references through a

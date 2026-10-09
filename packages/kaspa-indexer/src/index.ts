@@ -429,3 +429,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export * from "./giveaway-v6-reconstructor";
 export * from "./giveaway-v6-chain-json";
 export * from "./kaspa-vspc-v2";
+export * from "./giveaway-v6-witness";
