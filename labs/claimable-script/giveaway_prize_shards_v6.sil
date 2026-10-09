@@ -188,10 +188,11 @@ contract GiveawayPrizeShardsV6(
         validateOutputState(OpAuthOutputIdx(this.activeInputIndex, 0), frozenPrize);
     }
 
-    // The proof guest verifies the candidate header, all of its direct parent
-    // headers, the selected-parent rule, and the first-crossing blue-score
-    // condition. The journal is reconstructed here and bound to this exact
-    // Giveaway, frozen participant state, target, and both chain blocks.
+    // The proof guest recomputes both supplied post-Toccata header hashes,
+    // verifies that the parent is the candidate's first direct parent (the
+    // consensus selected-parent position), and enforces the first-crossing
+    // blue-score condition. The journal is reconstructed here and bound to
+    // this exact Giveaway, frozen participant state, target, and both blocks.
     entry draw(
         byte[] proof,
         byte[32] parentBlockHash,

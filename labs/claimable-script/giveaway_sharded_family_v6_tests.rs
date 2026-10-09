@@ -11,12 +11,16 @@ use common::{
     tx_input,
 };
 use kaspa_consensus_core::{
+    Hash,
     config::params::MAINNET_PARAMS,
     hashing::sighash::SigHashReusedValuesUnsync,
     mass::{ComputeBudget, MassCalculator, ScriptUnits},
     tx::{CovenantBinding, PopulatedTransaction, ScriptPublicKey, Transaction, TransactionOutput, UtxoEntry, VerifiableTransaction},
 };
-use kaspa_txscript::{EngineCtx, EngineFlags, TxScriptEngine, caches::Cache, covenants::CovenantsContext, pay_to_script_hash_script};
+use kaspa_txscript::{
+    EngineCtx, EngineFlags, SeqCommitAccessor, TxScriptEngine, caches::Cache, covenants::CovenantsContext, pay_to_script_hash_script,
+};
+use risc0_zkvm::{Groth16Receipt, ReceiptClaim};
 use sha2::{Digest, Sha256};
 use silverscript_abi::{ArtifactValue, SilAbiArtifact};
 use silverscript_lang::compiler::{CompileOptions, compile_to_sil_abi_artifact_with_options};
@@ -36,6 +40,21 @@ const FREEZE_FEE: u64 = 100;
 const DRAW_FEE: u64 = 100;
 const RETURN_FEE: u64 = 100;
 const RETURN_AT_DAA: u64 = 200;
+const ENTROPY_TARGET_BLUE_SCORE: u64 = 100;
+const ENTROPY_IMAGE_ID: [u8; 32] = [
+    0xa4, 0x02, 0xf8, 0x8f, 0x9b, 0x89, 0xaf, 0xd2, 0xeb, 0x5e, 0x5f, 0x6c, 0xdc, 0x96, 0xf6, 0x7a, 0xf2, 0xff, 0x4d, 0x4d, 0xa7,
+    0x0e, 0x1e, 0x6a, 0x47, 0x67, 0xa9, 0x9c, 0x26, 0xb6, 0x92, 0xb1,
+];
+const PARENT_BLOCK_HASH: [u8; 32] = [
+    0x2b, 0x31, 0x60, 0x85, 0xea, 0xfb, 0x97, 0x63, 0x4f, 0xf4, 0xd5, 0x8d, 0x2e, 0xb4, 0x0c, 0x0c, 0xff, 0x63, 0x96, 0x53, 0xed,
+    0xf9, 0x56, 0xba, 0x57, 0x5b, 0x09, 0x3d, 0x97, 0x7e, 0x80, 0xfa,
+];
+const CANDIDATE_BLOCK_HASH: [u8; 32] = [
+    0x7c, 0x4e, 0xa8, 0x0d, 0x46, 0x08, 0x9f, 0xa8, 0x4d, 0xcd, 0xbb, 0x59, 0xde, 0x9d, 0x51, 0x22, 0x7f, 0xcf, 0x88, 0xc4, 0x6f,
+    0x00, 0xb2, 0x3b, 0xa4, 0xc4, 0xdd, 0x7b, 0xfd, 0x21, 0x6a, 0x2f,
+];
+const PARENT_SEQ_COMMIT: [u8; 32] = [14; 32];
+const CANDIDATE_SEQ_COMMIT: [u8; 32] = [24; 32];
 
 fn zero() -> [u8; 32] {
     [0; 32]
@@ -129,8 +148,8 @@ fn compile_prize(phase: i64, frozen_root: [u8; 32], count: i64) -> SilAbiArtifac
             ArtifactValue::Int(DRAW_FEE as i64),
             ArtifactValue::Int(RETURN_FEE as i64),
             ArtifactValue::Int(RETURN_AT_DAA as i64),
-            ArtifactValue::Int(150),
-            ArtifactValue::Bytes([0x55; 32].to_vec()),
+            ArtifactValue::Int(ENTROPY_TARGET_BLUE_SCORE as i64),
+            ArtifactValue::Bytes(ENTROPY_IMAGE_ID.to_vec()),
             ArtifactValue::Bytes(spk_bytes(&return_spk())),
             ArtifactValue::Bytes(entries_root.to_vec()),
             ArtifactValue::Bytes(address_root.to_vec()),
@@ -174,19 +193,28 @@ fn utxo(artifact: &SilAbiArtifact, value: u64, daa_score: u64) -> UtxoEntry {
     UtxoEntry::new(value, pay_to_script_hash_script(&bytecode(artifact)), daa_score, false, Some(COV_A))
 }
 
-fn measured_script_units(tx: &Transaction, entries: &[UtxoEntry], input_index: usize) -> ScriptUnits {
+fn measured_script_units(
+    tx: &Transaction,
+    entries: &[UtxoEntry],
+    input_index: usize,
+    seq_commit_accessor: Option<&dyn SeqCommitAccessor>,
+) -> ScriptUnits {
     let reused_values = SigHashReusedValuesUnsync::new();
     let sig_cache = Cache::new(10_000);
     let populated = PopulatedTransaction::new(tx, entries.to_vec());
     let covenants = CovenantsContext::from_tx(&populated).expect("covenant context builds");
     let input = &tx.inputs[input_index];
     let utxo = populated.utxo(input_index).expect("selected input UTXO");
+    let mut ctx = EngineCtx::new(&sig_cache).with_reused(&reused_values).with_covenants_ctx(&covenants);
+    if let Some(accessor) = seq_commit_accessor {
+        ctx = ctx.with_seq_commit_accessor(accessor);
+    }
     let mut vm = TxScriptEngine::from_transaction_input(
         &populated,
         input,
         input_index,
         utxo,
-        EngineCtx::new(&sig_cache).with_reused(&reused_values).with_covenants_ctx(&covenants),
+        ctx,
         EngineFlags { covenants_enabled: true, sigop_script_units: 0.into() },
     );
     vm.execute().expect("input executes while measuring its script units");
@@ -196,7 +224,7 @@ fn measured_script_units(tx: &Transaction, entries: &[UtxoEntry], input_index: u
 fn with_exact_compute_budgets(mut tx: Transaction, entries: &[UtxoEntry]) -> Transaction {
     let budgets: Vec<_> = (0..tx.inputs.len())
         .map(|input_index| {
-            ComputeBudget::checked_covering_script_units(measured_script_units(&tx, entries, input_index))
+            ComputeBudget::checked_covering_script_units(measured_script_units(&tx, entries, input_index, None))
                 .expect("input script units fit a Toccata compute budget")
         })
         .collect();
@@ -204,6 +232,68 @@ fn with_exact_compute_budgets(mut tx: Transaction, entries: &[UtxoEntry]) -> Tra
         input.compute_commit = budget.into();
     }
     tx
+}
+
+fn with_exact_compute_budgets_and_seqcommit(
+    mut tx: Transaction,
+    entries: &[UtxoEntry],
+    accessor: &dyn SeqCommitAccessor,
+) -> Transaction {
+    let budgets: Vec<_> = (0..tx.inputs.len())
+        .map(|input_index| {
+            ComputeBudget::checked_covering_script_units(measured_script_units(&tx, entries, input_index, Some(accessor)))
+                .expect("input script units fit a Toccata compute budget")
+        })
+        .collect();
+    for (input, budget) in tx.inputs.iter_mut().zip(budgets) {
+        input.compute_commit = budget.into();
+    }
+    tx
+}
+
+struct MockChain {
+    parent_commitment: Hash,
+    candidate_commitment: Hash,
+}
+
+impl SeqCommitAccessor for MockChain {
+    fn is_chain_ancestor_from_pov(&self, block_hash: Hash) -> Option<bool> {
+        Some(block_hash == Hash::from_bytes(PARENT_BLOCK_HASH) || block_hash == Hash::from_bytes(CANDIDATE_BLOCK_HASH))
+    }
+
+    fn seq_commitment_within_depth(&self, block_hash: Hash) -> Option<Hash> {
+        if block_hash == Hash::from_bytes(PARENT_BLOCK_HASH) {
+            Some(self.parent_commitment)
+        } else if block_hash == Hash::from_bytes(CANDIDATE_BLOCK_HASH) {
+            Some(self.candidate_commitment)
+        } else {
+            None
+        }
+    }
+}
+
+fn execute_input_with_seqcommit(
+    tx: Transaction,
+    entries: Vec<UtxoEntry>,
+    input_index: usize,
+    accessor: &dyn SeqCommitAccessor,
+) -> Result<(), kaspa_txscript_errors::TxScriptError> {
+    let reused_values = SigHashReusedValuesUnsync::new();
+    let sig_cache = Cache::new(10_000);
+    let populated = PopulatedTransaction::new(&tx, entries);
+    let covenants = CovenantsContext::from_tx(&populated).map_err(kaspa_txscript_errors::TxScriptError::from)?;
+    let input = &tx.inputs[input_index];
+    let utxo = populated.utxo(input_index).expect("selected input UTXO");
+    let ctx = EngineCtx::new(&sig_cache).with_reused(&reused_values).with_covenants_ctx(&covenants).with_seq_commit_accessor(accessor);
+    let mut vm = TxScriptEngine::from_transaction_input(
+        &populated,
+        input,
+        input_index,
+        utxo,
+        ctx,
+        EngineFlags { covenants_enabled: true, sigop_script_units: 0.into() },
+    );
+    vm.execute()
 }
 
 fn assert_post_toccata_non_contextual_mass(label: &str, tx: &Transaction) -> (u64, u64) {
@@ -372,6 +462,82 @@ fn non_empty_frozen_giveaway_uses_the_fallback_deadline() {
     let (mature, mature_entries) = return_tx(&frozen, RETURN_AT_DAA);
     execute_input_with_covenants(mature, mature_entries, 0)
         .expect("anyone can broadcast the exact return after the fallback deadline");
+}
+
+#[test]
+fn proof_bound_draw_pays_the_on_chain_winner() {
+    let entry_levels = empty_levels(TREE_DEPTH, 0x00, 0x02);
+    let winner_spk = return_spk();
+    let winner_spk_bytes = spk_bytes(&winner_spk);
+    let winner_commitment = sha256(&winner_spk_bytes);
+    let winner_siblings = entry_levels[..TREE_DEPTH].to_vec();
+    let winner_root = update_root(leaf(0x01, winner_commitment), 0, &winner_siblings, 0x02);
+    let shard_counts = [1u64, 0, 0, 0];
+    let shard_entries_roots = [winner_root, entry_levels[TREE_DEPTH], entry_levels[TREE_DEPTH], entry_levels[TREE_DEPTH]];
+    let shard_address_roots = [[0x33; 32], [0x34; 32], [0x35; 32], [0x36; 32]];
+
+    let mut frozen_root = sha256(&[]);
+    for index in 0..SHARD_COUNT {
+        frozen_root =
+            aggregate_shard(frozen_root, index as u64, shard_counts[index], shard_entries_roots[index], shard_address_roots[index]);
+    }
+    assert_eq!(
+        frozen_root,
+        [
+            0x18, 0x5c, 0xfb, 0xe5, 0x9d, 0xbb, 0x69, 0x2c, 0xce, 0xcd, 0xa5, 0xef, 0xa0, 0xc1, 0x84, 0x8f, 0x5c, 0x4b, 0x86, 0x62,
+            0x79, 0xd6, 0x99, 0xa7, 0x0d, 0x80, 0x9a, 0x62, 0xd1, 0x94, 0xb5, 0x2b,
+        ]
+    );
+
+    let receipt: Groth16Receipt<ReceiptClaim> =
+        borsh::from_slice(include_bytes!("fixtures/giveaway_entropy_v6_groth16.rcpt")).expect("Groth16 fixture decodes");
+    receipt.verify_integrity().expect("Groth16 fixture verifies");
+    let proof = kaspa_txscript_zk_sdk::prepare_r0_groth16_proof(&receipt).expect("compact TxScript proof encodes");
+
+    let frozen = compile_prize(2, frozen_root, 1);
+    let input_value = PRIZE_VALUE + SHARD_COUNT as u64 * SHARD_VALUE - FREEZE_FEE;
+    let args = [
+        ArtifactValue::Bytes(proof),
+        ArtifactValue::Bytes(PARENT_BLOCK_HASH.to_vec()),
+        ArtifactValue::Int(99),
+        ArtifactValue::Bytes(CANDIDATE_BLOCK_HASH.to_vec()),
+        ArtifactValue::Int(100),
+        ArtifactValue::Array(shard_counts.into_iter().map(|count| ArtifactValue::Int(count as i64)).collect()),
+        ArtifactValue::Array(shard_entries_roots.into_iter().map(|root| ArtifactValue::Bytes(root.to_vec())).collect()),
+        ArtifactValue::Array(shard_address_roots.into_iter().map(|root| ArtifactValue::Bytes(root.to_vec())).collect()),
+        ArtifactValue::Bytes(winner_spk_bytes),
+        sibling_arg(&winner_siblings),
+    ];
+    let tx = Transaction::new(
+        1,
+        vec![tx_input(0, sigscript(&frozen, "draw", &args))],
+        vec![
+            TransactionOutput { value: PRIZE_VALUE, script_public_key: winner_spk, covenant: None },
+            TransactionOutput { value: input_value - PRIZE_VALUE - DRAW_FEE, script_public_key: return_spk(), covenant: None },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+    let entries = vec![utxo(&frozen, input_value, CLOSES_AT_DAA)];
+    let chain = MockChain {
+        parent_commitment: Hash::from_bytes(PARENT_SEQ_COMMIT),
+        candidate_commitment: Hash::from_bytes(CANDIDATE_SEQ_COMMIT),
+    };
+    let tx = with_exact_compute_budgets_and_seqcommit(tx, &entries, &chain);
+    assert_post_toccata_non_contextual_mass("proof-bound draw", &tx);
+    execute_input_with_seqcommit(tx.clone(), entries.clone(), 0, &chain).expect("proof-bound draw passes");
+
+    let mut redirected_tx = tx.clone();
+    redirected_tx.outputs[0].script_public_key = ScriptPublicKey::from_vec(0, vec![0x52]);
+    execute_input_with_seqcommit(redirected_tx, entries.clone(), 0, &chain)
+        .expect_err("the proof cannot redirect the prize to another script");
+
+    let wrong_chain =
+        MockChain { parent_commitment: Hash::from_bytes(PARENT_SEQ_COMMIT), candidate_commitment: Hash::from_bytes([25; 32]) };
+    execute_input_with_seqcommit(tx, entries, 0, &wrong_chain)
+        .expect_err("the same proof cannot authorize a different on-chain sequence commitment");
 }
 
 #[test]

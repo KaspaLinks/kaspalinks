@@ -1,0 +1,11 @@
+[package]
+name = "giveaway-entropy-guest"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+giveaway-entropy-core = { path = "../../core" }
+risc0-zkvm = { version = "=3.0.4", default-features = false }

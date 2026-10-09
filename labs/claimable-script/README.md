@@ -226,20 +226,27 @@ cp /path/to/project/labs/claimable-script/giveaway_entry_shard_v6.sil \
   /path/to/project/labs/claimable-script/giveaway_entry_shard_v6_tests.rs \
   /path/to/project/labs/claimable-script/giveaway_sharded_family_v6_tests.rs \
   silverscript-lang/tests/
+mkdir -p silverscript-lang/tests/fixtures
+cp /path/to/project/labs/claimable-script/fixtures/giveaway_entropy_v6_groth16.rcpt \
+  silverscript-lang/tests/fixtures/
 cargo test -p silverscript-lang --test giveaway_entry_shard_v6_tests
 cargo test -p silverscript-lang --test giveaway_sharded_family_v6_tests
 ```
 
-The engine suite currently proves the close lock and both return paths. The
-draw entry and its RISC Zero Groth16 precompile compile into the same artifact;
-a successful draw still awaits the exact entropy guest and proof fixture.
+The engine suite now executes the complete proof-bound draw with a real RISC
+Zero Groth16 receipt. It verifies the pinned guest image, reconstructs the
+217-byte journal, anchors both post-Toccata block commitments through the
+sequence-commitment accessor, pays the participant proven by the frozen tree,
+and rejects a changed on-chain sequence commitment. The close lock and both
+return paths remain covered as well.
 
-The 13 production-direction tests also derive exact Toccata compute budgets.
-The four-shard activation measures 60,949 compute / 179,196 transient mass,
+The 14 production-direction tests also derive exact Toccata compute budgets.
+The four-shard activation measures 60,945 compute / 179,180 transient mass,
 registration measures 91,111 / 180,164, and the full-family freeze measures
-168,511 / 618,564, below the post-Toccata Mainnet limits of 500,000 /
-1,000,000. The compiled Entry Shard is 37,164 bytes and the Prize State is
-10,252 bytes. Contextual storage, relay fees, and the proof-bearing draw remain
+168,507 / 618,548, below the post-Toccata Mainnet limits of 500,000 /
+1,000,000. The real proof-bearing draw measures 163,960 / 34,800. The compiled
+Entry Shard is 37,164 bytes and the Prize State is 10,252 bytes. Contextual
+storage, production-value relay fees, and a chain-only reconstruction remain
 delivery gates.
 
 The production gate remains the one in
