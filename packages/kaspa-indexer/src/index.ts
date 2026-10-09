@@ -425,3 +425,6 @@ async function withTimeout<T>(
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+export * from "./giveaway-v6-reconstructor";
+export * from "./giveaway-v6-chain-json";

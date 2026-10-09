@@ -180,7 +180,11 @@ importers:
         specifier: file:../../vendor/kaspa-wasm-v2.0.1
         version: file:vendor/kaspa-wasm-v2.0.1
 
-  packages/kaspa-indexer: {}
+  packages/kaspa-indexer:
+    dependencies:
+      zod:
+        specifier: 3.25.51
+        version: 3.25.51
 
   packages/sdk: {}
 
