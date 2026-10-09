@@ -29,8 +29,15 @@ seeds, credentials, or signed transaction material.
 
 ## Required chain decoder
 
-The next layer must obtain full transactions from a Kaspa node or indexer and
-emit events only after checking all of the following:
+The VSPC v2 adapter now reads `GetVirtualChainFromBlockV2` with `Full`
+verbosity from a Kaspa RPC client. It checks the configured network, requests a
+confirmation distance (ten by default), normalizes accepted transaction
+inputs, previous UTXOs, output covenant bindings, signature scripts, and the
+accepting header, and exposes removed-chain hashes for cache rollback. The
+adapter rejects partial responses instead of inventing missing UTXO context.
+
+The remaining SilverScript ABI decoder must turn those normalized
+transactions into protocol events only after checking all of the following:
 
 1. The transaction is accepted and belongs to the requested network.
 2. The activation redeem scripts commit to the supplied giveaway ID, closing
@@ -61,7 +68,8 @@ fallback return, strict JSON validation, and deterministic rebuilds.
 
 ## Production sequence
 
-1. Add the full-transaction/header adapter and V6 ABI decoder.
+1. Connect the vendored Kaspa SDK to the private Hetzner node and add the V6
+   SilverScript ABI decoder on top of the completed VSPC v2 adapter.
 2. Run reconstruction as an idempotent worker and store only derived snapshots
    plus the last verified chain position.
 3. Expose the snapshot and its transaction/header references through a
@@ -70,3 +78,8 @@ fallback return, strict JSON validation, and deterministic rebuilds.
    Telegram Mini App.
 5. Run restart, reindex, reorg, empty-giveaway, late-entry, draw, and fallback
    return canaries before enabling V6 funding for additional accounts.
+
+The RPC shape follows the official
+[`GetVirtualChainFromBlockV2` release specification](https://github.com/kaspanet/rusty-kaspa/releases/tag/v1.1.0)
+and the canonical
+[`RpcTransaction`/`RpcUtxoEntry` protobuf definitions](https://github.com/kaspanet/rusty-kaspa/blob/master/rpc/grpc/core/proto/rpc.proto).
