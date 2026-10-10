@@ -8,6 +8,17 @@ import {
   reconstructGiveawayV6,
 } from "./giveaway-v6-reconstructor";
 
+export type GiveawayV6ConfigJson = {
+  giveawayIdHex: string;
+  closesAtDaa: string;
+  returnAtDaa: string;
+  entropyTargetBlueScore: string;
+  shardCount: number;
+  treeDepth: number;
+  maxEntriesPerShard: number;
+  returnScriptPublicKeyHex: string;
+};
+
 const MAX_U64 = (1n << 64n) - 1n;
 
 const hashHexSchema = z
@@ -138,6 +149,24 @@ export function parseGiveawayV6ConfigJson(value: unknown): GiveawayV6Reconstruct
     );
   }
   return parsed.data;
+}
+
+/** Converts all uint64 configuration values to unambiguous decimal JSON strings. */
+export function serializeGiveawayV6ConfigJson(
+  config: GiveawayV6ReconstructionConfig,
+): GiveawayV6ConfigJson {
+  const validated = parseGiveawayV6ConfigJson({
+    ...config,
+    closesAtDaa: config.closesAtDaa.toString(),
+    returnAtDaa: config.returnAtDaa.toString(),
+    entropyTargetBlueScore: config.entropyTargetBlueScore.toString(),
+  });
+  return {
+    ...validated,
+    closesAtDaa: validated.closesAtDaa.toString(),
+    returnAtDaa: validated.returnAtDaa.toString(),
+    entropyTargetBlueScore: validated.entropyTargetBlueScore.toString(),
+  };
 }
 
 /** Parses decoded public-chain transitions and rejects unknown fields. */

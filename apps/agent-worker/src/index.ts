@@ -3,9 +3,14 @@ import {
   detectAndConfirmPayment,
   expireAgentData,
   scheduleNextPaymentDetection,
+  syncDueGiveawayV6Projections,
 } from "@kaspa-actions/application";
 import { PaymentRequestStatus, prisma } from "@kaspa-actions/db";
-import { createRestKaspaIndexer, type KaspaIndexer } from "@kaspa-actions/kaspa-indexer";
+import {
+  createKaspaVspcRelayClient,
+  createRestKaspaIndexer,
+  type KaspaIndexer,
+} from "@kaspa-actions/kaspa-indexer";
 
 import { processClaimableReturns } from "./claimable-returns.ts";
 import { agentWorkerEnabled, env } from "./config.ts";
@@ -34,6 +39,13 @@ const indexers = {
   MAINNET: indexerFor("MAINNET"),
   TESTNET: indexerFor("TESTNET"),
 };
+
+const giveawayV6Relay =
+  process.env.GIVEAWAY_V6_PROJECTION_ENABLED === "true"
+    ? createKaspaVspcRelayClient({
+        relayUrl: process.env.TOCCATA_WRPC_RELAY_URL?.trim() || "http://toccata-relay:3010",
+      })
+    : null;
 
 async function expirePendingRequests(now: Date) {
   const expired = await prisma.paymentRequest.findMany({
@@ -90,6 +102,9 @@ async function tick(client: TelegramApiClient) {
     })(),
     processGiveawayReminders(now),
     processClaimableReturns(now),
+    giveawayV6Relay
+      ? syncDueGiveawayV6Projections(prisma, giveawayV6Relay, now)
+      : Promise.resolve(),
   ]);
   for (const result of results)
     if (result.status === "rejected") console.error("Agent background processing failed.");

@@ -1,7 +1,11 @@
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 
-import { normalizeVirtualChainRequest, stringifyRelayJson } from "./protocol.mjs";
+import {
+  normalizeBlockHeadersRequest,
+  normalizeVirtualChainRequest,
+  stringifyRelayJson,
+} from "./protocol.mjs";
 
 const require = createRequire(import.meta.url);
 const { Resolver, RpcClient, Transaction, version } = require("kaspa-wasm");
@@ -75,6 +79,20 @@ const server = createServer(async (request, response) => {
         "Kaspa VSPC v2 read",
       );
       writeJson(response, 200, result);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/block-headers") {
+      const input = normalizeBlockHeadersRequest(await readJsonBody(request));
+      const blocks = await callRpcWithReconnect(
+        (client) =>
+          Promise.all(
+            input.hashes.map((hash) => client.getBlock({ hash, includeTransactions: false })),
+          ),
+        READ_TIMEOUT_MS,
+        "Kaspa block-header read",
+      );
+      writeJson(response, 200, { blocks });
       return;
     }
 

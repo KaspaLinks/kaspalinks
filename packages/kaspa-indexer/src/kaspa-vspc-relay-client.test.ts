@@ -16,7 +16,8 @@ describe("createKaspaVspcRelayClient", () => {
           chainBlockAcceptedTransactions: [],
           virtualDaaScore: "500000000",
         }),
-      );
+      )
+      .mockResolvedValueOnce(jsonResponse({ blocks: [] }));
     const fetchImpl = fetchMock as unknown as typeof fetch;
     const client = createKaspaVspcRelayClient({
       relayUrl: "http://toccata-relay:3010",
@@ -31,6 +32,7 @@ describe("createKaspaVspcRelayClient", () => {
         minConfirmationCount: 10,
       }),
     ).resolves.toMatchObject({ virtualDaaScore: "500000000" });
+    await expect(client.getBlockHeaders([START_HASH])).resolves.toEqual({ blocks: [] });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -46,6 +48,14 @@ describe("createKaspaVspcRelayClient", () => {
           dataVerbosityLevel: "Full",
           minConfirmationCount: 10,
         }),
+        method: "POST",
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      new URL("http://toccata-relay:3010/block-headers"),
+      expect.objectContaining({
+        body: JSON.stringify({ hashes: [START_HASH] }),
         method: "POST",
       }),
     );

@@ -137,8 +137,10 @@ covenant bindings, and binds draws to confirmed parent/candidate headers. A
 compact idempotent journal now supports restart, page replay, and selected-chain
 rollback without storing raw witnesses or proof bytes. The internal warm wRPC
 sidecar and a bounded HTTP adapter now provide confirmed VSPC v2 Full pages to
-that journal without creating a public node proxy. Database persistence and the
-public verification read model remain delivery gates. See
+that journal without creating a public node proxy. A restart-safe database
+projection, leased background worker, exact-header fallback, and rate-limited
+public verification read model are now implemented. The worker remains disabled
+until V6 creation registers a reviewed family before funding. See
 [`giveaway-v6-chain-reconstruction.md`](./giveaway-v6-chain-reconstruction.md)
 for the decoder boundary and rollout sequence.
 

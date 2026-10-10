@@ -104,6 +104,25 @@ describe("Prisma schema", () => {
     expect(escrow).toContain("pendingTransactionJson");
     expect(escrow).not.toMatch(/privateKey|prfOutput|recovery|seedPhrase|walletCredential/i);
   });
+
+  it("stores only public, restart-safe Giveaway V6 projection data", () => {
+    const projection = schema.match(/model GiveawayV6Projection \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const sql = readFileSync(
+      "packages/db/prisma/migrations/20261010120000_giveaway_v6_projection/migration.sql",
+      "utf8",
+    );
+
+    expect(projection).toContain("checkpoint");
+    expect(projection).toContain("snapshot");
+    expect(projection).toContain("syncRevision");
+    expect(projection).toContain("nextSyncAt");
+    expect(projection).not.toMatch(
+      /privateKey|seedPhrase|walletCredential|passkeyOutput|recoveryMaterial/i,
+    );
+    expect(sql).toContain('CREATE TABLE "GiveawayV6Projection"');
+    expect(sql).toContain("ON DELETE CASCADE ON UPDATE CASCADE");
+    expect(sql).not.toMatch(/DROP TABLE|DELETE FROM|UPDATE "Giveaway"/);
+  });
 });
 
 describe("initial migration", () => {

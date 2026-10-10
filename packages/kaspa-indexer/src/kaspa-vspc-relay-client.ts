@@ -9,13 +9,17 @@ export type KaspaVspcRelayClientOptions = {
   timeoutMs?: number;
 };
 
+export type KaspaVspcRelayClient = KaspaVspcV2Client & {
+  getBlockHeaders(hashes: readonly string[]): Promise<unknown>;
+};
+
 /**
  * Internal HTTP adapter for the private, warm wRPC sidecar. Caddy must never
  * expose these relay paths; public APIs consume only projected snapshots.
  */
 export function createKaspaVspcRelayClient(
   options: KaspaVspcRelayClientOptions,
-): KaspaVspcV2Client {
+): KaspaVspcRelayClient {
   const baseUrl = normalizeRelayUrl(options.relayUrl);
   const fetchImpl = options.fetchImpl ?? globalThis.fetch?.bind(globalThis);
   if (fetchImpl === undefined) {
@@ -39,6 +43,18 @@ export function createKaspaVspcRelayClient(
         new URL("virtual-chain-v2", baseUrl),
         {
           body: JSON.stringify(request),
+          headers: { accept: "application/json", "content-type": "application/json" },
+          method: "POST",
+        },
+        timeoutMs,
+      );
+    },
+    async getBlockHeaders(hashes): Promise<unknown> {
+      return requestJson(
+        fetchImpl,
+        new URL("block-headers", baseUrl),
+        {
+          body: JSON.stringify({ hashes }),
           headers: { accept: "application/json", "content-type": "application/json" },
           method: "POST",
         },

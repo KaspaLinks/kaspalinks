@@ -4,6 +4,7 @@ import {
   parseGiveawayV6ChainEventsJson,
   parseGiveawayV6ConfigJson,
   reconstructGiveawayV6FromJson,
+  serializeGiveawayV6ConfigJson,
 } from "./giveaway-v6-chain-json";
 
 const configJson = {
@@ -34,6 +35,9 @@ describe("Giveaway V6 JSON boundary", () => {
     const events = parseGiveawayV6ChainEventsJson([activationJson]);
 
     expect(config.entropyTargetBlueScore).toBe(18_446_744_073_709_551_615n);
+    expect(serializeGiveawayV6ConfigJson(parseGiveawayV6ConfigJson(configJson))).toEqual(
+      configJson,
+    );
     expect(events[0]?.transactionId).toBe("aa".repeat(32));
     expect(events[0]?.blockDaaScore).toBe(90n);
     expect(reconstructGiveawayV6FromJson(configJson, [activationJson])).toMatchObject({

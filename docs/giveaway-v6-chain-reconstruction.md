@@ -98,15 +98,29 @@ returns the exact missing parent/candidate hashes until the worker supplies
 their confirmed headers. The JSON checkpoint uses decimal strings for every
 uint64 and rejects unknown fields.
 
+The application now persists that journal in a dedicated additive projection
+table. A short worker lease avoids duplicate RPC work, while an optimistic
+revision check prevents an older response from overwriting a newer projection.
+Every load strictly parses the configuration, covenant family, and checkpoint,
+then reconstructs the snapshot and compares its indexed phase, counts, winner,
+terminal transaction, cursor, and fingerprint. The cached snapshot is never
+trusted as the source of truth. Invalid or discontinuous histories pause; only
+temporary relay failures retry automatically.
+
+The worker reads VSPC pages and any exact draw headers through the private wRPC
+sidecar. `GET /api/giveaways/:publicId/verification` exposes the reconstructed
+snapshot and public transition references, with rate limiting and no raw
+witnesses, proof bytes, wallet material, or recovery data. Processing remains
+off by default behind `GIVEAWAY_V6_PROJECTION_ENABLED` until V6 creation writes
+the first reviewed projection rows.
+
 ## Production sequence
 
-1. Persist the completed idempotent projection journal and its last verified
-   chain position in the application database.
-2. Expose the snapshot and its transaction/header references through a
-   read-only verification endpoint.
-3. Render the same proof in the creator studio, public giveaway page, and
+1. Register the reviewed V6 configuration and covenant family atomically when
+   a creator confirms the setup, before presenting the funding QR.
+2. Render the persisted proof in the creator studio, public giveaway page, and
    Telegram Mini App.
-4. Run restart, reindex, reorg, empty-giveaway, late-entry, draw, and fallback
+3. Run restart, reindex, reorg, empty-giveaway, late-entry, draw, and fallback
    return canaries before enabling V6 funding for additional accounts.
 
 The RPC shape follows the official

@@ -29,6 +29,29 @@ export function normalizeVirtualChainRequest(value) {
   };
 }
 
+export function normalizeBlockHeadersRequest(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Block-header request must be a JSON object.");
+  }
+  const keys = Object.keys(value);
+  if (keys.some((key) => key !== "hashes")) {
+    throw new Error("Block-header request contains an unknown field.");
+  }
+  if (!Array.isArray(value.hashes) || value.hashes.length < 1 || value.hashes.length > 8) {
+    throw new Error("Block-header request must contain one through eight hashes.");
+  }
+  const hashes = value.hashes.map((hash) => {
+    if (typeof hash !== "string" || !/^[0-9a-fA-F]{64}$/.test(hash)) {
+      throw new Error("Block hash must be 32-byte hex.");
+    }
+    return hash.toLowerCase();
+  });
+  if (new Set(hashes).size !== hashes.length) {
+    throw new Error("Block-header request contains a duplicate hash.");
+  }
+  return { hashes };
+}
+
 export function stringifyRelayJson(value) {
   return JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
 }

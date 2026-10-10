@@ -85,6 +85,14 @@ enum GiveawayStatus {
   CANCELLED
 }
 
+enum GiveawayV6Phase {
+  AWAITING_ACTIVATION
+  OPEN
+  FROZEN
+  DRAWN
+  RETURNED
+}
+
 enum CreatorAccountKind {
   REGISTERED
   TELEGRAM_ONLY
@@ -624,12 +632,49 @@ model Giveaway {
   updatedAt                     DateTime                       @updatedAt
   entries                       GiveawayEntry[]
   telegramSubscriptions         TelegramGiveawaySubscription[]
+  v6Projection                  GiveawayV6Projection?
   telegramCheckedAt             DateTime?
 
   @@index([creatorId])
   @@index([status])
   @@index([closesAt])
   @@index([createdAt])
+}
+
+// Restart-safe projection of a Giveaway V6 covenant family. Every JSON field
+// contains public chain/configuration data and is strictly parsed before use;
+// no witness bytes, signing keys, passkey output, or recovery material belong
+// in this table. snapshot is a cache derived from checkpoint, never an
+// authority for the participant list or winner.
+model GiveawayV6Projection {
+  id                        String          @id @default(cuid())
+  giveawayId                String          @unique
+  giveaway                  Giveaway        @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  network                   Network
+  covenantIdHex             String          @unique
+  anchorHash                String
+  config                    Json
+  family                    Json
+  checkpoint                Json?
+  snapshot                  Json
+  phase                     GiveawayV6Phase @default(AWAITING_ACTIVATION)
+  observedRegistrationCount Int             @default(0)
+  frozenEntryCount          Int?
+  winnerScriptPublicKeyHex  String?
+  terminalTransactionId     String?         @unique
+  cursorHash                String?
+  lastPageFingerprint       String?
+  requiredHeaderHashes      Json?
+  syncRevision              Int             @default(0)
+  nextSyncAt                DateTime?        @default(now())
+  lastSyncedAt              DateTime?
+  lastErrorCode             String?
+  lastErrorAt               DateTime?
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
+
+  @@index([phase, nextSyncAt])
+  @@index([nextSyncAt])
 }
 
 model GiveawayEntry {

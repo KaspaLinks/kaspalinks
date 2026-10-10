@@ -29,6 +29,10 @@ export type KaspaVspcV2Client = {
   }): Promise<unknown>;
 };
 
+export type KaspaVspcHeaderClient = {
+  getBlockHeaders(hashes: readonly string[]): Promise<unknown>;
+};
+
 export type ReadKaspaVspcV2PageOptions = {
   startHash: string;
   expectedNetwork?: "mainnet" | "testnet-10";
@@ -181,6 +185,15 @@ const responseSchema = z.object({
   ),
 });
 
+const blockHeadersResponseSchema = z
+  .object({
+    blocks: z
+      .array(z.object({ block: z.object({ header: headerSchema }) }))
+      .min(1)
+      .max(8),
+  })
+  .strict();
+
 /**
  * Reads one confirmed selected-chain page using rusty-kaspa's VSPC v2 Full
  * response. The returned facts contain no wallet material and are sufficient
@@ -240,6 +253,37 @@ export async function readKaspaVspcV2Page(
     throw wrapRpcError("Kaspa VSPC page request failed.", error);
   }
   return normalizeResponse(network.data.network, response);
+}
+
+/** Reads the exact public headers requested by a paused draw projection. */
+export async function readKaspaVspcHeaders(
+  client: KaspaVspcHeaderClient,
+  requestedHashes: readonly string[],
+): Promise<KaspaVspcHeader[]> {
+  if (requestedHashes.length < 1 || requestedHashes.length > 8) {
+    fail("VSPC_CONFIG_ERROR", "One through eight block headers may be requested.");
+  }
+  const hashes = requestedHashes.map((hash) => parseHash(hash, "block hash", "VSPC_CONFIG_ERROR"));
+  if (new Set(hashes).size !== hashes.length) {
+    fail("VSPC_CONFIG_ERROR", "Block-header request contains a duplicate hash.");
+  }
+  let response: unknown;
+  try {
+    response = await client.getBlockHeaders(hashes);
+  } catch (error) {
+    throw wrapRpcError("Kaspa block-header request failed.", error);
+  }
+  const parsed = blockHeadersResponseSchema.safeParse(response);
+  if (!parsed.success || parsed.data.blocks.length !== hashes.length) {
+    fail("VSPC_PARSE_ERROR", "Kaspa relay returned an invalid block-header collection.");
+  }
+  return parsed.data.blocks.map((responseBlock, index) => {
+    const header = normalizeHeader(responseBlock.block.header);
+    if (header.hash !== hashes[index]) {
+      fail("VSPC_PARSE_ERROR", "Kaspa relay returned a different block header than requested.");
+    }
+    return header;
+  });
 }
 
 function normalizeResponse(network: "mainnet" | "testnet-10", value: unknown): KaspaVspcV2Page {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { KaspaVspcV2Client, readKaspaVspcV2Page } from "./kaspa-vspc-v2";
+import { KaspaVspcV2Client, readKaspaVspcHeaders, readKaspaVspcV2Page } from "./kaspa-vspc-v2";
 
 const START_HASH = "01".repeat(32);
 const BLOCK_HASH = "aa".repeat(32);
@@ -180,5 +180,57 @@ describe("readKaspaVspcV2Page", () => {
     expect(rpc.getVirtualChainFromBlockV2).toHaveBeenCalledWith(
       expect.objectContaining({ minConfirmationCount: 10 }),
     );
+  });
+});
+
+describe("readKaspaVspcHeaders", () => {
+  it("normalizes the exact requested headers in order", async () => {
+    const getBlockHeaders = vi.fn().mockResolvedValue({
+      blocks: [
+        {
+          block: {
+            header: {
+              hash: BLOCK_HASH,
+              parentsByLevel: [[PARENT_HASH]],
+              acceptedIdMerkleRoot: SEQUENCE_COMMITMENT,
+              daaScore: "1234",
+              blueScore: "5678",
+            },
+          },
+        },
+      ],
+    });
+
+    await expect(readKaspaVspcHeaders({ getBlockHeaders }, [BLOCK_HASH])).resolves.toEqual([
+      expect.objectContaining({
+        hash: BLOCK_HASH,
+        selectedParentHash: PARENT_HASH,
+        daaScore: 1234n,
+        blueScore: 5678n,
+      }),
+    ]);
+    expect(getBlockHeaders).toHaveBeenCalledWith([BLOCK_HASH]);
+  });
+
+  it("rejects a substituted header", async () => {
+    const getBlockHeaders = vi.fn().mockResolvedValue({
+      blocks: [
+        {
+          block: {
+            header: {
+              hash: "77".repeat(32),
+              parentsByLevel: [[PARENT_HASH]],
+              acceptedIdMerkleRoot: SEQUENCE_COMMITMENT,
+              daaScore: "1234",
+              blueScore: "5678",
+            },
+          },
+        },
+      ],
+    });
+
+    await expect(readKaspaVspcHeaders({ getBlockHeaders }, [BLOCK_HASH])).rejects.toMatchObject({
+      code: "VSPC_PARSE_ERROR",
+    });
   });
 });
