@@ -7,7 +7,11 @@ import {
   GIVEAWAY_V6_COMPILER_COMMIT,
   GIVEAWAY_V6_PRIZE_SOURCE_SHA256,
   GIVEAWAY_V6_SHARD_SOURCE_SHA256,
+  buildGiveawayV6InitialShardRedeemScriptHex,
+  buildGiveawayV6PrizeRedeemScriptHex,
+  buildGiveawayV6ShardRedeemScriptHex,
   decodeGiveawayV6Witness,
+  giveawayV6PayToScriptHashScriptPublicKeyHex,
 } from "./giveaway-v6-witness";
 
 type AbiVectorContract = {
@@ -137,6 +141,48 @@ describe("decodeGiveawayV6Witness", () => {
     );
     expect(fixture.shard.sourceSha256).toBe(GIVEAWAY_V6_SHARD_SOURCE_SHA256);
     expect(fixture.prize.sourceSha256).toBe(GIVEAWAY_V6_PRIZE_SOURCE_SHA256);
+  });
+
+  it("rebuilds runtime state and derives the Kaspa P2SH script public key", () => {
+    const prizeRedeem = buildGiveawayV6PrizeRedeemScriptHex(fixture.prize.redeemScriptHex, {
+      phase: 1,
+      frozenRootHex: "12".repeat(32),
+      entryCount: 7,
+    });
+    expect(
+      decodeGiveawayV6Witness(fixture.prize.callPrefixHex.returnFunds + pushData(prizeRedeem)),
+    ).toMatchObject({
+      templateHashHex: fixture.prize.templateHashHex,
+      state: { phase: 1, frozenRootHex: "12".repeat(32), entryCount: 7 },
+    });
+
+    const shardState = {
+      shardIndex: 2,
+      count: 4,
+      entriesRootHex: "21".repeat(32),
+      addressRootHex: "22".repeat(32),
+      pendingHashHex: "23".repeat(32),
+    };
+    const shardRedeem = buildGiveawayV6ShardRedeemScriptHex(
+      fixture.shard.redeemScriptHex,
+      shardState,
+    );
+    const rebuiltFromPieces = buildGiveawayV6InitialShardRedeemScriptHex(
+      fixture.shard.redeemScriptHex.slice(0, 2),
+      shardState,
+      fixture.shard.redeemScriptHex.slice(2 + 117 * 2),
+    );
+    expect(rebuiltFromPieces).toBe(shardRedeem);
+    expect(
+      decodeGiveawayV6Witness(fixture.shard.callPrefixHex.delegateFreeze + pushData(shardRedeem)),
+    ).toMatchObject({ templateHashHex: fixture.shard.templateHashHex, state: shardState });
+
+    expect(giveawayV6PayToScriptHashScriptPublicKeyHex(fixture.shard.redeemScriptHex)).toBe(
+      "0000aa20ec3b5b3ead3128a500d35d25ed7a5f5c961355cf0f0e241e8e6cb919bc8cd8e587",
+    );
+    expect(giveawayV6PayToScriptHashScriptPublicKeyHex(fixture.prize.redeemScriptHex)).toBe(
+      "0000aa20a130b0c7c1e03f6a26f516e42657fdeda92fa7edd3d29900df5e8d7a04a6ba9687",
+    );
   });
 });
 

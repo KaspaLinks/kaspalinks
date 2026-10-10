@@ -160,6 +160,13 @@ export type GiveawayV6PublicSnapshot = Omit<GiveawayV6ReconstructionSnapshot, "s
   })[];
 };
 
+export type GiveawayV6FreezePreview = {
+  frozenRootHex: string;
+  entryCount: number;
+  prizeInputOutpoint: GiveawayV6Outpoint;
+  shardInputOutpoints: readonly GiveawayV6Outpoint[];
+};
+
 type NormalizedConfig = GiveawayV6ReconstructionConfig & {
   giveawayIdHex: string;
   returnScriptPublicKeyHex: string;
@@ -458,6 +465,54 @@ export function serializeGiveawayV6Snapshot(
       pendingEntry: serializeEntry(shard.pendingEntry),
       excludedLateEntry: serializeEntry(shard.excludedLateEntry),
     })),
+  };
+}
+
+/**
+ * Computes the exact state a valid freeze must commit to without trusting a
+ * proposed freeze output. The returned outpoints are the only family tips the
+ * freeze may consume.
+ */
+export function previewGiveawayV6Freeze(
+  configInput: GiveawayV6ReconstructionConfig,
+  openEvents: readonly GiveawayV6ChainEvent[],
+): GiveawayV6FreezePreview {
+  const config = normalizeConfig(configInput);
+  const snapshot = reconstructGiveawayV6(config, openEvents);
+  if (snapshot.phase !== "open" || snapshot.prizeOutpoint === null) {
+    fail("INVALID_STATE", "Freeze preview requires an activated open giveaway.");
+  }
+
+  let aggregate = sha256(new Uint8Array());
+  let entryCount = 0;
+  const shardInputOutpoints: GiveawayV6Outpoint[] = [];
+  for (const shard of snapshot.shards) {
+    if (shard.tipOutpoint === null)
+      fail("INVALID_STATE", "Open shard is missing its current chain tip.");
+    shardInputOutpoints.push({ ...shard.tipOutpoint });
+    const eligibleEntries = [...shard.finalizedEntries];
+    if (shard.pendingEntry !== null && shard.pendingEntry.registeredAtDaa <= config.closesAtDaa) {
+      eligibleEntries.push(shard.pendingEntry);
+    }
+    const entriesRoot = entryRootAndProof(
+      eligibleEntries.map((entry) => hexToBytes(entry.commitmentHex)),
+      config.treeDepth,
+    ).root;
+    aggregate = sha256(
+      aggregate,
+      u64Le(BigInt(shard.shardIndex)),
+      u64Le(BigInt(eligibleEntries.length)),
+      entriesRoot,
+      hexToBytes(shard.addressRootHex),
+    );
+    entryCount += eligibleEntries.length;
+  }
+
+  return {
+    frozenRootHex: toHex(aggregate),
+    entryCount,
+    prizeInputOutpoint: { ...snapshot.prizeOutpoint },
+    shardInputOutpoints,
   };
 }
 

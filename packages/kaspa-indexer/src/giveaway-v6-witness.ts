@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { blake2b } from "@noble/hashes/blake2.js";
 import { blake3 } from "@noble/hashes/blake3.js";
 
 const MAX_SIGNATURE_SCRIPT_BYTES = 250_000;
@@ -122,6 +123,61 @@ export type GiveawayV6DecodedWitness =
   | GiveawayV6FreezeWitness
   | GiveawayV6DrawWitness
   | GiveawayV6ReturnWitness;
+
+/** Rebuilds a Prize redeem script with an explicitly verified runtime state. */
+export function buildGiveawayV6PrizeRedeemScriptHex(
+  redeemScriptHex: string,
+  state: GiveawayV6PrizeState,
+): string {
+  return replaceState(
+    redeemScriptHex,
+    PRIZE_STATE_OFFSET,
+    PRIZE_STATE_LENGTH,
+    encodePrizeState(state),
+  );
+}
+
+/** Rebuilds a Shard redeem script with an explicitly verified runtime state. */
+export function buildGiveawayV6ShardRedeemScriptHex(
+  redeemScriptHex: string,
+  state: GiveawayV6ShardState,
+): string {
+  return replaceState(
+    redeemScriptHex,
+    SHARD_STATE_OFFSET,
+    SHARD_STATE_LENGTH,
+    encodeShardState(state),
+  );
+}
+
+/** Builds the initial Shard redeem script from activation's committed template pieces. */
+export function buildGiveawayV6InitialShardRedeemScriptHex(
+  shardPrefixHex: string,
+  state: GiveawayV6ShardState,
+  shardSuffixHex: string,
+): string {
+  const prefix = parseHex(shardPrefixHex, "shard prefix", MAX_SIGNATURE_SCRIPT_BYTES);
+  const suffix = parseHex(shardSuffixHex, "shard suffix", MAX_SIGNATURE_SCRIPT_BYTES);
+  return toHex(concat(prefix, encodeShardState(state), suffix));
+}
+
+/** Kaspa version-0 P2SH script public key for a SilverScript redeem script. */
+export function giveawayV6PayToScriptHashScriptPublicKeyHex(redeemScriptHex: string): string {
+  const redeemScript = parseHex(redeemScriptHex, "redeem script", MAX_SIGNATURE_SCRIPT_BYTES);
+  const scriptHash = blake2b(redeemScript, { dkLen: 32 });
+  return `0000aa20${toHex(scriptHash)}87`;
+}
+
+/** Template identity with the mutable state span removed, as defined by SilverScript V6. */
+export function giveawayV6TemplateHashHex(
+  contract: "prize" | "shard",
+  redeemScriptHex: string,
+): string {
+  const redeemScript = parseHex(redeemScriptHex, "redeem script", MAX_SIGNATURE_SCRIPT_BYTES);
+  return contract === "prize"
+    ? templateHash(redeemScript, PRIZE_STATE_OFFSET, PRIZE_STATE_LENGTH)
+    : templateHash(redeemScript, SHARD_STATE_OFFSET, SHARD_STATE_LENGTH);
+}
 
 type StackItem = {
   payload: Uint8Array;
@@ -286,6 +342,62 @@ function decodePrizeState(redeemScript: Uint8Array): GiveawayV6PrizeState {
     frozenRootHex: toHex(requireBytes(values[1]!, 32, 32, "frozen root")),
     entryCount,
   };
+}
+
+function encodeShardState(state: GiveawayV6ShardState): Uint8Array {
+  if (!Number.isSafeInteger(state.shardIndex) || state.shardIndex < 0 || state.shardIndex > 3) {
+    fail("INVALID_STATE", "Shard state index must be in the V6 range 0 through 3.");
+  }
+  if (!Number.isSafeInteger(state.count) || state.count < 0) {
+    fail("INVALID_STATE", "Shard state count must be a non-negative safe integer.");
+  }
+  return concat(
+    encodeFixedInt64(BigInt(state.shardIndex), "shard index"),
+    encodeFixedInt64(BigInt(state.count), "shard count"),
+    encodeFixedHash(state.entriesRootHex, "entry root"),
+    encodeFixedHash(state.addressRootHex, "address root"),
+    encodeFixedHash(state.pendingHashHex, "pending hash"),
+  );
+}
+
+function encodePrizeState(state: GiveawayV6PrizeState): Uint8Array {
+  if (state.phase !== 0 && state.phase !== 1 && state.phase !== 2) {
+    fail("INVALID_STATE", "Prize state phase must be 0, 1, or 2.");
+  }
+  if (!Number.isSafeInteger(state.entryCount) || state.entryCount < 0) {
+    fail("INVALID_STATE", "Prize entry count must be a non-negative safe integer.");
+  }
+  return concat(
+    encodeFixedInt64(BigInt(state.phase), "prize phase"),
+    encodeFixedHash(state.frozenRootHex, "frozen root"),
+    encodeFixedInt64(BigInt(state.entryCount), "entry count"),
+  );
+}
+
+function encodeFixedInt64(value: bigint, label: string): Uint8Array {
+  if (value < 0n || value > 0x7fff_ffff_ffff_ffffn) {
+    fail("INVALID_STATE", `${label} exceeds the non-negative fixed-width int range.`);
+  }
+  return concat(Uint8Array.of(0x08), u64Le(value));
+}
+
+function encodeFixedHash(value: string, label: string): Uint8Array {
+  const hash = parseHex(value, label, 32);
+  if (hash.length !== 32) fail("INVALID_STATE", `${label} must contain exactly 32 bytes.`);
+  return concat(Uint8Array.of(0x20), hash);
+}
+
+function replaceState(
+  redeemScriptHex: string,
+  offset: number,
+  length: number,
+  state: Uint8Array,
+): string {
+  const redeemScript = parseHex(redeemScriptHex, "redeem script", MAX_SIGNATURE_SCRIPT_BYTES);
+  if (state.length !== length || redeemScript.length < offset + length) {
+    fail("INVALID_STATE", "Redeem script is shorter than the V6 state span.");
+  }
+  return toHex(concat(redeemScript.slice(0, offset), state, redeemScript.slice(offset + length)));
 }
 
 function parseStatePushes(

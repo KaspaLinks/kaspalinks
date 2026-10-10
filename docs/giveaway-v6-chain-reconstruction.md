@@ -45,22 +45,25 @@ SilverScript commit `3ed973335b59269293564805cc2c58a14595ec03` and the reviewed
 V6 source hashes. The draw proof itself is not retained by this projection;
 only its SHA-256 audit digest is returned.
 
-The remaining transaction projector must combine those decoded witnesses with
-the normalized transactions and emit protocol events only after checking all
-of the following:
+The covenant-family projector now combines those decoded witnesses with the
+normalized transactions. It emits protocol events only after checking all of
+the following:
 
 1. The transaction is accepted and belongs to the requested network.
-2. The activation redeem scripts commit to the supplied giveaway ID, closing
-   score, return score, entropy target, tree configuration, return script, and
-   exact V6 prize/shard family.
+2. The activation starts at the configured genesis outpoint and covenant ID,
+   uses the pinned Prize and Shard template hashes, creates the exact family
+   size, and assigns the committed values and covenant bindings.
 3. Each transition consumes the current family outpoint and its signature
    script decodes to the expected SilverScript ABI method and arguments.
 4. Registration payout scripts come from the on-chain witness, and transition
    DAA scores come from the created UTXO rather than a local clock.
-5. Freeze state comes from the frozen prize output and draw data comes from the
+5. Every successor P2SH script is rebuilt from the compiler-defined runtime
+   state. A value, binding, template, or state-script mismatch rejects the
+   transition.
+6. Freeze state comes from the frozen prize output and draw data comes from the
    accepted draw transaction plus the referenced public block headers and
    sequence commitments.
-6. A rebuild discards events that are no longer accepted and replays the
+7. A rebuild discards events that are no longer accepted and replays the
    surviving lineage from activation.
 
 The decoder must not fill gaps from the database. A missing or ambiguous
@@ -76,12 +79,17 @@ local index 2. Tests also cover duplicate registration, wrong shard, broken
 lineage, mismatched frozen state, late pending exclusion, redirect attempts,
 fallback return, strict JSON validation, and deterministic rebuilds.
 
+The projector tests use compiler-generated Prize and Shard bytecode to replay
+activation, registration, complete-family freeze, deterministic draw, and the
+empty-family return path. They independently derive Kaspa P2SH outputs and
+reject a registration whose apparent participant data is plausible but whose
+on-chain successor state script was changed.
+
 ## Production sequence
 
-1. Connect the vendored Kaspa SDK to the private Hetzner node and add the V6
-   covenant-family transaction projector on top of the completed VSPC v2 and
-   SilverScript witness decoders.
-2. Run reconstruction as an idempotent worker and store only derived snapshots
+1. Connect the completed VSPC v2, witness decoder, and covenant-family
+   projector to the private Hetzner node.
+2. Run projection as an idempotent worker and store only derived snapshots
    plus the last verified chain position.
 3. Expose the snapshot and its transaction/header references through a
    read-only verification endpoint.
