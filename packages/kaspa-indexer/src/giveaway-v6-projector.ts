@@ -25,6 +25,7 @@ import type {
   KaspaVspcInput,
   KaspaVspcOutput,
 } from "./kaspa-vspc-v2";
+import { deriveGiveawayV6GenesisCovenantIdHex } from "./giveaway-v6-covenant-id";
 
 const MAX_U64 = (1n << 64n) - 1n;
 const ZERO_HASH_HEX = "00".repeat(32);
@@ -93,14 +94,19 @@ export function projectGiveawayV6Chain(
 
   for (const transaction of input.transactions) {
     validateNormalizedTransaction(transaction);
+    const consumesGenesis =
+      snapshot.phase === "awaiting_activation" &&
+      transaction.inputs.some((value) =>
+        outpointsEqual(value.previousOutpoint, family.genesisOutpoint),
+      );
     const familyInputIndexes = transaction.inputs.flatMap((value, index) =>
       value.utxo.covenantIdHex === family.covenantIdHex ? [index] : [],
     );
-    if (familyInputIndexes.length === 0) {
+    if (!consumesGenesis && familyInputIndexes.length === 0) {
       ignoredTransactionCount += 1;
       continue;
     }
-    if (familyInputIndexes.length !== transaction.inputs.length) {
+    if (!consumesGenesis && familyInputIndexes.length !== transaction.inputs.length) {
       invalid("A Giveaway V6 transition cannot mix inputs from another covenant family.");
     }
     if (transaction.version !== 1) invalid("Giveaway V6 covenant transactions must use version 1.");
@@ -155,6 +161,11 @@ function projectActivation(
     invalid("The first family spend must call the Prize activation entry.");
   }
   assertOutpoint(transaction.inputs[0]!.previousOutpoint, family.genesisOutpoint, "genesis input");
+  if (transaction.inputs[0]!.utxo.covenantIdHex !== null) {
+    invalid(
+      "Activation must spend an ordinary bootstrap output before creating the covenant family.",
+    );
+  }
   assertPrizeState(witness.state, { phase: 0, frozenRootHex: ZERO_HASH_HEX, entryCount: 0 });
   assertTemplate(witness.templateHashHex, family.prizeTemplateHashHex, "Prize");
 
@@ -165,6 +176,15 @@ function projectActivation(
   );
   if (transaction.inputs[0]!.utxo.amountSompi !== expectedInput) {
     invalid("Activation input value does not match the committed prize, shard reserve, and fee.");
+  }
+  const derivedCovenantId = deriveGiveawayV6GenesisCovenantIdHex(
+    family.genesisOutpoint,
+    transaction.outputs,
+  );
+  if (derivedCovenantId !== family.covenantIdHex) {
+    invalid(
+      `Activation outputs derive covenant ID ${derivedCovenantId}, not the registered family ID.`,
+    );
   }
 
   const event: GiveawayV6ChainEvent = {
@@ -659,6 +679,12 @@ function assertOutpoint(
   ) {
     invalid(`${label} does not consume the reconstructed family outpoint.`);
   }
+}
+
+function outpointsEqual(actual: GiveawayV6Outpoint, expected: GiveawayV6Outpoint): boolean {
+  return (
+    actual.transactionId === expected.transactionId && actual.outputIndex === expected.outputIndex
+  );
 }
 
 function normalizeOutpoint(value: GiveawayV6Outpoint, label: string): GiveawayV6Outpoint {

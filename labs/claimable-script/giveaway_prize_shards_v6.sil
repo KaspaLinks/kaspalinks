@@ -79,18 +79,26 @@ contract GiveawayPrizeShardsV6(
         require(tx.inputs[this.activeInputIndex].value == prizeValue + shardCount * shardValue + activationFee);
         require(tx.outputs[0].value == prizeValue);
 
-        byte[32] covenantId = OpInputCovenantId(this.activeInputIndex);
-        require(OpCovInputCount(covenantId) == 1);
-        require(OpAuthOutputCount(this.activeInputIndex) == familySize);
+        // A Kaspium payment creates an ordinary P2SH UTXO without a covenant
+        // id. This spend creates the first, consensus-validated KIP-20 genesis
+        // output group. Genesis outputs intentionally do not appear in the
+        // continuation-only Auth/Cov contexts, so activation verifies their
+        // declared ids directly. With exactly one input, consensus also fixes
+        // every binding's authorizing input to this bootstrap input.
+        byte[32] covenantId = OpOutputCovenantId(0);
+        require(covenantId != byte[32](0x0000000000000000000000000000000000000000000000000000000000000000));
+        for (i, 0, familySize, 16) {
+            require(OpOutputCovenantId(i) == covenantId);
+        }
         State openPrize = State {
             phase: 1,
             frozenRoot: byte[32](0x0000000000000000000000000000000000000000000000000000000000000000),
             entryCount: 0
         };
-        validateOutputState(OpAuthOutputIdx(this.activeInputIndex, 0), openPrize);
+        validateOutputState(0, openPrize);
 
         for (i, 0, shardCount, 16) {
-            int outputIndex = OpAuthOutputIdx(this.activeInputIndex, i + 1);
+            int outputIndex = i + 1;
             require(tx.outputs[outputIndex].value == shardValue);
             ShardState shard = ShardState {
                 shardIndex: i,

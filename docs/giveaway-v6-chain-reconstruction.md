@@ -54,9 +54,10 @@ normalized transactions. It emits protocol events only after checking all of
 the following:
 
 1. The transaction is accepted and belongs to the requested network.
-2. The activation starts at the configured genesis outpoint and covenant ID,
-   uses the pinned Prize and Shard template hashes, creates the exact family
-   size, and assigns the committed values and covenant bindings.
+2. The activation spends the configured ordinary bootstrap outpoint, derives
+   its KIP-20 genesis covenant ID from the exact ordered outputs, uses the
+   pinned Prize and Shard template hashes, creates the exact family size, and
+   assigns the committed values and covenant bindings.
 3. Each transition consumes the current family outpoint and its signature
    script decodes to the expected SilverScript ABI method and arguments.
 4. Registration payout scripts come from the on-chain witness, and transition
@@ -125,11 +126,15 @@ state.
 
 ## Production sequence
 
-1. Register the reviewed V6 configuration and covenant family atomically when
-   a creator confirms the setup, before presenting the funding QR.
-2. Render the persisted proof in the creator studio and Telegram Mini App. The
-   public giveaway page and its social preview already consume it.
-3. Run restart, reindex, reorg, empty-giveaway, late-entry, draw, and fallback
+1. Persist the reviewed V6 bootstrap configuration and exact expected funding
+   value before presenting the Kaspium QR. The family ID is not known yet.
+2. After the exact ordinary P2SH funding output confirms, atomically bind that
+   outpoint, derive the KIP-20 family ID and activation outputs, initialize the
+   projection, and only then broadcast the keyless activation transaction.
+3. Render the bound configuration and verified projection in the creator
+   studio and Telegram Mini App. The public giveaway page and its social
+   preview already consume the projection.
+4. Run restart, reindex, reorg, empty-giveaway, late-entry, draw, and fallback
    return canaries before enabling V6 funding for additional accounts.
 
 The RPC shape follows the official

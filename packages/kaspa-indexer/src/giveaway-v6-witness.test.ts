@@ -181,7 +181,7 @@ describe("decodeGiveawayV6Witness", () => {
       "0000aa20ec3b5b3ead3128a500d35d25ed7a5f5c961355cf0f0e241e8e6cb919bc8cd8e587",
     );
     expect(giveawayV6PayToScriptHashScriptPublicKeyHex(fixture.prize.redeemScriptHex)).toBe(
-      "0000aa20a130b0c7c1e03f6a26f516e42657fdeda92fa7edd3d29900df5e8d7a04a6ba9687",
+      "0000aa2006e7fb94cc7da95eb91c6e92d71d76d2870dca4f65bbf24c4ded4c1fc676f20a87",
     );
   });
 });

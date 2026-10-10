@@ -13,6 +13,7 @@ use common::{
 use kaspa_consensus_core::{
     Hash,
     config::params::MAINNET_PARAMS,
+    hashing,
     hashing::sighash::SigHashReusedValuesUnsync,
     mass::{ComputeBudget, MassCalculator, ScriptUnits},
     tx::{CovenantBinding, PopulatedTransaction, ScriptPublicKey, Transaction, TransactionOutput, UtxoEntry, VerifiableTransaction},
@@ -277,8 +278,16 @@ fn output(artifact: &SilAbiArtifact, value: u64, authorizing_input: u16) -> Tran
     }
 }
 
+fn unbound_output(artifact: &SilAbiArtifact, value: u64) -> TransactionOutput {
+    TransactionOutput { value, script_public_key: pay_to_script_hash_script(&bytecode(artifact)), covenant: None }
+}
+
 fn utxo(artifact: &SilAbiArtifact, value: u64, daa_score: u64) -> UtxoEntry {
     UtxoEntry::new(value, pay_to_script_hash_script(&bytecode(artifact)), daa_score, false, Some(COV_A))
+}
+
+fn bootstrap_utxo(artifact: &SilAbiArtifact, value: u64, daa_score: u64) -> UtxoEntry {
+    UtxoEntry::new(value, pay_to_script_hash_script(&bytecode(artifact)), daa_score, false, None)
 }
 
 fn measured_script_units(
@@ -420,23 +429,31 @@ fn activation_creates_only_the_exact_empty_shard_family() {
     let shards: Vec<_> = (0..SHARD_COUNT).map(|index| compile_shard(index, 0, entries_root, address_root, zero())).collect();
     let (prefix, suffix, _) = shard_template();
     let input = tx_input(0, sigscript(&bootstrap, "activate", &[ArtifactValue::Bytes(prefix), ArtifactValue::Bytes(suffix)]));
+    let mut outputs = vec![
+        unbound_output(&open, PRIZE_VALUE),
+        unbound_output(&shards[0], SHARD_VALUE),
+        unbound_output(&shards[1], SHARD_VALUE),
+        unbound_output(&shards[2], SHARD_VALUE),
+        unbound_output(&shards[3], SHARD_VALUE),
+    ];
+    let covenant_id = hashing::covenant_id::covenant_id(
+        input.previous_outpoint,
+        outputs.iter().enumerate().map(|(index, output)| (index as u32, output)),
+    );
+    for output in &mut outputs {
+        output.covenant = Some(CovenantBinding { authorizing_input: 0, covenant_id });
+    }
     let tx = Transaction::new(
         1,
         vec![input],
-        vec![
-            output(&open, PRIZE_VALUE, 0),
-            output(&shards[0], SHARD_VALUE, 0),
-            output(&shards[1], SHARD_VALUE, 0),
-            output(&shards[2], SHARD_VALUE, 0),
-            output(&shards[3], SHARD_VALUE, 0),
-        ],
+        outputs,
         0,
         Default::default(),
         0,
         vec![],
     );
     let input_value = PRIZE_VALUE + SHARD_COUNT as u64 * SHARD_VALUE + ACTIVATION_FEE;
-    let entries = vec![utxo(&bootstrap, input_value, 1)];
+    let entries = vec![bootstrap_utxo(&bootstrap, input_value, 1)];
     let tx = with_exact_compute_budgets(tx, &entries);
     assert!(tx.inputs[0].signature_script.len() < 225_000);
     assert_post_toccata_non_contextual_mass("activation", &tx);

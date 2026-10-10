@@ -37,11 +37,17 @@ The Creator sends one exact Kaspium payment to a bootstrap P2SH address. A keyle
 
 The activation transaction fixes the prize, closing DAA, entropy target, Return Address, maximum confirmed entries, per-transition budgets, Entry Shard template, and entropy verifier image.
 
-Prize State and Entry Shards share one native covenant ID. Activation creates
-the entire small indexed family in one transaction. Registration preserves a
-shard's lineage, and the freeze leader requires the exact family cardinality
-and index sequence. A database row or lookalike P2SH output cannot join that
-family.
+The Kaspium payment is an ordinary P2SH UTXO without a covenant ID. Activation
+spends that exact outpoint and creates the complete indexed family as KIP-20
+genesis outputs. Consensus derives their shared covenant ID from the funding
+outpoint plus the ordered output indexes, amounts, and scripts. The contract
+requires exactly one bootstrap input, the exact family output count and order,
+and that every output declares the same nonzero ID. The indexer independently
+recomputes that ID before accepting activation.
+
+Registration then preserves a shard's lineage, and the freeze leader requires
+the exact family cardinality and index sequence. A database row or lookalike
+P2SH output cannot join that family.
 
 ### Entry Shards
 
@@ -93,7 +99,7 @@ The setup screen must show one total before the Creator funds:
 
 Every confirmed registration consumes one fixed fee from its shard. Freeze consolidates the remaining shard value. The draw returns unused execution budget to the committed Return Address. The UI presents this reserve separately from the prize and explains that unused reserve returns automatically.
 
-The current four-shard prototype was measured with exact Toccata compute budgets. Activation uses 60,957 compute mass and 179,228 transient mass. Registration uses 91,111 compute mass and 180,164 transient mass. A complete freeze with Prize State plus all four shards uses 168,519 compute mass and 618,596 transient mass. The Mainnet-header, twelve-participant Groth16 draw uses 164,374 compute mass and 35,136 transient mass. These transactions fit the current post-Toccata Mainnet limits of 500,000 compute mass and 1,000,000 transient mass. Contextual storage mass with production values and relay fees still require end-to-end measurement before funding is enabled.
+The current four-shard prototype was measured with exact Toccata compute budgets. Activation uses 61,014 compute mass and 179,456 transient mass. Registration uses 91,111 compute mass and 180,164 transient mass. A complete freeze with Prize State plus all four shards uses 168,576 compute mass and 618,824 transient mass. The Mainnet-header, twelve-participant Groth16 draw uses 164,431 compute mass and 35,364 transient mass. These transactions fit the current post-Toccata Mainnet limits of 500,000 compute mass and 1,000,000 transient mass. Contextual storage mass with production values and relay fees still require end-to-end measurement before funding is enabled.
 
 ## Mobile experience
 
@@ -133,14 +139,17 @@ network-checked Kaspa node. Its compiler-pinned witness decoder recognizes all
 six V6 dispatch paths, decodes the runtime state and bounded arguments, and
 recomputes the SilverScript template hash. The covenant-family transaction
 projector additionally rebuilds every P2SH successor, verifies values and
-covenant bindings, and binds draws to confirmed parent/candidate headers. A
+covenant bindings, derives the KIP-20 genesis ID from the ordinary Kaspium
+funding outpoint and exact activation outputs, and binds draws to confirmed
+parent/candidate headers. A
 compact idempotent journal now supports restart, page replay, and selected-chain
 rollback without storing raw witnesses or proof bytes. The internal warm wRPC
 sidecar and a bounded HTTP adapter now provide confirmed VSPC v2 Full pages to
 that journal without creating a public node proxy. A restart-safe database
 projection, leased background worker, exact-header fallback, and rate-limited
 public verification read model are now implemented. The worker remains disabled
-until V6 creation registers a reviewed family before funding. See
+until V6 creation persists a reviewed bootstrap intent and binds its confirmed
+funding outpoint to the derived family before activation. See
 [`giveaway-v6-chain-reconstruction.md`](./giveaway-v6-chain-reconstruction.md)
 for the decoder boundary and rollout sequence.
 

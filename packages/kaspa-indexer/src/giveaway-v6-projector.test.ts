@@ -57,7 +57,8 @@ const participantFixture = JSON.parse(
 ) as { shards: string[][] };
 
 const ZERO = "00".repeat(32);
-const COVENANT_ID = "aa".repeat(32);
+// Cross-language KIP-20 vector verified against the vendored rusty-kaspa WASM SDK.
+const COVENANT_ID = "2556d3335d736741932228fd64ac3eccb3a4a0054ae0c6ff291460fd528887c9";
 const GENESIS_TX = "01".repeat(32);
 const ACTIVATE_TX = "10".repeat(32);
 const REGISTER_TX = "11".repeat(32);
@@ -197,6 +198,26 @@ describe("projectGiveawayV6Chain", () => {
       }),
     );
   });
+
+  it("rejects activation fixtures that pretend the wallet created a pre-bound bootstrap UTXO", () => {
+    const scenario = buildScenario("draw");
+    const activation = scenario.transactions[0]!;
+    const preBound = {
+      ...activation,
+      inputs: activation.inputs.map((input) => ({
+        ...input,
+        utxo: { ...input.utxo, covenantIdHex: COVENANT_ID },
+      })),
+    };
+
+    expect(() =>
+      projectGiveawayV6Chain({ config, family, transactions: [preBound], headers: [] }),
+    ).toThrowError(
+      expect.objectContaining<Partial<GiveawayV6ProjectionError>>({
+        code: "INVALID_TRANSITION",
+      }),
+    );
+  });
 });
 
 function buildScenario(terminal: "draw" | "empty-return"): {
@@ -235,6 +256,8 @@ function buildScenario(terminal: "draw" | "empty-return"): {
           fixture.prize.dispatchTags.activate!,
           bootstrapPrizeRedeem,
         ),
+        undefined,
+        null,
       ),
     ],
     outputs: [
@@ -432,6 +455,7 @@ function txInput(
   redeemScriptHex: string,
   signatureScriptHex: string,
   blockDaaScore = 498_000_000n,
+  covenantIdHex: string | null = COVENANT_ID,
 ): KaspaVspcInput {
   return {
     previousOutpoint,
@@ -442,7 +466,7 @@ function txInput(
       amountSompi,
       scriptPublicKeyHex: giveawayV6PayToScriptHashScriptPublicKeyHex(redeemScriptHex),
       blockDaaScore,
-      covenantIdHex: COVENANT_ID,
+      covenantIdHex,
       isCoinbase: false,
     },
   };
