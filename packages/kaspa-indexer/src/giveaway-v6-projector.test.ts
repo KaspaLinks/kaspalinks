@@ -126,6 +126,35 @@ describe("projectGiveawayV6Chain", () => {
     });
   });
 
+  it("continues from a previously verified worker checkpoint", () => {
+    const scenario = buildScenario("draw");
+    const first = projectGiveawayV6Chain({
+      config,
+      family,
+      transactions: [scenario.transactions[0]!],
+      headers: [],
+    });
+    const resumed = projectGiveawayV6Chain({
+      config,
+      family,
+      initialEvents: first.events,
+      transactions: scenario.transactions.slice(1),
+      headers: scenario.headers,
+    });
+
+    expect(resumed.snapshot).toMatchObject({
+      phase: "drawn",
+      observedRegistrationCount: 1,
+      terminalTransactionId: TERMINAL_TX,
+    });
+    expect(resumed.events.map((event) => event.kind)).toEqual([
+      "activate",
+      "register",
+      "freeze",
+      "draw",
+    ]);
+  });
+
   it("allows an empty frozen family to return at close", () => {
     const scenario = buildScenario("empty-return");
     const result = projectGiveawayV6Chain({

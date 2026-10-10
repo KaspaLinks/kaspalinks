@@ -431,3 +431,4 @@ export * from "./giveaway-v6-chain-json";
 export * from "./kaspa-vspc-v2";
 export * from "./giveaway-v6-witness";
 export * from "./giveaway-v6-projector";
+export * from "./giveaway-v6-journal";

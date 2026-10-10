@@ -85,12 +85,21 @@ empty-family return path. They independently derive Kaspa P2SH outputs and
 reject a registration whose apparent participant data is plausible but whose
 on-chain successor state script was changed.
 
+The restart journal stores only verified events with their accepting block
+hashes and a confirmed VSPC cursor. Reapplying the same page is idempotent. A
+selected-chain removal deletes affected events and replays the surviving
+lineage before new blocks are accepted; a discontinuity or a removed anchor
+requires a rebuild from an earlier confirmed hash. Draw processing pauses and
+returns the exact missing parent/candidate hashes until the worker supplies
+their confirmed headers. The JSON checkpoint uses decimal strings for every
+uint64 and rejects unknown fields.
+
 ## Production sequence
 
 1. Connect the completed VSPC v2, witness decoder, and covenant-family
    projector to the private Hetzner node.
-2. Run projection as an idempotent worker and store only derived snapshots
-   plus the last verified chain position.
+2. Persist the completed idempotent projection journal and its last verified
+   chain position in the application database.
 3. Expose the snapshot and its transaction/header references through a
    read-only verification endpoint.
 4. Render the same proof in the creator studio, public giveaway page, and

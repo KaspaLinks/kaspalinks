@@ -46,6 +46,8 @@ export type GiveawayV6FamilyDescriptor = {
 export type ProjectGiveawayV6ChainInput = {
   config: GiveawayV6ReconstructionConfig;
   family: GiveawayV6FamilyDescriptor;
+  /** Previously verified transitions retained by an idempotent projection worker. */
+  initialEvents?: readonly GiveawayV6ChainEvent[];
   /** Accepted transactions in selected-chain order, supplied by VSPC v2 Full. */
   transactions: readonly KaspaVspcAcceptedTransaction[];
   /** Headers needed to independently bind a draw to its entropy boundary. */
@@ -83,10 +85,10 @@ export function projectGiveawayV6Chain(
 ): GiveawayV6ChainProjection {
   const family = normalizeFamily(input.family);
   const headers = indexHeaders(input.headers);
-  const events: GiveawayV6ChainEvent[] = [];
+  const events: GiveawayV6ChainEvent[] = [...(input.initialEvents ?? [])];
   let ignoredTransactionCount = 0;
 
-  // Validates the public parameters even when the family has not activated.
+  // Also validates a restart checkpoint before new chain data is accepted.
   let snapshot = reconstructGiveawayV6(input.config, events);
 
   for (const transaction of input.transactions) {
