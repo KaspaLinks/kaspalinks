@@ -35,6 +35,10 @@ confirmation distance (ten by default), normalizes accepted transaction
 inputs, previous UTXOs, output covenant bindings, signature scripts, and the
 accepting header, and exposes removed-chain hashes for cache rollback. The
 adapter rejects partial responses instead of inventing missing UTXO context.
+The existing private wRPC sidecar now exposes network and VSPC v2 reads only
+inside the Docker network. Its HTTP client limits response size, hides upstream
+error details, and passes all returned data through the strict VSPC parser;
+Caddy still remains the only public ingress and does not route to the sidecar.
 
 The V6 SilverScript witness decoder is also implemented. It accepts only
 canonical push-only signature scripts, recognizes the compiler-generated
@@ -96,15 +100,13 @@ uint64 and rejects unknown fields.
 
 ## Production sequence
 
-1. Connect the completed VSPC v2, witness decoder, and covenant-family
-   projector to the private Hetzner node.
-2. Persist the completed idempotent projection journal and its last verified
+1. Persist the completed idempotent projection journal and its last verified
    chain position in the application database.
-3. Expose the snapshot and its transaction/header references through a
+2. Expose the snapshot and its transaction/header references through a
    read-only verification endpoint.
-4. Render the same proof in the creator studio, public giveaway page, and
+3. Render the same proof in the creator studio, public giveaway page, and
    Telegram Mini App.
-5. Run restart, reindex, reorg, empty-giveaway, late-entry, draw, and fallback
+4. Run restart, reindex, reorg, empty-giveaway, late-entry, draw, and fallback
    return canaries before enabling V6 funding for additional accounts.
 
 The RPC shape follows the official

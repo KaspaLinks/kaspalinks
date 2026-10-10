@@ -71,6 +71,7 @@ RUN groupadd --system --gid 1001 nodejs \
 
 COPY --from=deps --chown=relay:nodejs /app/node_modules/.pnpm/kaspa-wasm@file+vendor+kaspa-wasm-v2.0.1/node_modules/kaspa-wasm ./node_modules/kaspa-wasm
 COPY --chown=relay:nodejs apps/wrpc-relay/server.mjs ./apps/wrpc-relay/server.mjs
+COPY --chown=relay:nodejs apps/wrpc-relay/protocol.mjs ./apps/wrpc-relay/protocol.mjs
 
 USER relay
 

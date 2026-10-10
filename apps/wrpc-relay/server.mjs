@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 
+import { normalizeVirtualChainRequest, stringifyRelayJson } from "./protocol.mjs";
+
 const require = createRequire(import.meta.url);
 const { Resolver, RpcClient, Transaction, version } = require("kaspa-wasm");
 
@@ -9,6 +11,7 @@ const PORT = Number(process.env.PORT ?? process.env.TOCCATA_RELAY_PORT ?? "3010"
 const NETWORK_ID = "mainnet";
 const BODY_LIMIT_BYTES = 250_000;
 const SUBMIT_TIMEOUT_MS = Number(process.env.TOCCATA_RELAY_SUBMIT_TIMEOUT_MS ?? "20000");
+const READ_TIMEOUT_MS = Number(process.env.TOCCATA_RELAY_READ_TIMEOUT_MS ?? "30000");
 const CONNECT_TIMEOUT_MS = Number(process.env.TOCCATA_RELAY_CONNECT_TIMEOUT_MS ?? "30000");
 const WARM_CONNECT_INTERVAL_MS = Number(
   process.env.TOCCATA_RELAY_WARM_CONNECT_INTERVAL_MS ?? "60000",
@@ -50,6 +53,27 @@ const server = createServer(async (request, response) => {
     if (request.method === "POST" && request.url === "/submit") {
       const input = await readJsonBody(request);
       const result = await submitSignedTransaction(input);
+      writeJson(response, 200, result);
+      return;
+    }
+
+    if (request.method === "GET" && request.url === "/network") {
+      const result = await callRpcWithReconnect(
+        (client) => client.getCurrentNetwork(),
+        READ_TIMEOUT_MS,
+        "Kaspa RPC network read",
+      );
+      writeJson(response, 200, result);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/virtual-chain-v2") {
+      const input = normalizeVirtualChainRequest(await readJsonBody(request));
+      const result = await callRpcWithReconnect(
+        (client) => client.getVirtualChainFromBlockV2(input),
+        READ_TIMEOUT_MS,
+        "Kaspa VSPC v2 read",
+      );
       writeJson(response, 200, result);
       return;
     }
@@ -145,6 +169,22 @@ async function submitSignedTransaction(input) {
   }
 
   throw new Error("Kaspa RPC submit failed after reconnect.");
+}
+
+async function callRpcWithReconnect(operation, timeoutMs, label) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const client = await getRpcClient();
+      return await withTimeout(operation(client), timeoutMs, label);
+    } catch (error) {
+      if (shouldResetRpcClient(error)) {
+        await resetRpcClient();
+        if (attempt === 0) continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`${label} failed after reconnect.`);
 }
 
 async function getRpcClient() {
@@ -258,7 +298,7 @@ async function readJsonBody(request) {
 
 function writeJson(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-  response.end(JSON.stringify(body));
+  response.end(stringifyRelayJson(body));
 }
 
 function withTimeout(promise, timeoutMs, label) {

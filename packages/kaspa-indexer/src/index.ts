@@ -432,3 +432,4 @@ export * from "./kaspa-vspc-v2";
 export * from "./giveaway-v6-witness";
 export * from "./giveaway-v6-projector";
 export * from "./giveaway-v6-journal";
+export * from "./kaspa-vspc-relay-client";
