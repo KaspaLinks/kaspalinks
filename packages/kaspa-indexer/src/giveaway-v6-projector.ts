@@ -91,6 +91,7 @@ export function projectGiveawayV6Chain(
 
   // Also validates a restart checkpoint before new chain data is accepted.
   let snapshot = reconstructGiveawayV6(input.config, events);
+  validateFamilyEconomics(input.config, family);
 
   for (const transaction of input.transactions) {
     validateNormalizedTransaction(transaction);
@@ -507,6 +508,35 @@ function normalizeFamily(value: GiveawayV6FamilyDescriptor): NormalizedFamily {
     prizeTemplateHashHex: normalizeHash(value.prizeTemplateHashHex, "Prize template hash"),
     shardTemplateHashHex: normalizeHash(value.shardTemplateHashHex, "Shard template hash"),
   };
+}
+
+function validateFamilyEconomics(
+  config: GiveawayV6ReconstructionConfig,
+  family: NormalizedFamily,
+): void {
+  checkedSum(
+    family.prizeValueSompi,
+    BigInt(config.shardCount) * family.shardValueSompi,
+    family.activationFeeSompi,
+  );
+  const maximumRegistrationSpend = BigInt(config.maxEntriesPerShard) * family.entryFeeSompi;
+  if (maximumRegistrationSpend > MAX_U64) {
+    familyError("Maximum shard registration spend exceeds uint64.");
+  }
+  if (family.shardValueSompi <= maximumRegistrationSpend) {
+    familyError("Shard reserve must remain positive at the configured participant cap.");
+  }
+  const minimumRemainingReserve =
+    BigInt(config.shardCount) * (family.shardValueSompi - maximumRegistrationSpend);
+  if (minimumRemainingReserve > MAX_U64) {
+    familyError("Minimum remaining execution reserve exceeds uint64.");
+  }
+  if (
+    minimumRemainingReserve <= checkedSum(family.freezeFeeSompi, family.drawFeeSompi) ||
+    minimumRemainingReserve <= checkedSum(family.freezeFeeSompi, family.returnFeeSompi)
+  ) {
+    familyError("Execution reserve cannot cover the committed terminal transaction fees.");
+  }
 }
 
 function indexHeaders(headers: readonly KaspaVspcHeader[]): ReadonlyMap<string, KaspaVspcHeader> {

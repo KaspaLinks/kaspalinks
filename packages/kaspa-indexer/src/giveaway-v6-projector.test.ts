@@ -58,7 +58,7 @@ const participantFixture = JSON.parse(
 
 const ZERO = "00".repeat(32);
 // Cross-language KIP-20 vector verified against the vendored rusty-kaspa WASM SDK.
-const COVENANT_ID = "2556d3335d736741932228fd64ac3eccb3a4a0054ae0c6ff291460fd528887c9";
+const COVENANT_ID = "c14ba68dc683bdb26d166ae856a36b7b63c7e389f96b7985b068fbb4db820d0b";
 const GENESIS_TX = "01".repeat(32);
 const ACTIVATE_TX = "10".repeat(32);
 const REGISTER_TX = "11".repeat(32);
@@ -88,7 +88,7 @@ const family: GiveawayV6FamilyDescriptor = {
   prizeTemplateHashHex: fixture.prize.templateHashHex,
   shardTemplateHashHex: fixture.shard.templateHashHex,
   prizeValueSompi: 100_000_000n,
-  shardValueSompi: 10_000_000n,
+  shardValueSompi: 101_000_000n,
   entryFeeSompi: 100_000n,
   activationFeeSompi: 100_000n,
   freezeFeeSompi: 100_000n,
@@ -218,6 +218,21 @@ describe("projectGiveawayV6Chain", () => {
       }),
     );
   });
+
+  it("rejects a family whose shard reserve cannot cover its participant cap", () => {
+    const scenario = buildScenario("draw");
+
+    expect(() =>
+      projectGiveawayV6Chain({
+        config,
+        family: { ...family, shardValueSompi: 10_000_000n },
+        transactions: scenario.transactions,
+        headers: scenario.headers,
+      }),
+    ).toThrowError(
+      expect.objectContaining<Partial<GiveawayV6ProjectionError>>({ code: "INVALID_FAMILY" }),
+    );
+  });
 });
 
 function buildScenario(terminal: "draw" | "empty-return"): {
@@ -249,7 +264,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
     inputs: [
       txInput(
         { transactionId: GENESIS_TX, outputIndex: 0 },
-        140_100_000n,
+        504_100_000n,
         bootstrapPrizeRedeem,
         witness(
           [shardPrefix, shardSuffix],
@@ -262,7 +277,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
     ],
     outputs: [
       familyOutput(100_000_000n, openPrizeRedeem, 0),
-      ...initialShardRedeems.map((redeem) => familyOutput(10_000_000n, redeem, 0)),
+      ...initialShardRedeems.map((redeem) => familyOutput(101_000_000n, redeem, 0)),
     ],
   });
 
@@ -294,7 +309,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
         inputs: [
           txInput(
             { transactionId: ACTIVATE_TX, outputIndex: 1 },
-            10_000_000n,
+            101_000_000n,
             initialShardRedeems[0]!,
             witness(
               [WINNER_SPK, ZERO.repeat(10), ZERO.repeat(256)],
@@ -304,7 +319,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
             499_000_000n,
           ),
         ],
-        outputs: [familyOutput(9_900_000n, registeredShardRedeem, 0)],
+        outputs: [familyOutput(100_900_000n, registeredShardRedeem, 0)],
       }),
     );
     shardRedeems = [registeredShardRedeem, ...initialShardRedeems.slice(1)];
@@ -328,7 +343,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
     frozenRootHex: preview.frozenRootHex,
     entryCount: preview.entryCount,
   });
-  const frozenValue = terminal === "draw" ? 139_800_000n : 139_900_000n;
+  const frozenValue = terminal === "draw" ? 503_800_000n : 503_900_000n;
   transactions.push(
     transaction({
       id: FREEZE_TX,
@@ -348,7 +363,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
         ...shardRedeems.map((redeem, index) =>
           txInput(
             openSnapshot.shards[index]!.tipOutpoint!,
-            index === 0 && terminal === "draw" ? 9_900_000n : 10_000_000n,
+            index === 0 && terminal === "draw" ? 100_900_000n : 101_000_000n,
             redeem,
             witness([], fixture.shard.dispatchTags.delegateFreeze!, redeem),
             index === 0 && terminal === "draw" ? 499_999_900n : 499_000_000n,

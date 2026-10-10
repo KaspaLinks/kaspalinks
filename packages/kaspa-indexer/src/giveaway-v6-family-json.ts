@@ -21,6 +21,20 @@ const positiveU64DecimalSchema = z
     return parsed;
   });
 
+const familyTermsShape = {
+  prizeTemplateHashHex: hashHexSchema,
+  shardTemplateHashHex: hashHexSchema,
+  prizeValueSompi: positiveU64DecimalSchema,
+  shardValueSompi: positiveU64DecimalSchema,
+  entryFeeSompi: positiveU64DecimalSchema,
+  activationFeeSompi: positiveU64DecimalSchema,
+  freezeFeeSompi: positiveU64DecimalSchema,
+  drawFeeSompi: positiveU64DecimalSchema,
+  returnFeeSompi: positiveU64DecimalSchema,
+} as const;
+
+const familyTermsSchema = z.object(familyTermsShape).strict();
+
 const familySchema = z
   .object({
     genesisOutpoint: z
@@ -30,17 +44,26 @@ const familySchema = z
       })
       .strict(),
     covenantIdHex: hashHexSchema,
-    prizeTemplateHashHex: hashHexSchema,
-    shardTemplateHashHex: hashHexSchema,
-    prizeValueSompi: positiveU64DecimalSchema,
-    shardValueSompi: positiveU64DecimalSchema,
-    entryFeeSompi: positiveU64DecimalSchema,
-    activationFeeSompi: positiveU64DecimalSchema,
-    freezeFeeSompi: positiveU64DecimalSchema,
-    drawFeeSompi: positiveU64DecimalSchema,
-    returnFeeSompi: positiveU64DecimalSchema,
+    ...familyTermsShape,
   })
   .strict();
+
+export type GiveawayV6FamilyTerms = Omit<
+  GiveawayV6FamilyDescriptor,
+  "genesisOutpoint" | "covenantIdHex"
+>;
+
+export type GiveawayV6FamilyTermsJson = {
+  prizeTemplateHashHex: string;
+  shardTemplateHashHex: string;
+  prizeValueSompi: string;
+  shardValueSompi: string;
+  entryFeeSompi: string;
+  activationFeeSompi: string;
+  freezeFeeSompi: string;
+  drawFeeSompi: string;
+  returnFeeSompi: string;
+};
 
 export type GiveawayV6FamilyJson = {
   genesisOutpoint: { transactionId: string; outputIndex: number };
@@ -63,6 +86,30 @@ export class GiveawayV6FamilyJsonError extends Error {
     super("Giveaway V6 covenant family is malformed.");
     this.name = "GiveawayV6FamilyJsonError";
   }
+}
+
+/** Strictly restores the public family terms that are known before funding. */
+export function parseGiveawayV6FamilyTermsJson(value: unknown): GiveawayV6FamilyTerms {
+  const parsed = familyTermsSchema.safeParse(value);
+  if (!parsed.success) throw new GiveawayV6FamilyJsonError();
+  return parsed.data;
+}
+
+/** Serializes pre-funding terms without inventing a genesis outpoint or covenant ID. */
+export function serializeGiveawayV6FamilyTermsJson(
+  terms: GiveawayV6FamilyTerms,
+): GiveawayV6FamilyTermsJson {
+  const validated = parseGiveawayV6FamilyTermsJson({
+    ...terms,
+    prizeValueSompi: terms.prizeValueSompi.toString(),
+    shardValueSompi: terms.shardValueSompi.toString(),
+    entryFeeSompi: terms.entryFeeSompi.toString(),
+    activationFeeSompi: terms.activationFeeSompi.toString(),
+    freezeFeeSompi: terms.freezeFeeSompi.toString(),
+    drawFeeSompi: terms.drawFeeSompi.toString(),
+    returnFeeSompi: terms.returnFeeSompi.toString(),
+  });
+  return serializeTerms(validated);
 }
 
 /** Strictly restores public covenant-family data from a database JSON column. */
@@ -88,12 +135,20 @@ export function serializeGiveawayV6FamilyJson(
   });
   return {
     ...validated,
-    prizeValueSompi: validated.prizeValueSompi.toString(),
-    shardValueSompi: validated.shardValueSompi.toString(),
-    entryFeeSompi: validated.entryFeeSompi.toString(),
-    activationFeeSompi: validated.activationFeeSompi.toString(),
-    freezeFeeSompi: validated.freezeFeeSompi.toString(),
-    drawFeeSompi: validated.drawFeeSompi.toString(),
-    returnFeeSompi: validated.returnFeeSompi.toString(),
+    ...serializeTerms(validated),
+  };
+}
+
+function serializeTerms(terms: GiveawayV6FamilyTerms): GiveawayV6FamilyTermsJson {
+  return {
+    prizeTemplateHashHex: terms.prizeTemplateHashHex,
+    shardTemplateHashHex: terms.shardTemplateHashHex,
+    prizeValueSompi: terms.prizeValueSompi.toString(),
+    shardValueSompi: terms.shardValueSompi.toString(),
+    entryFeeSompi: terms.entryFeeSompi.toString(),
+    activationFeeSompi: terms.activationFeeSompi.toString(),
+    freezeFeeSompi: terms.freezeFeeSompi.toString(),
+    drawFeeSompi: terms.drawFeeSompi.toString(),
+    returnFeeSompi: terms.returnFeeSompi.toString(),
   };
 }

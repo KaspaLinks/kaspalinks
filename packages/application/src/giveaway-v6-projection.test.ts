@@ -39,7 +39,7 @@ const family = {
   prizeTemplateHashHex: HASH.prize,
   shardTemplateHashHex: HASH.shard,
   prizeValueSompi: 100_000_000n,
-  shardValueSompi: 10_000n,
+  shardValueSompi: 30_000n,
   entryFeeSompi: 1_000n,
   activationFeeSompi: 2_000n,
   freezeFeeSompi: 3_000n,

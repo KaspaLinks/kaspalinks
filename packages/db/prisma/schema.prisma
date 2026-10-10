@@ -93,6 +93,11 @@ enum GiveawayV6Phase {
   RETURNED
 }
 
+enum GiveawayV6BootstrapStatus {
+  AWAITING_FUNDING
+  BOUND
+}
+
 enum CreatorAccountKind {
   REGISTERED
   TELEGRAM_ONLY
@@ -632,6 +637,7 @@ model Giveaway {
   updatedAt                     DateTime                       @updatedAt
   entries                       GiveawayEntry[]
   telegramSubscriptions         TelegramGiveawaySubscription[]
+  v6Bootstrap                   GiveawayV6Bootstrap?
   v6Projection                  GiveawayV6Projection?
   telegramCheckedAt             DateTime?
 
@@ -639,6 +645,38 @@ model Giveaway {
   @@index([status])
   @@index([closesAt])
   @@index([createdAt])
+}
+
+// Public, reviewed V6 setup persisted before the Kaspium funding outpoint
+// exists. Binding records only confirmed chain facts and atomically creates the
+// restart-safe projection. No signing or recovery material belongs here.
+model GiveawayV6Bootstrap {
+  id                           String                    @id @default(cuid())
+  giveawayId                   String                    @unique
+  giveaway                     Giveaway                  @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  network                      Network
+  status                       GiveawayV6BootstrapStatus @default(AWAITING_FUNDING)
+  compilerCommit               String
+  prizeSourceSha256            String
+  shardSourceSha256            String
+  config                       Json
+  familyTerms                  Json
+  prizeRedeemScriptHex         String
+  shardTemplateRedeemScriptHex String
+  fundingScriptPublicKeyHex    String
+  fundingAddress               String                    @unique
+  expectedFundingSompi         BigInt
+  fundingTransactionId         String?
+  fundingOutputIndex           Int?
+  fundingBlockDaaScore         BigInt?
+  fundingAcceptingBlockHash    String?
+  covenantIdHex                String?                   @unique
+  activationOutputs            Json?
+  createdAt                    DateTime                  @default(now())
+  updatedAt                    DateTime                  @updatedAt
+
+  @@unique([fundingTransactionId, fundingOutputIndex])
+  @@index([status, createdAt])
 }
 
 // Restart-safe projection of a Giveaway V6 covenant family. Every JSON field

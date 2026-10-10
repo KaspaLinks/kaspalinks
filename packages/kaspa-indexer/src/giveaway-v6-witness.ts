@@ -137,6 +137,13 @@ export function buildGiveawayV6PrizeRedeemScriptHex(
   );
 }
 
+/** Reads the compiler-defined mutable Prize state from a reviewed redeem script. */
+export function readGiveawayV6PrizeState(redeemScriptHex: string): GiveawayV6PrizeState {
+  return decodePrizeState(
+    parseHex(redeemScriptHex, "Prize redeem script", MAX_SIGNATURE_SCRIPT_BYTES),
+  );
+}
+
 /** Rebuilds a Shard redeem script with an explicitly verified runtime state. */
 export function buildGiveawayV6ShardRedeemScriptHex(
   redeemScriptHex: string,
@@ -147,6 +154,13 @@ export function buildGiveawayV6ShardRedeemScriptHex(
     SHARD_STATE_OFFSET,
     SHARD_STATE_LENGTH,
     encodeShardState(state),
+  );
+}
+
+/** Reads the compiler-defined mutable Shard state from a reviewed redeem script. */
+export function readGiveawayV6ShardState(redeemScriptHex: string): GiveawayV6ShardState {
+  return decodeShardState(
+    parseHex(redeemScriptHex, "Shard redeem script", MAX_SIGNATURE_SCRIPT_BYTES),
   );
 }
 

@@ -95,9 +95,17 @@ The payout transaction has exactly two outputs: the exact prize to the proven wi
 
 The setup screen must show one total before the Creator funds:
 
-`prize + shard execution budgets + activation/freeze/draw/return budget`
+`prize + shard execution reserves + activation fee`
 
-Every confirmed registration consumes one fixed fee from its shard. Freeze consolidates the remaining shard value. The draw returns unused execution budget to the committed Return Address. The UI presents this reserve separately from the prize and explains that unused reserve returns automatically.
+Each shard reserve must remain positive after every permitted registration and,
+together with the other shards, must still cover freeze plus draw or fallback
+return. Every confirmed registration consumes one fixed fee from its shard.
+Freeze consolidates the remaining shard value. The draw returns unused
+execution budget to the committed Return Address. The UI presents this reserve
+separately from the prize and explains that unused reserve returns
+automatically. The compiler fixture permits 1,000 entries per shard at a fixed
+0.001 KAS transition fee and therefore reserves 1.01 KAS per shard. With a
+1 KAS prize and 0.001 KAS activation fee, its exact funding total is 5.041 KAS.
 
 The current four-shard prototype was measured with exact Toccata compute budgets. Activation uses 61,014 compute mass and 179,456 transient mass. Registration uses 91,111 compute mass and 180,164 transient mass. A complete freeze with Prize State plus all four shards uses 168,576 compute mass and 618,824 transient mass. The Mainnet-header, twelve-participant Groth16 draw uses 164,431 compute mass and 35,364 transient mass. These transactions fit the current post-Toccata Mainnet limits of 500,000 compute mass and 1,000,000 transient mass. Contextual storage mass with production values and relay fees still require end-to-end measurement before funding is enabled.
 
@@ -147,9 +155,13 @@ rollback without storing raw witnesses or proof bytes. The internal warm wRPC
 sidecar and a bounded HTTP adapter now provide confirmed VSPC v2 Full pages to
 that journal without creating a public node proxy. A restart-safe database
 projection, leased background worker, exact-header fallback, and rate-limited
-public verification read model are now implemented. The worker remains disabled
-until V6 creation persists a reviewed bootstrap intent and binds its confirmed
-funding outpoint to the derived family before activation. See
+public verification read model are now implemented. The application also has a
+public-only bootstrap record and atomic binding boundary: it validates the
+compiler/source pins, contract templates, canonical unopened state, reserve
+arithmetic, exact funding amount and script, derives every genesis output and
+the KIP-20 ID locally, then creates the chain projection in the same database
+transaction. The worker remains disabled until the creator flow supplies
+reviewed per-giveaway compiler artifacts and invokes that boundary. See
 [`giveaway-v6-chain-reconstruction.md`](./giveaway-v6-chain-reconstruction.md)
 for the decoder boundary and rollout sequence.
 

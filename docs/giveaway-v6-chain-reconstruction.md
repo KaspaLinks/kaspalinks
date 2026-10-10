@@ -124,6 +124,15 @@ to present a prize amount that disagrees with the covenant family. A malformed
 projection fails closed instead of falling back to database-only giveaway
 state.
 
+A separate `GiveawayV6Bootstrap` record now holds the reviewed public setup
+before a funding outpoint exists. Its application boundary validates the pinned
+compiler and source identities, initial Prize and Shard states, template hashes,
+maximum-entry reserve arithmetic, exact funding script and amount, and the fact
+that Kaspium created an ordinary output. Binding derives the ordered activation
+outputs and KIP-20 ID, marks the setup bound, and creates the first projection
+inside one database transaction. It stores no wallet, signing, claim, refund,
+passkey, or recovery secret.
+
 ## Production sequence
 
 1. Persist the reviewed V6 bootstrap configuration and exact expected funding

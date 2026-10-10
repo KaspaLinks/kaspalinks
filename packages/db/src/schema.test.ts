@@ -123,6 +123,25 @@ describe("Prisma schema", () => {
     expect(sql).toContain("ON DELETE CASCADE ON UPDATE CASCADE");
     expect(sql).not.toMatch(/DROP TABLE|DELETE FROM|UPDATE "Giveaway"/);
   });
+
+  it("separates reviewed V6 funding setup from the bound chain projection", () => {
+    const bootstrap = schema.match(/model GiveawayV6Bootstrap \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const sql = readFileSync(
+      "packages/db/prisma/migrations/20261010133000_giveaway_v6_bootstrap/migration.sql",
+      "utf8",
+    );
+
+    expect(bootstrap).toContain("expectedFundingSompi");
+    expect(bootstrap).toContain("fundingTransactionId");
+    expect(bootstrap).toContain("covenantIdHex");
+    expect(bootstrap).toContain("activationOutputs");
+    expect(bootstrap).not.toMatch(
+      /privateKey|seedPhrase|walletCredential|passkeyOutput|recoveryMaterial/i,
+    );
+    expect(sql).toContain('CREATE TABLE "GiveawayV6Bootstrap"');
+    expect(sql).toContain("ON DELETE CASCADE ON UPDATE CASCADE");
+    expect(sql).not.toMatch(/DROP TABLE|DELETE FROM|UPDATE "Giveaway"/);
+  });
 });
 
 describe("initial migration", () => {
