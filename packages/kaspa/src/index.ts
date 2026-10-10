@@ -1,5 +1,6 @@
 export {
   assertValidKaspaAddress,
+  kaspaAddressFromScriptPublicKeyHex,
   validateKaspaAddress,
   type KaspaAddressValidationResult,
   type KaspaNetwork,

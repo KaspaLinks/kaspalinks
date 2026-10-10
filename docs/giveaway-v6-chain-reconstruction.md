@@ -114,12 +114,21 @@ witnesses, proof bytes, wallet material, or recovery data. Processing remains
 off by default behind `GIVEAWAY_V6_PROJECTION_ENABLED` until V6 creation writes
 the first reviewed projection rows.
 
+The normal `/giveaways/:publicId` page and its social preview now recognize a
+persisted V6 projection. The page restores and cross-checks the journal before
+showing its phase, confirmed participant count, frozen root, winner, or payout
+transaction. It derives a canonical winner address from the verified payout
+script, exposes the exact closing and fallback-return DAA scores, and refuses
+to present a prize amount that disagrees with the covenant family. A malformed
+projection fails closed instead of falling back to database-only giveaway
+state.
+
 ## Production sequence
 
 1. Register the reviewed V6 configuration and covenant family atomically when
    a creator confirms the setup, before presenting the funding QR.
-2. Render the persisted proof in the creator studio, public giveaway page, and
-   Telegram Mini App.
+2. Render the persisted proof in the creator studio and Telegram Mini App. The
+   public giveaway page and its social preview already consume it.
 3. Run restart, reindex, reorg, empty-giveaway, late-entry, draw, and fallback
    return canaries before enabling V6 funding for additional accounts.
 

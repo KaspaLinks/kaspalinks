@@ -74,6 +74,31 @@ export function assertValidKaspaAddress(address: string) {
   return result;
 }
 
+/** Converts a serialized public output script into its canonical Kaspa address. */
+export function kaspaAddressFromScriptPublicKeyHex(
+  scriptPublicKeyHex: string,
+  network: "mainnet" | "testnet-10" = "mainnet",
+): string {
+  const normalized = scriptPublicKeyHex.toLowerCase();
+  if (!/^[0-9a-f]+$/u.test(normalized) || normalized.length < 6 || normalized.length % 2 !== 0) {
+    throw new Error("Script public key must be even-length hexadecimal with a version prefix.");
+  }
+  const version = Number.parseInt(normalized.slice(0, 4), 16);
+  const { ScriptPublicKey, addressFromScriptPublicKey } = loadKaspaWasm();
+  const scriptPublicKey = new ScriptPublicKey(version, normalized.slice(4));
+  try {
+    const address = addressFromScriptPublicKey(scriptPublicKey, network);
+    if (!address) throw new Error("Script public key does not map to a Kaspa address.");
+    try {
+      return address.toString();
+    } finally {
+      address.free();
+    }
+  } finally {
+    scriptPublicKey.free();
+  }
+}
+
 function isSupportedPrefix(prefix: string): prefix is SupportedKaspaAddressPrefix {
   return prefix === "kaspa" || prefix === "kaspatest";
 }

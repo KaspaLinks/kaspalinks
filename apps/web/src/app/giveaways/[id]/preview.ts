@@ -1,12 +1,37 @@
 import type { Metadata } from "next";
 import { prisma } from "@kaspa-actions/db";
 import { formatSompiToKaspa } from "@kaspa-actions/kaspa";
+import { parseGiveawayV6FamilyJson } from "@kaspa-actions/kaspa-indexer";
 import { z } from "zod";
 
 /** Public presentation only: never serialize the stored covenant manifest into a preview. */
 export async function readGiveawayPreview(id: string) {
   const parsed = z.string().cuid().safeParse(id);
-  if (!parsed.success || process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED !== "true") return null;
+  if (!parsed.success) return null;
+  const v6 = await prisma.giveaway.findUnique({
+    where: { publicId: parsed.data },
+    select: {
+      amountSompi: true,
+      title: true,
+      creator: { select: { username: true } },
+      v6Projection: { select: { family: true } },
+    },
+  });
+  if (v6?.v6Projection) {
+    let prizeValueSompi: bigint;
+    try {
+      prizeValueSompi = parseGiveawayV6FamilyJson(v6.v6Projection.family).prizeValueSompi;
+    } catch {
+      return null;
+    }
+    if (prizeValueSompi !== v6.amountSompi) return null;
+    return {
+      title: v6.title,
+      username: v6.creator.username,
+      amount: `${formatSompiToKaspa(prizeValueSompi)} KAS`,
+    };
+  }
+  if (process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED !== "true") return null;
   const row = await prisma.covenantPrototype.findUnique({
     where: { id: parsed.data },
     select: { publicTitle: true, manifest: true, creator: { select: { username: true } } },

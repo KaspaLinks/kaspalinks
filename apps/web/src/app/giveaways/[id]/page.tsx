@@ -5,7 +5,8 @@ import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@kaspa-actions/db";
-import { formatSompiToKaspa } from "@kaspa-actions/kaspa";
+import { formatSompiToKaspa, kaspaAddressFromScriptPublicKeyHex } from "@kaspa-actions/kaspa";
+import { restoreGiveawayV6Projection } from "@kaspa-actions/application";
 import {
   readPrototypeChain,
   readPrototypeUtxos,
@@ -17,6 +18,7 @@ import DrawProof from "./DrawProof";
 import { giveawayV3Draw } from "@/lib/giveaway-prize-v3-proof";
 import { prototypeEntropySchema } from "@/lib/giveaway-prize-v3-prototype";
 import EntryClient from "./EntryClient";
+import V6GiveawayView from "./V6GiveawayView";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   return giveawayMetadata((await params).id);
@@ -36,7 +38,87 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
     .string()
     .cuid()
     .safeParse((await params).id);
-  if (!id.success || process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED !== "true") notFound();
+  if (!id.success) notFound();
+
+  const v6Giveaway = await prisma.giveaway.findUnique({
+    where: { publicId: id.data },
+    select: {
+      amountSompi: true,
+      closesAt: true,
+      publicId: true,
+      title: true,
+      creator: { select: { username: true } },
+      v6Projection: {
+        select: {
+          id: true,
+          network: true,
+          covenantIdHex: true,
+          anchorHash: true,
+          config: true,
+          family: true,
+          checkpoint: true,
+          phase: true,
+          observedRegistrationCount: true,
+          frozenEntryCount: true,
+          winnerScriptPublicKeyHex: true,
+          terminalTransactionId: true,
+          cursorHash: true,
+          lastPageFingerprint: true,
+          syncRevision: true,
+          lastSyncedAt: true,
+          lastErrorCode: true,
+        },
+      },
+    },
+  });
+  if (v6Giveaway?.v6Projection) {
+    try {
+      const restored = restoreGiveawayV6Projection(v6Giveaway.v6Projection);
+      if (restored.family.prizeValueSompi !== v6Giveaway.amountSompi) {
+        throw new Error("Giveaway amount disagrees with its V6 covenant family.");
+      }
+      const network = v6Giveaway.v6Projection.network === "MAINNET" ? "mainnet" : "testnet-10";
+      let winnerAddress: string | null = null;
+      if (restored.snapshot.winner) {
+        try {
+          winnerAddress = kaspaAddressFromScriptPublicKeyHex(
+            restored.snapshot.winner.payoutScriptPublicKeyHex,
+            network,
+          );
+        } catch {
+          // The verified payout script remains visible if it has no address representation.
+        }
+      }
+      return (
+        <V6GiveawayView
+          amountKas={formatSompiToKaspa(restored.family.prizeValueSompi)}
+          closesAtDaa={restored.config.closesAtDaa.toString()}
+          closesAt={v6Giveaway.closesAt}
+          lastSyncedAt={v6Giveaway.v6Projection.lastSyncedAt}
+          network={network}
+          publicId={v6Giveaway.publicId}
+          returnAtDaa={restored.config.returnAtDaa.toString()}
+          snapshot={restored.snapshot}
+          title={v6Giveaway.title}
+          transitionCount={restored.checkpoint?.transitions.length ?? 0}
+          username={v6Giveaway.creator.username}
+          verificationPaused={v6Giveaway.v6Projection.lastErrorCode !== null}
+          winnerAddress={winnerAddress}
+        />
+      );
+    } catch {
+      return (
+        <main className="main giveaway-entry-page">
+          <section className="card giveaway-result-state">
+            <h1>Verification temporarily unavailable</h1>
+            <p>This giveaway is hidden until its on-chain state can be reconstructed safely.</p>
+          </section>
+        </main>
+      );
+    }
+  }
+
+  if (process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED !== "true") notFound();
   const row = await prisma.covenantPrototype.findUnique({
     where: { id: id.data },
     include: {
