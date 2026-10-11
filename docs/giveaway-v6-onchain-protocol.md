@@ -170,9 +170,13 @@ spans, and template hashes. It exposes no signing or wallet operation. The
 restricted Creator API now validates the fixed prize and duration choices,
 reads the current Mainnet DAA and blue score, invokes that compiler, and
 atomically persists the Giveaway plus public bootstrap before returning the
-exact Kaspium payment URI. It is disabled by default behind a separate feature
-gate and the per-Creator covenant canary, so completing this persistence path
-does not yet permit public Mainnet funding. See
+exact Kaspium payment URI. Its creator-scoped funding endpoint requires one
+exact, accepted, still-unspent ordinary output, cross-checks the address UTXO
+and transaction views, and atomically derives and persists the KIP-20 family
+binding plus initial projection. It is disabled by default behind a separate
+feature gate and the per-Creator covenant canary. Keyless activation construction
+and broadcast are still pending, so this path does not yet permit public
+Mainnet funding. See
 [`giveaway-v6-chain-reconstruction.md`](./giveaway-v6-chain-reconstruction.md)
 for the decoder boundary and rollout sequence.
 

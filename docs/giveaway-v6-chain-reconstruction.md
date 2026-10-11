@@ -133,6 +133,16 @@ outputs and KIP-20 ID, marks the setup bound, and creates the first projection
 inside one database transaction. It stores no wallet, signing, claim, refund,
 passkey, or recovery secret.
 
+The Creator funding endpoint now invokes that boundary from confirmed Mainnet
+data. It first finds the exact amount and raw P2SH script in the address UTXO
+set, then independently requires the corresponding transaction to be accepted,
+checks the exact indexed output, and rejects any covenant binding. Multiple
+exact unspent outputs, malformed responses, and disagreements between the UTXO
+and transaction views fail closed. A partially indexed acceptance remains in
+the waiting state. The creator-scoped route is idempotent, supports both
+registered and Telegram-only V6 Creators, and exposes only public outpoint,
+covenant, and phase data.
+
 ## Production sequence
 
 1. Persist the reviewed V6 bootstrap configuration and exact expected funding
@@ -140,8 +150,10 @@ passkey, or recovery secret.
    QR. The restricted Creator API now implements this step atomically and
    remains disabled by default. The family ID is not known yet.
 2. After the exact ordinary P2SH funding output confirms, atomically bind that
-   outpoint, derive the KIP-20 family ID and activation outputs, initialize the
-   projection, and only then broadcast the keyless activation transaction.
+   outpoint, derive the KIP-20 family ID and activation outputs, and initialize
+   the projection. The exact funding detection and atomic binding are now
+   implemented; building, verifying, and broadcasting the keyless activation
+   transaction remains the next delivery step.
 3. Render the bound configuration and verified projection in the creator
    studio and Telegram Mini App. The public giveaway page and its social
    preview already consume the projection.
