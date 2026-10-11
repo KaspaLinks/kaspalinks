@@ -32,7 +32,7 @@ describe("Giveaway V6 creator terms", () => {
       amountKas: "1",
       description: "Mainnet draw",
       executionReserveSompi: 404_000_000n,
-      expectedFundingSompi: 504_100_000n,
+      expectedFundingSompi: 514_000_000n,
       participantCap: GIVEAWAY_V6_PARTICIPANT_CAP,
       title: "Community KAS",
     });
@@ -40,17 +40,20 @@ describe("Giveaway V6 creator terms", () => {
       closesAtDaa: 536_036_000n,
       entropyTargetBlueScore: 535_036_600n,
       giveawayIdHex: "42".repeat(32),
-      maxEntriesPerShard: 1_000,
+      maxEntriesPerShard: 8,
       returnAtDaa: 536_900_000n,
       shardCount: 4,
       treeDepth: 10,
     });
     expect(terms.config.returnScriptPublicKeyHex).toMatch(/^[0-9a-f]+$/u);
     expect(terms.economics).toMatchObject({
-      activationFeeSompi: 100_000n,
-      entryFeeSompi: 100_000n,
+      activationFeeSompi: 10_000_000n,
+      drawFeeSompi: 18_000_000n,
+      entryFeeSompi: 10_000_000n,
+      freezeFeeSompi: 33_000_000n,
       prizeValueSompi: 100_000_000n,
       shardValueSompi: 101_000_000n,
+      returnFeeSompi: 2_000_000n,
     });
   });
 

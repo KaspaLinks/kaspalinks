@@ -31,7 +31,7 @@ const config = {
   entropyTargetBlueScore: 500_000_100n,
   shardCount: 4,
   treeDepth: 10,
-  maxEntriesPerShard: 1_000,
+  maxEntriesPerShard: 8,
   returnScriptPublicKeyHex: "000051",
 } as const;
 
@@ -40,11 +40,11 @@ const familyTerms = {
   shardTemplateHashHex: fixture.shard.templateHashHex,
   prizeValueSompi: 100_000_000n,
   shardValueSompi: 101_000_000n,
-  entryFeeSompi: 100_000n,
-  activationFeeSompi: 100_000n,
-  freezeFeeSompi: 100_000n,
-  drawFeeSompi: 100_000n,
-  returnFeeSompi: 100_000n,
+  entryFeeSompi: 10_000_000n,
+  activationFeeSompi: 10_000_000n,
+  freezeFeeSompi: 33_000_000n,
+  drawFeeSompi: 18_000_000n,
+  returnFeeSompi: 2_000_000n,
 } as const;
 
 function createData() {
@@ -72,9 +72,9 @@ describe("Giveaway V6 bootstrap binding", () => {
     expect(data).toMatchObject({
       network: Network.MAINNET,
       status: GiveawayV6BootstrapStatus.AWAITING_FUNDING,
-      expectedFundingSompi: 504_100_000n,
+      expectedFundingSompi: 514_000_000n,
       fundingScriptPublicKeyHex:
-        "0000aa20eb6bddb16ba34d85da31f90823514695be52f22b66c2df5c95b71533dccfc4eb87",
+        "0000aa20d5653bf4d8d35eeb9eea58c532ee010377ea2a242e70931a387e3e0837394fcb87",
     });
     expect(data.fundingAddress).toMatch(/^kaspa:/u);
     expect(data).not.toHaveProperty("privateKey");
@@ -97,7 +97,7 @@ describe("Giveaway V6 bootstrap binding", () => {
     });
 
     expect(prepared.family.covenantIdHex).toBe(
-      "dfb7a8be322e775c98d29c3ab7ca6215a68c43b9128f9ab04a9c9a73faa87ee3",
+      "3a362f5e0d717f27cd02e5aa030e8efbd8cff8b9894e61c4fea9457f5f973b18",
     );
     expect(prepared.activationOutputs).toHaveLength(5);
     expect(prepared.activationOutputs.map((output) => output.amountSompi)).toEqual([

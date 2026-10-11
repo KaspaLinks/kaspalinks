@@ -12,7 +12,7 @@ import type { GiveawayV6CompilerEconomics } from "./giveaway-v6-compiler";
 
 export const GIVEAWAY_V6_SHARD_COUNT = 4;
 export const GIVEAWAY_V6_TREE_DEPTH = 10;
-export const GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD = 1_000;
+export const GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD = 8;
 export const GIVEAWAY_V6_PARTICIPANT_CAP =
   GIVEAWAY_V6_SHARD_COUNT * GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD;
 export const GIVEAWAY_V6_MIN_DURATION_SECONDS = 30;
@@ -22,8 +22,11 @@ export const GIVEAWAY_V6_ENTROPY_DELAY_SECONDS = 60;
 
 const DAA_PER_SECOND = 10n;
 const SHARD_VALUE_SOMPI = 101_000_000n;
-const ENTRY_FEE_SOMPI = 100_000n;
-const TRANSITION_FEE_SOMPI = 100_000n;
+const ENTRY_FEE_SOMPI = 10_000_000n;
+const ACTIVATION_FEE_SOMPI = 10_000_000n;
+const FREEZE_FEE_SOMPI = 33_000_000n;
+const DRAW_FEE_SOMPI = 18_000_000n;
+const RETURN_FEE_SOMPI = 2_000_000n;
 const SUPPORTED_PRIZES_KAS = ["0.2", "0.5", "1"] as const;
 
 export const createGiveawayV6InputSchema = z
@@ -62,11 +65,8 @@ export function buildGiveawayV6CreationTerms(input: {
     input.chain.blueScore +
     durationDaa +
     BigInt(GIVEAWAY_V6_ENTROPY_DELAY_SECONDS) * DAA_PER_SECOND;
-  const returnAtDaa =
-    closesAtDaa + BigInt(GIVEAWAY_V6_RETURN_DELAY_SECONDS) * DAA_PER_SECOND;
-  const returnScriptPublicKeyHex = buildKaspaAddressScriptPublicKeyHex(
-    input.request.returnAddress,
-  );
+  const returnAtDaa = closesAtDaa + BigInt(GIVEAWAY_V6_RETURN_DELAY_SECONDS) * DAA_PER_SECOND;
+  const returnScriptPublicKeyHex = buildKaspaAddressScriptPublicKeyHex(input.request.returnAddress);
   const giveawayIdHex = (input.giveawayIdHex ?? randomBytes(32).toString("hex")).toLowerCase();
   if (!/^[0-9a-f]{64}$/u.test(giveawayIdHex)) {
     throw new Error("Giveaway V6 ID must be 32-byte hexadecimal.");
@@ -86,10 +86,10 @@ export function buildGiveawayV6CreationTerms(input: {
     prizeValueSompi,
     shardValueSompi: SHARD_VALUE_SOMPI,
     entryFeeSompi: ENTRY_FEE_SOMPI,
-    activationFeeSompi: TRANSITION_FEE_SOMPI,
-    freezeFeeSompi: TRANSITION_FEE_SOMPI,
-    drawFeeSompi: TRANSITION_FEE_SOMPI,
-    returnFeeSompi: TRANSITION_FEE_SOMPI,
+    activationFeeSompi: ACTIVATION_FEE_SOMPI,
+    freezeFeeSompi: FREEZE_FEE_SOMPI,
+    drawFeeSompi: DRAW_FEE_SOMPI,
+    returnFeeSompi: RETURN_FEE_SOMPI,
   };
   const executionReserveSompi = BigInt(GIVEAWAY_V6_SHARD_COUNT) * SHARD_VALUE_SOMPI;
   const expectedFundingSompi =

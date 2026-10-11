@@ -38,18 +38,18 @@ const config = {
   entropyTargetBlueScore: 500_000_100n,
   shardCount: 4,
   treeDepth: 10,
-  maxEntriesPerShard: 1_000,
+  maxEntriesPerShard: 8,
   returnScriptPublicKeyHex: "000051",
 } as const;
 
 const economics = {
   prizeValueSompi: 100_000_000n,
   shardValueSompi: 101_000_000n,
-  entryFeeSompi: 100_000n,
-  activationFeeSompi: 100_000n,
-  freezeFeeSompi: 100_000n,
-  drawFeeSompi: 100_000n,
-  returnFeeSompi: 100_000n,
+  entryFeeSompi: 10_000_000n,
+  activationFeeSompi: 10_000_000n,
+  freezeFeeSompi: 33_000_000n,
+  drawFeeSompi: 18_000_000n,
+  returnFeeSompi: 2_000_000n,
 } as const;
 
 describe("Giveaway V6 compiler adapter", () => {
@@ -79,11 +79,11 @@ describe("Giveaway V6 compiler adapter", () => {
       fixture.shard.templateHashHex,
     );
     expect(prizeArgs[20]).toEqual({ kind: "int", value: 1 });
-    expect(prizeArgs[21]).toEqual({ kind: "int", value: 37_046 });
+    expect(prizeArgs[21]).toEqual({ kind: "int", value: 37_040 });
     expect(result).toMatchObject({
-      expectedFundingSompi: 504_100_000n,
+      expectedFundingSompi: 514_000_000n,
       fundingScriptPublicKeyHex:
-        "0000aa20eb6bddb16ba34d85da31f90823514695be52f22b66c2df5c95b71533dccfc4eb87",
+        "0000aa20d5653bf4d8d35eeb9eea58c532ee010377ea2a242e70931a387e3e0837394fcb87",
     });
   });
 

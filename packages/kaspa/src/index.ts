@@ -69,3 +69,4 @@ export * from "./escrow-v1-transaction";
 export * from "./escrow-v2";
 export * from "./escrow-v2-artifact";
 export * from "./escrow-v2-transaction";
+export * from "./toccata-keyless";

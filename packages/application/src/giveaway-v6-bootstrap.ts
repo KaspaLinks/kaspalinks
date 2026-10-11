@@ -45,6 +45,15 @@ export type GiveawayV6BootstrapRecord = {
   expectedFundingSompi: bigint;
 };
 
+export type GiveawayV6BoundBootstrapRecord = GiveawayV6BootstrapRecord & {
+  activationOutputs: unknown;
+  covenantIdHex: string | null;
+  fundingAcceptingBlockHash: string | null;
+  fundingBlockDaaScore: bigint | null;
+  fundingOutputIndex: number | null;
+  fundingTransactionId: string | null;
+};
+
 export type GiveawayV6ConfirmedFunding = {
   transactionId: string;
   outputIndex: number;
@@ -154,6 +163,53 @@ export function prepareGiveawayV6BootstrapBinding(input: {
   if (record.status !== GiveawayV6BootstrapStatus.AWAITING_FUNDING) {
     throw new GiveawayV6BootstrapError("STALE_BOOTSTRAP", "Giveaway V6 funding is already bound.");
   }
+  return deriveGiveawayV6BootstrapBinding(record, funding);
+}
+
+/**
+ * Restores a bound bootstrap from public database fields and re-derives every
+ * commitment. Stored covenant outputs are treated as a cache, never authority.
+ */
+export function restoreGiveawayV6BootstrapBinding(
+  record: GiveawayV6BoundBootstrapRecord,
+): PreparedGiveawayV6BootstrapBinding {
+  if (record.status !== GiveawayV6BootstrapStatus.BOUND) {
+    throw new GiveawayV6BootstrapError(
+      "STALE_BOOTSTRAP",
+      "Giveaway V6 funding has not been bound yet.",
+    );
+  }
+  if (
+    record.fundingTransactionId === null ||
+    record.fundingOutputIndex === null ||
+    record.fundingBlockDaaScore === null ||
+    record.fundingAcceptingBlockHash === null ||
+    record.covenantIdHex === null ||
+    record.activationOutputs === null
+  ) {
+    invalidBootstrap("Bound Giveaway V6 bootstrap is missing confirmed funding fields.");
+  }
+
+  const prepared = deriveGiveawayV6BootstrapBinding(record, {
+    transactionId: record.fundingTransactionId,
+    outputIndex: record.fundingOutputIndex,
+    amountSompi: record.expectedFundingSompi,
+    scriptPublicKeyHex: record.fundingScriptPublicKeyHex,
+    covenantIdHex: null,
+    blockDaaScore: record.fundingBlockDaaScore,
+    acceptingBlockHash: record.fundingAcceptingBlockHash,
+  });
+  if (record.covenantIdHex !== prepared.family.covenantIdHex) {
+    invalidBootstrap("Stored Giveaway V6 covenant ID disagrees with the confirmed outpoint.");
+  }
+  assertStoredActivationOutputs(record.activationOutputs, prepared.activationOutputs);
+  return prepared;
+}
+
+function deriveGiveawayV6BootstrapBinding(
+  record: GiveawayV6BootstrapRecord,
+  funding: GiveawayV6ConfirmedFunding,
+): PreparedGiveawayV6BootstrapBinding {
   const config = parseGiveawayV6ConfigJson(record.config);
   const familyTerms = parseGiveawayV6FamilyTermsJson(record.familyTerms);
   const reviewed = buildGiveawayV6BootstrapCreateData({
@@ -356,6 +412,42 @@ function serializeActivationOutput(
   output: GiveawayV6ActivationOutput,
 ): GiveawayV6ActivationOutputJson {
   return { ...output, amountSompi: output.amountSompi.toString() };
+}
+
+function assertStoredActivationOutputs(
+  value: unknown,
+  expectedOutputs: readonly GiveawayV6ActivationOutput[],
+): void {
+  if (!Array.isArray(value) || value.length !== expectedOutputs.length) {
+    invalidBootstrap("Stored Giveaway V6 activation outputs disagree with the reviewed family.");
+  }
+  value.forEach((candidate, index) => {
+    const expected = serializeActivationOutput(expectedOutputs[index]!);
+    if (
+      !isExactRecord(candidate, ["amountSompi", "covenant", "outputIndex", "scriptPublicKeyHex"]) ||
+      candidate.amountSompi !== expected.amountSompi ||
+      candidate.outputIndex !== expected.outputIndex ||
+      candidate.scriptPublicKeyHex !== expected.scriptPublicKeyHex ||
+      !isExactRecord(candidate.covenant, ["authorizingInput", "covenantIdHex"]) ||
+      candidate.covenant.authorizingInput !== 0 ||
+      candidate.covenant.covenantIdHex !== expected.covenant.covenantIdHex
+    ) {
+      invalidBootstrap("Stored Giveaway V6 activation outputs disagree with the reviewed family.");
+    }
+  });
+}
+
+function isExactRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const actualKeys = Object.keys(value).sort();
+  const sortedExpected = [...expectedKeys].sort();
+  return (
+    actualKeys.length === sortedExpected.length &&
+    actualKeys.every((key, index) => key === sortedExpected[index])
+  );
 }
 
 function checkedSum(...values: readonly bigint[]): bigint {

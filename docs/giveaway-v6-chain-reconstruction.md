@@ -152,8 +152,11 @@ covenant, and phase data.
 2. After the exact ordinary P2SH funding output confirms, atomically bind that
    outpoint, derive the KIP-20 family ID and activation outputs, and initialize
    the projection. The exact funding detection and atomic binding are now
-   implemented; building, verifying, and broadcasting the keyless activation
-   transaction remains the next delivery step.
+   implemented. The application now builds the keyless activation with the
+   pinned SilverScript ABI, rederives every output and covenant binding, checks
+   its exact post-Toccata mass and relay fee, and verifies a SafeJSON round trip.
+   Durable idempotent broadcast and persisted activation status remain the next
+   delivery step.
 3. Render the bound configuration and verified projection in the creator
    studio and Telegram Mini App. The public giveaway page and its social
    preview already consume the projection.

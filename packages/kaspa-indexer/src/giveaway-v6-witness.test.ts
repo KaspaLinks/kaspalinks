@@ -12,6 +12,7 @@ import {
   buildGiveawayV6ShardRedeemScriptHex,
   decodeGiveawayV6Witness,
   giveawayV6PayToScriptHashScriptPublicKeyHex,
+  splitGiveawayV6ShardTemplateHex,
 } from "./giveaway-v6-witness";
 
 type AbiVectorContract = {
@@ -167,10 +168,15 @@ describe("decodeGiveawayV6Witness", () => {
       fixture.shard.redeemScriptHex,
       shardState,
     );
+    const pieces = splitGiveawayV6ShardTemplateHex(fixture.shard.redeemScriptHex);
+    expect(pieces).toEqual({
+      prefixHex: fixture.shard.redeemScriptHex.slice(0, 2),
+      suffixHex: fixture.shard.redeemScriptHex.slice(2 + 117 * 2),
+    });
     const rebuiltFromPieces = buildGiveawayV6InitialShardRedeemScriptHex(
-      fixture.shard.redeemScriptHex.slice(0, 2),
+      pieces.prefixHex,
       shardState,
-      fixture.shard.redeemScriptHex.slice(2 + 117 * 2),
+      pieces.suffixHex,
     );
     expect(rebuiltFromPieces).toBe(shardRedeem);
     expect(
@@ -178,10 +184,10 @@ describe("decodeGiveawayV6Witness", () => {
     ).toMatchObject({ templateHashHex: fixture.shard.templateHashHex, state: shardState });
 
     expect(giveawayV6PayToScriptHashScriptPublicKeyHex(fixture.shard.redeemScriptHex)).toBe(
-      "0000aa20ec3b5b3ead3128a500d35d25ed7a5f5c961355cf0f0e241e8e6cb919bc8cd8e587",
+      "0000aa202146f929ecfcc3d1215f65998a1cf657536672579cc6bda5fd12440904eac2d487",
     );
     expect(giveawayV6PayToScriptHashScriptPublicKeyHex(fixture.prize.redeemScriptHex)).toBe(
-      "0000aa20eb6bddb16ba34d85da31f90823514695be52f22b66c2df5c95b71533dccfc4eb87",
+      "0000aa20d5653bf4d8d35eeb9eea58c532ee010377ea2a242e70931a387e3e0837394fcb87",
     );
   });
 });

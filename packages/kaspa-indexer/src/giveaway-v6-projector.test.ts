@@ -58,7 +58,7 @@ const participantFixture = JSON.parse(
 
 const ZERO = "00".repeat(32);
 // Cross-language KIP-20 vector verified against the vendored rusty-kaspa WASM SDK.
-const COVENANT_ID = "dfb7a8be322e775c98d29c3ab7ca6215a68c43b9128f9ab04a9c9a73faa87ee3";
+const COVENANT_ID = "3a362f5e0d717f27cd02e5aa030e8efbd8cff8b9894e61c4fea9457f5f973b18";
 const GENESIS_TX = "01".repeat(32);
 const ACTIVATE_TX = "10".repeat(32);
 const REGISTER_TX = "11".repeat(32);
@@ -78,7 +78,7 @@ const config: GiveawayV6ReconstructionConfig = {
   entropyTargetBlueScore: 500_000_100n,
   shardCount: 4,
   treeDepth: 10,
-  maxEntriesPerShard: 1_000,
+  maxEntriesPerShard: 8,
   returnScriptPublicKeyHex: RETURN_SPK,
 };
 
@@ -89,11 +89,11 @@ const family: GiveawayV6FamilyDescriptor = {
   shardTemplateHashHex: fixture.shard.templateHashHex,
   prizeValueSompi: 100_000_000n,
   shardValueSompi: 101_000_000n,
-  entryFeeSompi: 100_000n,
-  activationFeeSompi: 100_000n,
-  freezeFeeSompi: 100_000n,
-  drawFeeSompi: 100_000n,
-  returnFeeSompi: 100_000n,
+  entryFeeSompi: 10_000_000n,
+  activationFeeSompi: 10_000_000n,
+  freezeFeeSompi: 33_000_000n,
+  drawFeeSompi: 18_000_000n,
+  returnFeeSompi: 2_000_000n,
 };
 
 describe("projectGiveawayV6Chain", () => {
@@ -264,7 +264,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
     inputs: [
       txInput(
         { transactionId: GENESIS_TX, outputIndex: 0 },
-        504_100_000n,
+        514_000_000n,
         bootstrapPrizeRedeem,
         witness(
           [shardPrefix, shardSuffix],
@@ -319,7 +319,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
             499_000_000n,
           ),
         ],
-        outputs: [familyOutput(100_900_000n, registeredShardRedeem, 0)],
+        outputs: [familyOutput(91_000_000n, registeredShardRedeem, 0)],
       }),
     );
     shardRedeems = [registeredShardRedeem, ...initialShardRedeems.slice(1)];
@@ -343,7 +343,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
     frozenRootHex: preview.frozenRootHex,
     entryCount: preview.entryCount,
   });
-  const frozenValue = terminal === "draw" ? 503_800_000n : 503_900_000n;
+  const frozenValue = terminal === "draw" ? 461_000_000n : 471_000_000n;
   transactions.push(
     transaction({
       id: FREEZE_TX,
@@ -363,7 +363,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
         ...shardRedeems.map((redeem, index) =>
           txInput(
             openSnapshot.shards[index]!.tipOutpoint!,
-            index === 0 && terminal === "draw" ? 100_900_000n : 101_000_000n,
+            index === 0 && terminal === "draw" ? 91_000_000n : 101_000_000n,
             redeem,
             witness([], fixture.shard.dispatchTags.delegateFreeze!, redeem),
             index === 0 && terminal === "draw" ? 499_999_900n : 499_000_000n,
@@ -388,7 +388,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
             500_000_010n,
           ),
         ],
-        outputs: [plainOutput(frozenValue - 100_000n, RETURN_SPK)],
+        outputs: [plainOutput(frozenValue - 2_000_000n, RETURN_SPK)],
       }),
     );
     return { transactions, headers: [] };
@@ -425,7 +425,7 @@ function buildScenario(terminal: "draw" | "empty-return"): {
       ],
       outputs: [
         plainOutput(100_000_000n, WINNER_SPK),
-        plainOutput(frozenValue - 100_100_000n, RETURN_SPK),
+        plainOutput(frozenValue - 118_000_000n, RETURN_SPK),
       ],
     }),
   );

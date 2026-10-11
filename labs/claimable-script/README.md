@@ -249,13 +249,18 @@ global index 5 (shard 1, local index 2), and rejects both a redirected payout
 and a changed on-chain sequence commitment. The close lock and both return
 paths remain covered as well.
 
-The 14 production-direction tests also derive exact Toccata compute budgets.
-The four-shard activation measures 60,957 compute / 179,228 transient mass,
-registration measures 91,111 / 180,164, and the full-family freeze measures
-168,519 / 618,596, below the post-Toccata Mainnet limits of 500,000 /
-1,000,000. The real proof-bearing draw measures 164,374 / 35,136. Contextual
-storage, production-value relay fees, continuous indexer replay, and an
-on-chain canary remain delivery gates.
+The production-value profile permits eight registrations per shard and measures
+the exact post-Toccata masses with the pinned engine. The four-shard activation
+uses 64,709 compute / 192,636 transient / 196,467 contextual storage mass and
+has normalized fee mass 96,318. Registration uses 92,024 / 183,816 and needs a
+minimum 9,202,400 sompi relay fee. Full-family freeze uses 175,299 / 643,716
+and needs 32,185,800 sompi. The real proof-bearing draw uses 164,431 / 35,364,
+and fallback return uses 8,253 / 32,492. The reviewed fixed fees are therefore
+10,000,000 sompi for activation and registration, 33,000,000 for freeze,
+18,000,000 for draw, and 2,000,000 for return. All measured transitions remain
+below the post-Toccata Mainnet limits of 500,000 compute, 500,000 storage, and
+1,000,000 transient mass. Continuous indexer replay and an on-chain canary
+remain delivery gates.
 
 The production gate remains the one in
 `docs/giveaway-v6-onchain-protocol.md`: complete payout/return and entropy

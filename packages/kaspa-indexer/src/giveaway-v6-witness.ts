@@ -175,6 +175,25 @@ export function buildGiveawayV6InitialShardRedeemScriptHex(
   return toHex(concat(prefix, encodeShardState(state), suffix));
 }
 
+/** Returns the immutable pieces committed by the Prize activation witness. */
+export function splitGiveawayV6ShardTemplateHex(redeemScriptHex: string): {
+  prefixHex: string;
+  suffixHex: string;
+} {
+  const redeemScript = parseHex(
+    redeemScriptHex,
+    "Shard template redeem script",
+    MAX_SIGNATURE_SCRIPT_BYTES,
+  );
+  if (redeemScript.length < SHARD_STATE_OFFSET + SHARD_STATE_LENGTH) {
+    fail("INVALID_STATE", "Shard template redeem script does not contain the V6 state span.");
+  }
+  return {
+    prefixHex: toHex(redeemScript.slice(0, SHARD_STATE_OFFSET)),
+    suffixHex: toHex(redeemScript.slice(SHARD_STATE_OFFSET + SHARD_STATE_LENGTH)),
+  };
+}
+
 /** Kaspa version-0 P2SH script public key for a SilverScript redeem script. */
 export function giveawayV6PayToScriptHashScriptPublicKeyHex(redeemScriptHex: string): string {
   const redeemScript = parseHex(redeemScriptHex, "redeem script", MAX_SIGNATURE_SCRIPT_BYTES);

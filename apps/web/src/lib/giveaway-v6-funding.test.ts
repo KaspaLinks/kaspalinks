@@ -10,7 +10,7 @@ const SERIALIZED_SCRIPT = `0000aa20${"11".repeat(32)}87`;
 const RAW_SCRIPT = SERIALIZED_SCRIPT.slice(4);
 const TX_ID = "22".repeat(32);
 const BLOCK_HASH = "33".repeat(32);
-const AMOUNT = 504_100_000n;
+const AMOUNT = 514_000_000n;
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -103,7 +103,7 @@ describe("Giveaway V6 confirmed funding lookup", () => {
       .fn()
       .mockResolvedValueOnce(Response.json([utxo()]))
       .mockResolvedValueOnce(
-        Response.json(transaction({ outputs: [output({ amount: "504100001" })] })),
+        Response.json(transaction({ outputs: [output({ amount: "514000001" })] })),
       );
     vi.stubGlobal("fetch", fetchMock);
 

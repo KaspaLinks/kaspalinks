@@ -33,14 +33,12 @@ vi.mock("@/lib/rate-limit-helpers", () => ({
 
 import { POST } from "./route";
 
-const fundingAddress =
-  "kaspa:pr4khhd3dw35mpw6x8ussg63g62mu5hj9dnv9h6ujkm32v7uelzwkncj2d3uk";
-const returnAddress =
-  "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
+const fundingAddress = "kaspa:pr4khhd3dw35mpw6x8ussg63g62mu5hj9dnv9h6ujkm32v7uelzwkncj2d3uk";
+const returnAddress = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
 const bootstrap = {
   compilerCommit: "3ed973335b59269293564805cc2c58a14595ec03",
   config: {},
-  expectedFundingSompi: 504_100_000n,
+  expectedFundingSompi: 514_000_000n,
   familyTerms: {},
   fundingAddress,
   fundingScriptPublicKeyHex: "0000aa20" + "11".repeat(32) + "87",
@@ -128,8 +126,8 @@ describe("Giveaway V6 creator route", () => {
       expect.any(Request),
       expect.objectContaining({ $transaction: mocks.transaction }),
       {
-      allowTelegramMiniApp: true,
-      allowTelegramOnly: true,
+        allowTelegramMiniApp: true,
+        allowTelegramOnly: true,
       },
     );
     expect(mocks.compile).toHaveBeenCalledWith(
@@ -155,17 +153,17 @@ describe("Giveaway V6 creator route", () => {
     );
     expect(body).toMatchObject({
       giveaway: {
-        participantCap: 4_000,
+        participantCap: 32,
         publicUrl: "/giveaways/cmi12345678901234567890123",
         shareReady: false,
         status: "AWAITING_FUNDING",
       },
       funding: {
         address: fundingAddress,
-        amountKas: "5.041",
-        amountSompi: "504100000",
+        amountKas: "5.14",
+        amountSompi: "514000000",
         breakdown: {
-          activationFeeSompi: "100000",
+          activationFeeSompi: "10000000",
           executionReserveSompi: "404000000",
           prizeSompi: "100000000",
         },
@@ -174,7 +172,7 @@ describe("Giveaway V6 creator route", () => {
       },
       review: { shardCount: 4 },
     });
-    expect(body.funding.paymentUri).toContain(`${fundingAddress}?amount=5.041`);
+    expect(body.funding.paymentUri).toContain(`${fundingAddress}?amount=5.14`);
   });
 
   it("rejects unrecognized recovery input before chain access or compilation", async () => {

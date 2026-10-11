@@ -68,7 +68,7 @@ function awaitingGiveaway() {
       compilerCommit: "compiler-commit",
       config: {},
       covenantIdHex: null,
-      expectedFundingSompi: 504_100_000n,
+      expectedFundingSompi: 514_000_000n,
       familyTerms: {},
       fundingAcceptingBlockHash: null,
       fundingAddress: FUNDING_ADDRESS,
@@ -108,7 +108,7 @@ function boundGiveaway(phase = "AWAITING_ACTIVATION") {
 
 const confirmedFunding = {
   acceptingBlockHash: BLOCK_HASH,
-  amountSompi: 504_100_000n,
+  amountSompi: 514_000_000n,
   blockDaaScore: 536_000_000n,
   covenantIdHex: null,
   outputIndex: 1,
@@ -178,7 +178,7 @@ describe("Giveaway V6 creator funding route", () => {
       activation: { status: "AWAITING_ACTIVATION" },
       funding: {
         address: FUNDING_ADDRESS,
-        amountSompi: "504100000",
+        amountSompi: "514000000",
         confirmationPending: true,
         status: "AWAITING_FUNDING",
       },
@@ -194,7 +194,7 @@ describe("Giveaway V6 creator funding route", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.funding).toHaveBeenCalledWith({
-      expectedFundingSompi: 504_100_000n,
+      expectedFundingSompi: 514_000_000n,
       fundingAddress: FUNDING_ADDRESS,
       fundingScriptPublicKeyHex: SCRIPT,
     });
