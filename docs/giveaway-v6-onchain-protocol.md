@@ -167,7 +167,12 @@ v1.0.0 binary: the Docker build verifies the release archive hash, the adapter
 verifies both source hashes, compiles the Shard before the Prize, binds the
 reviewed entropy image ID, and independently checks the ABI version, state
 spans, and template hashes. It exposes no signing or wallet operation. The
-creator API still must persist this result before any funding QR is shown. See
+restricted Creator API now validates the fixed prize and duration choices,
+reads the current Mainnet DAA and blue score, invokes that compiler, and
+atomically persists the Giveaway plus public bootstrap before returning the
+exact Kaspium payment URI. It is disabled by default behind a separate feature
+gate and the per-Creator covenant canary, so completing this persistence path
+does not yet permit public Mainnet funding. See
 [`giveaway-v6-chain-reconstruction.md`](./giveaway-v6-chain-reconstruction.md)
 for the decoder boundary and rollout sequence.
 

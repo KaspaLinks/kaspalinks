@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { readConfirmedGiveawayChainEntropy } from "./giveaway-chain-entropy";
+import { readCurrentMainnetChainPosition } from "./mainnet-chain-position";
 import type { PrototypeEntropy, PrototypeUtxo } from "./giveaway-prize-v3-prototype";
 const decimal = z
   .union([z.string().regex(/^[0-9]+$/), z.number().int().nonnegative().safe()])
@@ -18,14 +19,7 @@ async function read(path: string): Promise<unknown> {
   return response.json();
 }
 export async function readPrototypeChain() {
-  const data = z
-    .object({ networkName: z.literal("kaspa-mainnet"), virtualDaaScore: decimal })
-    .parse(await read("/info/blockdag"));
-  const score = z
-    .object({ blueScore: decimal })
-    .parse(await read("/info/virtual-chain-blue-score"));
-  if (BigInt(data.virtualDaaScore) <= 474165565n) throw new Error("Toccata is not active.");
-  return { daa: BigInt(data.virtualDaaScore), blueScore: BigInt(score.blueScore) };
+  return readCurrentMainnetChainPosition();
 }
 export async function readPrototypeUtxos(address: string): Promise<PrototypeUtxo[]> {
   const rows = z

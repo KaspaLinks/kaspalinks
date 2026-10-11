@@ -276,6 +276,21 @@ Returns an unexpired, pending Giveaway Setup Draft owned by the authenticated Cr
 contains only public setup fields and is used to prefill the browser Giveaway flow. It never contains
 wallet, claim, refund, or recovery material.
 
+### `POST /api/creator/giveaways/v6`
+
+Creates a reviewed SilverScript V6 pre-funding record for an authenticated canary Creator or an
+authorized Telegram-only Giveaway workspace. The strict body contains `title`, optional
+`description`, `amountKas` (`0.2`, `0.5`, or `1`), `durationSeconds` (30 seconds through 24 hours),
+and a Mainnet `returnAddress`. The server reads the current Mainnet DAA and blue score, compiles the
+pinned Prize and Shard contracts, then atomically stores the Giveaway and public bootstrap before
+returning the exact Kaspium `paymentUri`. The response separates prize, execution reserve, and
+activation fee and marks the link `shareReady: false` until funding and keyless activation confirm.
+The route rejects unknown fields and never accepts wallet, private-key, passkey, or recovery data.
+
+This endpoint is unavailable unless `TOCCATA_LAB_ENABLED`, `GIVEAWAY_LAB_ENABLED`, and
+`GIVEAWAY_V6_CREATION_ENABLED` are all `true`, and the authenticated Creator has
+`prizeCovenantEnabled`.
+
 ### `POST /api/agent/telegram/webhook`
 
 Telegram's only public integration endpoint. It requires the configured
