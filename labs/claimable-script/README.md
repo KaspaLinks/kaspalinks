@@ -204,8 +204,10 @@ This is not the same safety profile as the engine tests above:
 The Giveaway V6 contracts use SilverScript covenant declarations added after
 the older Claimable-Link pin above. They are currently verified at exact
 SilverScript commit `3ed973335b59269293564805cc2c58a14595ec03` (SilverScript
-1.0 preparation, 2026-09-09). They are feasibility artifacts and are not
-embedded in the web app or approved for Mainnet funding.
+v1.0.0, 2026-09-09). They are not approved for unrestricted Mainnet funding.
+The web image now installs the official release binary with a pinned archive
+checksum and includes these two reviewed sources so it can compile unique,
+public-only per-giveaway artifacts. Mainnet funding remains gated separately.
 
 - `giveaway_entry_shard_v6.sil` is the capital-efficient production direction:
   a keyless append-only entry tree plus an exact-address set, with deterministic
@@ -217,6 +219,10 @@ embedded in the web app or approved for Mainnet funding.
 - The corresponding Rust files run the contracts against the compiler's real
   TxScript engine and include rejection tests for state, value, cardinality,
   ordering, reuse, and late-entry changes.
+- `giveaway_prize_shards_v6.args.json` and the ABI vector bind the reviewed
+  entropy guest image
+  `a402f88f9b89afd2eb5e5f6cdc96f67af2ff4d4da70e1e6a4767a99c26b692b1`;
+  no placeholder verifier ID is used in the production-direction fixture.
 
 Run from a checkout at the exact commit:
 

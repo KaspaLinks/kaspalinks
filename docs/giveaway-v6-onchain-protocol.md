@@ -161,7 +161,13 @@ compiler/source pins, contract templates, canonical unopened state, reserve
 arithmetic, exact funding amount and script, derives every genesis output and
 the KIP-20 ID locally, then creates the chain projection in the same database
 transaction. The worker remains disabled until the creator flow supplies
-reviewed per-giveaway compiler artifacts and invokes that boundary. See
+reviewed per-giveaway compiler artifacts and invokes that boundary. A server-only
+compiler adapter now does the artifact step with the official SilverScript
+v1.0.0 binary: the Docker build verifies the release archive hash, the adapter
+verifies both source hashes, compiles the Shard before the Prize, binds the
+reviewed entropy image ID, and independently checks the ABI version, state
+spans, and template hashes. It exposes no signing or wallet operation. The
+creator API still must persist this result before any funding QR is shown. See
 [`giveaway-v6-chain-reconstruction.md`](./giveaway-v6-chain-reconstruction.md)
 for the decoder boundary and rollout sequence.
 

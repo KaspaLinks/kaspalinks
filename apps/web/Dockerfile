@@ -14,6 +14,29 @@ RUN apt-get update \
 
 RUN corepack enable && corepack prepare pnpm@11.1.1 --activate
 
+FROM debian:bookworm-slim AS silverscript
+
+ARG TARGETARCH=amd64
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+  case "${TARGETARCH}" in \
+    amd64) \
+      archive="silverc-linux-x86_64.tar.gz"; \
+      checksum="058ffa17a390526f27280752f864b1bd680217cded14dfc5b7fd168d7e943fb5" ;; \
+    arm64) \
+      archive="silverc-linux-arm64.tar.gz"; \
+      checksum="6f8cf9a1eaf2904fa75c1b1ff85a1803a4d4939325de00431b6b05e20854083f" ;; \
+    *) echo "unsupported SilverScript target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://github.com/kaspanet/silverscript/releases/download/v1.0.0/${archive}" -o /tmp/silverc.tar.gz; \
+  echo "${checksum}  /tmp/silverc.tar.gz" | sha256sum -c -; \
+  tar -xzf /tmp/silverc.tar.gz -C /tmp; \
+  install -m 0755 /tmp/silverc /usr/local/bin/silverc
+
 FROM base AS deps
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -85,6 +108,8 @@ ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV SILVERC_BIN=/usr/local/bin/silverc
+ENV SILVERSCRIPT_SOURCE_DIR=/app/labs/claimable-script
 
 WORKDIR /app
 
@@ -101,6 +126,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/server/chunks/kasp
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/server/vendor-chunks/kaspa_bg.wasm ./apps/web/.next/server/vendor-chunks/kaspa_bg.wasm
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.pnpm/kaspa-wasm@file+vendor+kaspa-wasm-v2.0.1/node_modules/kaspa-wasm ./node_modules/kaspa-wasm
+COPY --from=silverscript --chown=nextjs:nodejs /usr/local/bin/silverc /usr/local/bin/silverc
+COPY --chown=nextjs:nodejs labs/claimable-script/giveaway_entry_shard_v6.sil ./labs/claimable-script/giveaway_entry_shard_v6.sil
+COPY --chown=nextjs:nodejs labs/claimable-script/giveaway_prize_shards_v6.sil ./labs/claimable-script/giveaway_prize_shards_v6.sil
 
 USER nextjs
 

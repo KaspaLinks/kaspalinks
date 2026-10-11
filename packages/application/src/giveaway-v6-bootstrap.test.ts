@@ -74,7 +74,7 @@ describe("Giveaway V6 bootstrap binding", () => {
       status: GiveawayV6BootstrapStatus.AWAITING_FUNDING,
       expectedFundingSompi: 504_100_000n,
       fundingScriptPublicKeyHex:
-        "0000aa20b2d16dc009ce21070541a4d7f7fec28acd414474073adbb8dd9bef3d540573ed87",
+        "0000aa20eb6bddb16ba34d85da31f90823514695be52f22b66c2df5c95b71533dccfc4eb87",
     });
     expect(data.fundingAddress).toMatch(/^kaspa:/u);
     expect(data).not.toHaveProperty("privateKey");
@@ -97,7 +97,7 @@ describe("Giveaway V6 bootstrap binding", () => {
     });
 
     expect(prepared.family.covenantIdHex).toBe(
-      "c14ba68dc683bdb26d166ae856a36b7b63c7e389f96b7985b068fbb4db820d0b",
+      "dfb7a8be322e775c98d29c3ab7ca6215a68c43b9128f9ab04a9c9a73faa87ee3",
     );
     expect(prepared.activationOutputs).toHaveLength(5);
     expect(prepared.activationOutputs.map((output) => output.amountSompi)).toEqual([

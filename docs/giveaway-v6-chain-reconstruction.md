@@ -136,7 +136,8 @@ passkey, or recovery secret.
 ## Production sequence
 
 1. Persist the reviewed V6 bootstrap configuration and exact expected funding
-   value before presenting the Kaspium QR. The family ID is not known yet.
+   value produced by the pinned runtime compiler before presenting the Kaspium
+   QR. The family ID is not known yet.
 2. After the exact ordinary P2SH funding output confirms, atomically bind that
    outpoint, derive the KIP-20 family ID and activation outputs, initialize the
    projection, and only then broadcast the keyless activation transaction.
