@@ -215,7 +215,11 @@ describe("Giveaway V6 creator funding route", () => {
       }),
     );
     expect(body).toEqual({
-      activation: { covenantIdHex: COVENANT_ID, status: "AWAITING_ACTIVATION" },
+      activation: {
+        activateUrl: `/api/creator/giveaways/v6/${PUBLIC_ID}/activation`,
+        covenantIdHex: COVENANT_ID,
+        status: "AWAITING_ACTIVATION",
+      },
       funding: {
         acceptingBlockHash: BLOCK_HASH,
         blockDaaScore: "536000000",
@@ -234,7 +238,11 @@ describe("Giveaway V6 creator funding route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.activation).toEqual({ covenantIdHex: COVENANT_ID, status: "OPEN" });
+    expect(body.activation).toEqual({
+      activateUrl: `/api/creator/giveaways/v6/${PUBLIC_ID}/activation`,
+      covenantIdHex: COVENANT_ID,
+      status: "OPEN",
+    });
     expect(body.giveaway.shareReady).toBe(true);
     expect(mocks.funding).not.toHaveBeenCalled();
     expect(mocks.persist).not.toHaveBeenCalled();

@@ -682,6 +682,21 @@ export async function broadcastToccataBatchActivationTransaction(
   return { submittedTransactionId, transactionId };
 }
 
+export async function broadcastToccataGiveawayV6ActivationTransaction(input: {
+  expectedTransactionId: string;
+  transactionSafeJson: string;
+}): Promise<ToccataClaimableBroadcastResult> {
+  const transactionId = validateGiveawayV6ActivationBroadcastSafeJson(input.transactionSafeJson);
+  if (input.expectedTransactionId.toLowerCase() !== transactionId) {
+    throw new Error("Giveaway V6 activation id does not match the expected transaction id.");
+  }
+  const submittedTransactionId = await submitClaimableSafeJsonViaKaspaWrpcRelay(
+    input.transactionSafeJson,
+    transactionId,
+  );
+  return { submittedTransactionId, transactionId };
+}
+
 export async function broadcastToccataBatchRefundTransaction(
   input: z.infer<typeof toccataBatchRefundBroadcastInputSchema>,
 ): Promise<ToccataClaimableBroadcastResult> {
@@ -782,6 +797,7 @@ type SafeJsonClaimableInput = {
 };
 
 type SafeJsonClaimableOutput = {
+  covenant?: unknown;
   scriptPublicKey?: unknown;
   value?: unknown;
 };
@@ -953,6 +969,59 @@ export function validateBatchActivationBroadcastSafeJson(transactionSafeJson: st
   return readBatchActivationBroadcastSafeJsonSummary(transactionSafeJson).transactionId;
 }
 
+/** Structural guard for the internal, already intent-checked five-output V6 genesis. */
+export function validateGiveawayV6ActivationBroadcastSafeJson(transactionSafeJson: string): string {
+  let parsed: SafeJsonClaimableTransaction;
+  try {
+    parsed = JSON.parse(transactionSafeJson) as SafeJsonClaimableTransaction;
+  } catch {
+    throw new Error("Giveaway V6 activation JSON could not be parsed.");
+  }
+  if (parsed.version !== 1 || !isHexString(parsed.id, 64)) {
+    throw new Error("Giveaway V6 activation has an invalid Toccata transaction id.");
+  }
+  if (!Array.isArray(parsed.inputs) || parsed.inputs.length !== 1) {
+    throw new Error("Giveaway V6 activation requires exactly one keyless input.");
+  }
+  if (!Array.isArray(parsed.outputs) || parsed.outputs.length !== 5) {
+    throw new Error("Giveaway V6 activation must create one prize and four shard outputs.");
+  }
+  if (!isHexString(parsed.subnetworkId, 40) || parseLockTimeBigInt(parsed.lockTime) !== 0n) {
+    throw new Error("Giveaway V6 activation has invalid transaction metadata.");
+  }
+
+  const input = parsed.inputs[0] as SafeJsonClaimableInput;
+  parseToccataComputeBudget(input.computeBudget);
+  parseOutputIndex(input.index);
+  parseTransactionId(input.transactionId);
+  parseSequence(input.sequence);
+  parseSigOpCount(input.sigOpCount);
+  parseSignatureScript(input.signatureScript);
+  parseClaimableInputUtxoAmount(input.utxo);
+
+  let covenantId: string | null = null;
+  for (const output of parsed.outputs) {
+    const candidate = output as SafeJsonClaimableOutput;
+    parseLabPositiveBigInt(candidate.value, "Giveaway V6 activation output amount");
+    parseSafeJsonScriptPublicKey(candidate.scriptPublicKey);
+    if (!isRecord(candidate.covenant)) {
+      throw new Error("Giveaway V6 activation output is missing its covenant binding.");
+    }
+    if (candidate.covenant.authorizingInput !== 0) {
+      throw new Error("Giveaway V6 activation covenant must reference input zero.");
+    }
+    const outputCovenantId = candidate.covenant.covenantId;
+    if (!isHexString(outputCovenantId, 64)) {
+      throw new Error("Giveaway V6 activation covenant id is invalid.");
+    }
+    covenantId ??= outputCovenantId.toLowerCase();
+    if (covenantId !== outputCovenantId.toLowerCase()) {
+      throw new Error("Giveaway V6 activation outputs must share one covenant id.");
+    }
+  }
+  return parsed.id.toLowerCase();
+}
+
 function parseSafeJsonScriptPublicKey(value: unknown): string {
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
@@ -1001,6 +1070,13 @@ function parseTransactionId(value: unknown): string {
 function parseComputeBudget(value: unknown): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 100) {
     throw new Error("Signed transaction input has an invalid compute budget.");
+  }
+  return value;
+}
+
+function parseToccataComputeBudget(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 65_535) {
+    throw new Error("Giveaway V6 activation input has an invalid compute budget.");
   }
   return value;
 }

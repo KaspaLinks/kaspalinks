@@ -1,4 +1,5 @@
 import { buildToccataKeylessCovenantSpend } from "@kaspa-actions/kaspa";
+import { GiveawayV6BootstrapStatus, type PrismaClient } from "@kaspa-actions/db";
 import {
   GIVEAWAY_V6_PRIZE_DISPATCH_TAGS,
   decodeGiveawayV6Witness,
@@ -34,6 +35,17 @@ export type GiveawayV6ActivationTransaction = {
   transactionSafeJson: string;
   transientMass: string;
 };
+
+export type GiveawayV6ActivationDeliveryRecord = {
+  activationTransactionId: string | null;
+  giveawayId: string;
+  id: string;
+  status: GiveawayV6BootstrapStatus;
+};
+
+export type GiveawayV6ActivationAttemptErrorCode =
+  | "ACTIVATION_RELAY_REJECTED"
+  | "ACTIVATION_RELAY_UNAVAILABLE";
 
 /**
  * Builds and intent-checks the keyless genesis transition. It never signs,
@@ -96,6 +108,104 @@ export function buildGiveawayV6ActivationTransaction(
     transactionSafeJson: transaction.transactionSafeJson,
     transientMass: transaction.transientMass,
   };
+}
+
+/**
+ * Persists the deterministic transaction ID before any relay call. A retry is
+ * allowed only when it reconstructs the exact same public transaction.
+ */
+export async function persistGiveawayV6ActivationPlan(
+  prisma: PrismaClient,
+  record: GiveawayV6ActivationDeliveryRecord,
+  transactionId: string,
+): Promise<void> {
+  const normalizedTransactionId = normalizeTransactionId(transactionId);
+  assertDeliveryRecord(record, normalizedTransactionId);
+  const updated = await prisma.giveawayV6Bootstrap.updateMany({
+    data: { activationTransactionId: normalizedTransactionId },
+    where: {
+      giveawayId: record.giveawayId,
+      id: record.id,
+      OR: [{ activationTransactionId: null }, { activationTransactionId: normalizedTransactionId }],
+      status: GiveawayV6BootstrapStatus.BOUND,
+    },
+  });
+  if (updated.count !== 1) {
+    throw new Error("Giveaway V6 activation plan changed during persistence.");
+  }
+}
+
+/** Records a successful relay response without treating it as chain confirmation. */
+export async function persistGiveawayV6ActivationSubmitted(
+  prisma: PrismaClient,
+  record: Pick<GiveawayV6ActivationDeliveryRecord, "giveawayId" | "id">,
+  transactionId: string,
+  attemptedAt: Date,
+): Promise<void> {
+  const normalizedTransactionId = normalizeTransactionId(transactionId);
+  const updated = await prisma.giveawayV6Bootstrap.updateMany({
+    data: {
+      activationLastAttemptAt: attemptedAt,
+      activationLastErrorCode: null,
+      activationSubmittedAt: attemptedAt,
+    },
+    where: {
+      activationTransactionId: normalizedTransactionId,
+      giveawayId: record.giveawayId,
+      id: record.id,
+      status: GiveawayV6BootstrapStatus.BOUND,
+    },
+  });
+  if (updated.count !== 1) {
+    throw new Error("Giveaway V6 activation submission could not be persisted.");
+  }
+}
+
+/** Stores only a bounded operational code; relay details never enter the database. */
+export async function persistGiveawayV6ActivationFailure(
+  prisma: PrismaClient,
+  record: Pick<GiveawayV6ActivationDeliveryRecord, "giveawayId" | "id">,
+  transactionId: string,
+  attemptedAt: Date,
+  errorCode: GiveawayV6ActivationAttemptErrorCode,
+): Promise<void> {
+  const normalizedTransactionId = normalizeTransactionId(transactionId);
+  await prisma.giveawayV6Bootstrap.updateMany({
+    data: {
+      activationLastAttemptAt: attemptedAt,
+      activationLastErrorCode: errorCode,
+    },
+    where: {
+      activationSubmittedAt: null,
+      activationTransactionId: normalizedTransactionId,
+      giveawayId: record.giveawayId,
+      id: record.id,
+      status: GiveawayV6BootstrapStatus.BOUND,
+    },
+  });
+}
+
+function assertDeliveryRecord(
+  record: GiveawayV6ActivationDeliveryRecord,
+  transactionId: string,
+): void {
+  if (record.status !== GiveawayV6BootstrapStatus.BOUND) {
+    throw new Error("Giveaway V6 funding must be bound before activation.");
+  }
+  if (
+    record.activationTransactionId !== null &&
+    normalizeTransactionId(record.activationTransactionId) !== transactionId
+  ) {
+    throw new Error("Stored Giveaway V6 activation transaction disagrees with reconstruction.");
+  }
+}
+
+function normalizeTransactionId(value: string): string {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!/^[0-9a-f]{64}$/u.test(normalized)) {
+    throw new Error("Giveaway V6 activation transaction ID must be 32-byte hex.");
+  }
+  return normalized;
 }
 
 function requireBound<T>(value: T | null, label: string): T {

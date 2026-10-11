@@ -142,6 +142,23 @@ describe("Prisma schema", () => {
     expect(sql).toContain("ON DELETE CASCADE ON UPDATE CASCADE");
     expect(sql).not.toMatch(/DROP TABLE|DELETE FROM|UPDATE "Giveaway"/);
   });
+
+  it("persists only public retry state for deterministic V6 activation", () => {
+    const bootstrap = schema.match(/model GiveawayV6Bootstrap \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const sql = readFileSync(
+      "packages/db/prisma/migrations/20261011211000_giveaway_v6_activation_delivery/migration.sql",
+      "utf8",
+    );
+
+    expect(bootstrap).toContain("activationTransactionId");
+    expect(bootstrap).toContain("activationSubmittedAt");
+    expect(bootstrap).toContain("activationLastAttemptAt");
+    expect(bootstrap).toContain("activationLastErrorCode");
+    expect(bootstrap).not.toMatch(/activationTransactionSafeJson|privateKey|seedPhrase/i);
+    expect(sql).toContain('ALTER TABLE "GiveawayV6Bootstrap"');
+    expect(sql).toContain('CREATE UNIQUE INDEX "GiveawayV6Bootstrap_activationTransactionId_key"');
+    expect(sql).not.toMatch(/DROP TABLE|DELETE FROM|UPDATE "Giveaway"/);
+  });
 });
 
 describe("initial migration", () => {

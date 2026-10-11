@@ -672,6 +672,12 @@ model GiveawayV6Bootstrap {
   fundingAcceptingBlockHash    String?
   covenantIdHex                String?                   @unique
   activationOutputs            Json?
+  // Deterministic public keyless activation. The transaction is always rebuilt
+  // from the reviewed bootstrap; only its ID and relay attempt state persist.
+  activationTransactionId      String?                   @unique
+  activationSubmittedAt        DateTime?
+  activationLastAttemptAt      DateTime?
+  activationLastErrorCode      String?
   createdAt                    DateTime                  @default(now())
   updatedAt                    DateTime                  @updatedAt
 

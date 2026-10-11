@@ -112,6 +112,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   return apiJson({
     activation: {
+      activateUrl: `/api/creator/giveaways/v6/${giveaway.publicId}/activation`,
       covenantIdHex: prepared.family.covenantIdHex,
       status: GiveawayV6Phase.AWAITING_ACTIVATION,
     },
@@ -174,6 +175,7 @@ function boundResponse(giveaway: OwnedGiveaway): Response {
   }
   return apiJson({
     activation: {
+      activateUrl: `/api/creator/giveaways/v6/${giveaway.publicId}/activation`,
       covenantIdHex: bootstrap.covenantIdHex,
       status: giveaway.v6Projection.phase,
     },

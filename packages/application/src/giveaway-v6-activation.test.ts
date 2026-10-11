@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
 
-import { GiveawayV6BootstrapStatus, Network } from "@kaspa-actions/db";
+import { GiveawayV6BootstrapStatus, Network, type PrismaClient } from "@kaspa-actions/db";
 import { decodeGiveawayV6Witness } from "@kaspa-actions/kaspa-indexer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   GIVEAWAY_V6_ACTIVATION_COMPUTE_BUDGET,
   buildGiveawayV6ActivationTransaction,
+  persistGiveawayV6ActivationFailure,
+  persistGiveawayV6ActivationPlan,
+  persistGiveawayV6ActivationSubmitted,
 } from "./giveaway-v6-activation";
 import {
   buildGiveawayV6BootstrapCreateData,
@@ -165,3 +168,80 @@ describe("Giveaway V6 activation transaction", () => {
     ).toThrowError(/activation outputs disagree/iu);
   });
 });
+
+describe("Giveaway V6 activation delivery", () => {
+  const transactionId = "ab".repeat(32);
+  const deliveryRecord = {
+    activationTransactionId: null,
+    giveawayId: "giveaway-1",
+    id: "bootstrap-1",
+    status: GiveawayV6BootstrapStatus.BOUND,
+  } as const;
+
+  it("persists the deterministic transaction ID before relay", async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const database = databaseWithUpdateMany(updateMany);
+
+    await persistGiveawayV6ActivationPlan(database, deliveryRecord, transactionId.toUpperCase());
+
+    expect(updateMany).toHaveBeenCalledWith({
+      data: { activationTransactionId: transactionId },
+      where: {
+        giveawayId: "giveaway-1",
+        id: "bootstrap-1",
+        OR: [{ activationTransactionId: null }, { activationTransactionId: transactionId }],
+        status: GiveawayV6BootstrapStatus.BOUND,
+      },
+    });
+  });
+
+  it("refuses to replace a previously planned transaction", async () => {
+    const updateMany = vi.fn();
+    const database = databaseWithUpdateMany(updateMany);
+
+    await expect(
+      persistGiveawayV6ActivationPlan(
+        database,
+        { ...deliveryRecord, activationTransactionId: "cd".repeat(32) },
+        transactionId,
+      ),
+    ).rejects.toThrow(/disagrees with reconstruction/iu);
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it("records submission and bounded retry failures without relay details", async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const database = databaseWithUpdateMany(updateMany);
+    const attemptedAt = new Date("2026-10-11T20:00:00.000Z");
+
+    await persistGiveawayV6ActivationFailure(
+      database,
+      deliveryRecord,
+      transactionId,
+      attemptedAt,
+      "ACTIVATION_RELAY_UNAVAILABLE",
+    );
+    await persistGiveawayV6ActivationSubmitted(
+      database,
+      deliveryRecord,
+      transactionId,
+      attemptedAt,
+    );
+
+    const calls = updateMany.mock.calls as unknown as Array<[{ data: Record<string, unknown> }]>;
+    expect(calls[0]?.[0].data).toEqual({
+      activationLastAttemptAt: attemptedAt,
+      activationLastErrorCode: "ACTIVATION_RELAY_UNAVAILABLE",
+    });
+    expect(calls[1]?.[0].data).toEqual({
+      activationLastAttemptAt: attemptedAt,
+      activationLastErrorCode: null,
+      activationSubmittedAt: attemptedAt,
+    });
+    expect(JSON.stringify(updateMany.mock.calls)).not.toContain("relay detail");
+  });
+});
+
+function databaseWithUpdateMany(updateMany: ReturnType<typeof vi.fn>): PrismaClient {
+  return { giveawayV6Bootstrap: { updateMany } } as unknown as PrismaClient;
+}

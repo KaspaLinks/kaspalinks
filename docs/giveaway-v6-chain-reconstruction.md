@@ -155,11 +155,15 @@ covenant, and phase data.
    implemented. The application now builds the keyless activation with the
    pinned SilverScript ABI, rederives every output and covenant binding, checks
    its exact post-Toccata mass and relay fee, and verifies a SafeJSON round trip.
-   Durable idempotent broadcast and persisted activation status remain the next
-   delivery step.
-3. Render the bound configuration and verified projection in the creator
-   studio and Telegram Mini App. The public giveaway page and its social
-   preview already consume the projection.
+   The restricted activation endpoint persists the deterministic transaction ID
+   before relay, rebroadcasts only that same transaction after a timeout or
+   restart, stores bounded operational error codes, and records relay submission
+   separately from chain confirmation. The projection remains authoritative for
+   the transition to `OPEN`.
+3. Call the returned activation URL after funding binds, then render its
+   submitted/confirmed state and the verified projection in the creator studio
+   and Telegram Mini App. The public giveaway page and its social preview
+   already consume the projection.
 4. Run restart, reindex, reorg, empty-giveaway, late-entry, draw, and fallback
    return canaries before enabling V6 funding for additional accounts.
 

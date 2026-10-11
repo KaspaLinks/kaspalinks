@@ -6,6 +6,7 @@ import {
   createToccataLabIntent,
   readClaimableSpendMode,
   TOCCATA_LAB_DEFAULT_LABEL,
+  validateGiveawayV6ActivationBroadcastSafeJson,
   validateRegisteredClaimableMetadata,
 } from "./toccata-lab";
 
@@ -112,6 +113,18 @@ describe("Claimable link helpers", () => {
     );
     expect(readClaimableSpendMode(`41${"22".repeat(65)}00${redeemPush}`, redeemScript)).toBe(
       "refund",
+    );
+  });
+
+  it("accepts the reviewed five-output keyless V6 activation shape", () => {
+    const activation = giveawayV6ActivationSafeJson();
+
+    expect(validateGiveawayV6ActivationBroadcastSafeJson(JSON.stringify(activation))).toBe(
+      "aa".repeat(32),
+    );
+    activation.outputs[4]!.covenant.covenantId = "cc".repeat(32);
+    expect(() => validateGiveawayV6ActivationBroadcastSafeJson(JSON.stringify(activation))).toThrow(
+      /share one covenant id/iu,
     );
   });
 
@@ -248,3 +261,28 @@ describe("Claimable link helpers", () => {
     });
   });
 });
+
+function giveawayV6ActivationSafeJson() {
+  return {
+    id: "aa".repeat(32),
+    inputs: [
+      {
+        computeBudget: 147,
+        index: 2,
+        sequence: "0",
+        sigOpCount: 0,
+        signatureScript: "51",
+        transactionId: "bb".repeat(32),
+        utxo: { amount: "514000000" },
+      },
+    ],
+    lockTime: "0",
+    outputs: Array.from({ length: 5 }, (_, index) => ({
+      covenant: { authorizingInput: 0, covenantId: "dd".repeat(32) },
+      scriptPublicKey: "000051",
+      value: index === 0 ? "100000000" : "101000000",
+    })),
+    subnetworkId: "00".repeat(20),
+    version: 1,
+  };
+}

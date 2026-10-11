@@ -147,6 +147,13 @@ PostgreSQL is an index and cache. It may store titles, presentation data, observ
 
 The feasibility contracts and 14 production-direction TxScript-engine tests currently cover exact activation, keyless shard registration, deterministic shard choice, full 256-bit duplicate payout-commitment rejection, late-entry exclusion, complete-family freeze, the absolute close lock, empty return, fallback return, and a real proof-bound draw. The draw fixture contains twelve participants over four shards and two independently rehashed Mainnet headers. The draw verifies the pinned RISC Zero guest receipt, reconstructs the frozen shard commitment, derives global winner index 5 in shard 1, verifies Merkle inclusion, constrains both payout outputs, and rejects a different on-chain sequence commitment.
 
+The server-side activation path remains keyless. It reconstructs the exact
+five-output transaction from the confirmed ordinary funding outpoint, persists
+its deterministic transaction ID before relay, and never accepts transaction
+JSON from the Creator. A timeout can only rebroadcast that same transaction.
+Relay submission is stored as an operational fact; the Giveaway becomes
+shareable only after the chain projection verifies the accepted activation.
+
 The reproducible entropy guest and host pipeline live in `labs/giveaway-entropy-prover`. Its pinned image ID is `a402f88f9b89afd2eb5e5f6cdc96f67af2ff4d4da70e1e6a4767a99c26b692b1`; the normal test suite verifies the stored Groth16 fixture, and the SilverScript engine accepts its compact Kaspa proof. Mainnet creation remains disabled until the remaining delivery gates below pass.
 
 The first production reconstruction layer now lives in
