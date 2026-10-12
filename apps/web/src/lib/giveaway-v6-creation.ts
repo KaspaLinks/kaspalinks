@@ -9,24 +9,19 @@ import type { GiveawayV6ReconstructionConfig } from "@kaspa-actions/kaspa-indexe
 import { z } from "zod";
 
 import type { GiveawayV6CompilerEconomics } from "./giveaway-v6-compiler";
+import {
+  buildGiveawayV6Budget,
+  GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD,
+  GIVEAWAY_V6_PARTICIPANT_CAPS,
+} from "./giveaway-v6-budget";
 
-export const GIVEAWAY_V6_SHARD_COUNT = 4;
 export const GIVEAWAY_V6_TREE_DEPTH = 10;
-export const GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD = 8;
-export const GIVEAWAY_V6_PARTICIPANT_CAP =
-  GIVEAWAY_V6_SHARD_COUNT * GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD;
 export const GIVEAWAY_V6_MIN_DURATION_SECONDS = 30;
 export const GIVEAWAY_V6_MAX_DURATION_SECONDS = 24 * 60 * 60;
 export const GIVEAWAY_V6_RETURN_DELAY_SECONDS = 24 * 60 * 60;
 export const GIVEAWAY_V6_ENTROPY_DELAY_SECONDS = 60;
 
 const DAA_PER_SECOND = 10n;
-const SHARD_VALUE_SOMPI = 101_000_000n;
-const ENTRY_FEE_SOMPI = 10_000_000n;
-const ACTIVATION_FEE_SOMPI = 10_000_000n;
-const FREEZE_FEE_SOMPI = 33_000_000n;
-const DRAW_FEE_SOMPI = 18_000_000n;
-const RETURN_FEE_SOMPI = 2_000_000n;
 const SUPPORTED_PRIZES_KAS = ["0.2", "0.5", "1"] as const;
 
 export const createGiveawayV6InputSchema = z
@@ -38,6 +33,11 @@ export const createGiveawayV6InputSchema = z
       .int()
       .min(GIVEAWAY_V6_MIN_DURATION_SECONDS)
       .max(GIVEAWAY_V6_MAX_DURATION_SECONDS),
+    participantCap: z.union([
+      z.literal(GIVEAWAY_V6_PARTICIPANT_CAPS[0]),
+      z.literal(GIVEAWAY_V6_PARTICIPANT_CAPS[1]),
+      z.literal(GIVEAWAY_V6_PARTICIPANT_CAPS[2]),
+    ]),
     returnAddress: z.string().trim().min(1).max(200),
     title: z.string().trim().min(1).max(80),
   })
@@ -59,6 +59,7 @@ export function buildGiveawayV6CreationTerms(input: {
   giveawayIdHex?: string;
 }) {
   const prizeValueSompi = parseKaspaAmountToSompi(input.request.amountKas);
+  const budget = buildGiveawayV6Budget(prizeValueSompi, input.request.participantCap);
   const durationDaa = BigInt(input.request.durationSeconds) * DAA_PER_SECOND;
   const closesAtDaa = input.chain.daa + durationDaa;
   const entropyTargetBlueScore =
@@ -77,32 +78,33 @@ export function buildGiveawayV6CreationTerms(input: {
     closesAtDaa,
     returnAtDaa,
     entropyTargetBlueScore,
-    shardCount: GIVEAWAY_V6_SHARD_COUNT,
+    shardCount: budget.shardCount,
     treeDepth: GIVEAWAY_V6_TREE_DEPTH,
     maxEntriesPerShard: GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD,
     returnScriptPublicKeyHex,
   };
   const economics: GiveawayV6CompilerEconomics = {
     prizeValueSompi,
-    shardValueSompi: SHARD_VALUE_SOMPI,
-    entryFeeSompi: ENTRY_FEE_SOMPI,
-    activationFeeSompi: ACTIVATION_FEE_SOMPI,
-    freezeFeeSompi: FREEZE_FEE_SOMPI,
-    drawFeeSompi: DRAW_FEE_SOMPI,
-    returnFeeSompi: RETURN_FEE_SOMPI,
+    shardValueSompi: budget.shardValueSompi,
+    entryFeeSompi: budget.entryFeeSompi,
+    activationFeeSompi: budget.activationFeeSompi,
+    freezeFeeSompi: budget.freezeFeeSompi,
+    drawFeeSompi: budget.drawFeeSompi,
+    returnFeeSompi: budget.returnFeeSompi,
   };
-  const executionReserveSompi = BigInt(GIVEAWAY_V6_SHARD_COUNT) * SHARD_VALUE_SOMPI;
-  const expectedFundingSompi =
-    prizeValueSompi + executionReserveSompi + economics.activationFeeSompi;
 
   return {
     amountKas: formatSompiToKaspa(prizeValueSompi),
     config,
     description: normalizeOptionalText(input.request.description),
     economics,
-    executionReserveSompi,
-    expectedFundingSompi,
-    participantCap: GIVEAWAY_V6_PARTICIPANT_CAP,
+    executionReserveSompi: budget.executionReserveSompi,
+    expectedFundingSompi: budget.expectedFundingSompi,
+    maximumEntryFeesSompi: budget.maximumEntryFeesSompi,
+    maximumNetworkCostSompi: budget.maximumNetworkCostSompi,
+    minimumReturnSompi: budget.minimumReturnSompi,
+    participantCap: budget.participantCap,
+    settlementFeesSompi: budget.settlementFeesSompi,
     title: input.request.title.trim(),
   };
 }

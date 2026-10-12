@@ -9,6 +9,7 @@ import {
   prisma,
 } from "@kaspa-actions/db";
 import { buildKaspaPaymentUri, formatSompiToKaspa } from "@kaspa-actions/kaspa";
+import { parseGiveawayV6ConfigJson } from "@kaspa-actions/kaspa-indexer";
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireCreator } from "@/lib/creator-guard";
@@ -16,7 +17,6 @@ import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors
 import {
   buildGiveawayV6CreationTerms,
   createGiveawayV6InputSchema,
-  GIVEAWAY_V6_PARTICIPANT_CAP,
   isGiveawayV6CreationEnabled,
 } from "@/lib/giveaway-v6-creation";
 import { compileGiveawayV6Bootstrap, GiveawayV6CompilerError } from "@/lib/giveaway-v6-compiler";
@@ -53,6 +53,13 @@ export async function GET(request: Request) {
     giveaways: giveaways.flatMap((giveaway) => {
       const bootstrap = giveaway.v6Bootstrap;
       if (!bootstrap) return [];
+      let participantCap: number;
+      try {
+        const config = parseGiveawayV6ConfigJson(bootstrap.config);
+        participantCap = config.shardCount * config.maxEntriesPerShard;
+      } catch {
+        return [];
+      }
       const phase = giveaway.v6Projection?.phase ?? GiveawayV6Phase.AWAITING_ACTIVATION;
       return [
         {
@@ -80,7 +87,7 @@ export async function GET(request: Request) {
             }),
             status: bootstrap.status,
           },
-          participantCap: GIVEAWAY_V6_PARTICIPANT_CAP,
+          participantCap,
           phase,
           publicId: giveaway.publicId,
           publicUrl: `/giveaways/${giveaway.publicId}`,
@@ -110,6 +117,7 @@ function loadCreatorGiveaways(creatorId: string) {
         select: {
           activationSubmittedAt: true,
           activationTransactionId: true,
+          config: true,
           expectedFundingSompi: true,
           fundingAddress: true,
           status: true,
@@ -280,7 +288,11 @@ export async function POST(request: Request) {
         breakdown: {
           activationFeeSompi: terms.economics.activationFeeSompi.toString(),
           executionReserveSompi: terms.executionReserveSompi.toString(),
+          maximumEntryFeesSompi: terms.maximumEntryFeesSompi.toString(),
+          maximumNetworkCostSompi: terms.maximumNetworkCostSompi.toString(),
+          minimumReturnSompi: terms.minimumReturnSompi.toString(),
           prizeSompi: terms.economics.prizeValueSompi.toString(),
+          settlementFeesSompi: terms.settlementFeesSompi.toString(),
         },
         network: "mainnet",
         paymentUri,

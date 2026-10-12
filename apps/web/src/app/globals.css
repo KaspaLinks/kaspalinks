@@ -11810,6 +11810,21 @@ main.giveaway-guided-page {
   grid-column: 1/-1;
   color: var(--fg-muted);
 }
+.studio-cost-breakdown {
+  grid-column: 1/-1;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px 14px;
+  padding-top: 12px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.86rem;
+}
+.studio-cost-breakdown b {
+  color: var(--fg-strong);
+  font-weight: 600;
+}
 .studio-primary {
   width: 100%;
 }

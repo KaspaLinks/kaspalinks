@@ -2,11 +2,7 @@ import { createRequire } from "node:module";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import {
-  GIVEAWAY_V6_PARTICIPANT_CAP,
-  buildGiveawayV6CreationTerms,
-  createGiveawayV6InputSchema,
-} from "./giveaway-v6-creation";
+import { buildGiveawayV6CreationTerms, createGiveawayV6InputSchema } from "./giveaway-v6-creation";
 
 const sdk = createRequire(import.meta.url)("kaspa-wasm") as typeof import("kaspa-wasm");
 const returnKey = new sdk.PrivateKey("71".repeat(32));
@@ -23,6 +19,7 @@ describe("Giveaway V6 creator terms", () => {
         amountKas: "1",
         description: "  Mainnet draw  ",
         durationSeconds: 3_600,
+        participantCap: 32,
         returnAddress,
         title: "  Community KAS  ",
       },
@@ -33,7 +30,10 @@ describe("Giveaway V6 creator terms", () => {
       description: "Mainnet draw",
       executionReserveSompi: 404_000_000n,
       expectedFundingSompi: 514_000_000n,
-      participantCap: GIVEAWAY_V6_PARTICIPANT_CAP,
+      maximumEntryFeesSompi: 320_000_000n,
+      maximumNetworkCostSompi: 381_000_000n,
+      minimumReturnSompi: 33_000_000n,
+      participantCap: 32,
       title: "Community KAS",
     });
     expect(terms.config).toMatchObject({
@@ -57,15 +57,60 @@ describe("Giveaway V6 creator terms", () => {
     });
   });
 
+  it.each([
+    {
+      cap: 8 as const,
+      expectedFundingSompi: 224_000_000n,
+      shardCount: 1,
+      shardValueSompi: 164_000_000n,
+    },
+    {
+      cap: 16 as const,
+      expectedFundingSompi: 304_000_000n,
+      shardCount: 2,
+      shardValueSompi: 122_000_000n,
+    },
+    {
+      cap: 32 as const,
+      expectedFundingSompi: 464_000_000n,
+      shardCount: 4,
+      shardValueSompi: 101_000_000n,
+    },
+  ])(
+    "sizes the execution reserve for a $cap-person 0.5 KAS giveaway",
+    ({ cap, expectedFundingSompi, shardCount, shardValueSompi }) => {
+      const terms = buildGiveawayV6CreationTerms({
+        chain: { daa: 536_000_000n, blueScore: 535_000_000n },
+        giveawayIdHex: "24".repeat(32),
+        request: {
+          amountKas: "0.5",
+          durationSeconds: 3_600,
+          participantCap: cap,
+          returnAddress,
+          title: "Sized draw",
+        },
+      });
+
+      expect(terms.expectedFundingSompi).toBe(expectedFundingSompi);
+      expect(terms.config.shardCount).toBe(shardCount);
+      expect(terms.economics.shardValueSompi).toBe(shardValueSompi);
+      expect(terms.minimumReturnSompi).toBe(33_000_000n);
+    },
+  );
+
   it("accepts only the reviewed prize choices and rejects extra recovery material", () => {
     const base = {
       amountKas: "1",
       durationSeconds: 3_600,
+      participantCap: 8,
       returnAddress,
       title: "Community KAS",
     };
     expect(createGiveawayV6InputSchema.safeParse(base).success).toBe(true);
     expect(createGiveawayV6InputSchema.safeParse({ ...base, amountKas: "2" }).success).toBe(false);
+    expect(createGiveawayV6InputSchema.safeParse({ ...base, participantCap: 12 }).success).toBe(
+      false,
+    );
     expect(
       createGiveawayV6InputSchema.safeParse({ ...base, recoveryFile: "do-not-accept" }).success,
     ).toBe(false);

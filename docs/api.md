@@ -281,10 +281,12 @@ wallet, claim, refund, or recovery material.
 Creates a reviewed SilverScript V6 pre-funding record for an authenticated canary Creator or an
 authorized Telegram-only Giveaway workspace. The strict body contains `title`, optional
 `description`, `amountKas` (`0.2`, `0.5`, or `1`), `durationSeconds` (30 seconds through 24 hours),
-and a Mainnet `returnAddress`. The server reads the current Mainnet DAA and blue score, compiles the
-pinned Prize and Shard contracts, then atomically stores the Giveaway and public bootstrap before
-returning the exact Kaspium `paymentUri`. The response separates prize, execution reserve, and
-activation fee and marks the link `shareReady: false` until funding and keyless activation confirm.
+`participantCap` (`8`, `16`, or `32`), and a Mainnet `returnAddress`. The server reads the current
+Mainnet DAA and blue score, compiles the pinned Prize and Shard contracts, then atomically stores the
+Giveaway and public bootstrap before returning the exact Kaspium `paymentUri`. The response
+separates prize, execution reserve, and activation fee. Its breakdown also exposes maximum entry
+and settlement fees plus the minimum unused reserve returned after a full-capacity draw. The link
+remains `shareReady: false` until funding and keyless activation confirm.
 The route rejects unknown fields and never accepts wallet, private-key, passkey, or recovery data.
 
 This endpoint is unavailable unless `TOCCATA_LAB_ENABLED`, `GIVEAWAY_LAB_ENABLED`, and

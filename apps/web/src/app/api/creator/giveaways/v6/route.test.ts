@@ -68,6 +68,7 @@ function validBody() {
     amountKas: "1",
     description: "Mainnet community draw",
     durationSeconds: 3_600,
+    participantCap: 32,
     returnAddress,
     title: "Community KAS",
   };
@@ -113,6 +114,16 @@ describe("Giveaway V6 creator route", () => {
         v6Bootstrap: {
           activationSubmittedAt: new Date("2026-10-12T12:05:00.000Z"),
           activationTransactionId: "aa".repeat(32),
+          config: {
+            closesAtDaa: "536036000",
+            entropyTargetBlueScore: "535036600",
+            giveawayIdHex: "42".repeat(32),
+            maxEntriesPerShard: 8,
+            returnAtDaa: "536900000",
+            returnScriptPublicKeyHex: "0000aa20" + "44".repeat(32) + "87",
+            shardCount: 4,
+            treeDepth: 10,
+          },
           expectedFundingSompi: 464_000_000n,
           fundingAddress,
           status: "BOUND",
@@ -239,7 +250,11 @@ describe("Giveaway V6 creator route", () => {
         breakdown: {
           activationFeeSompi: "10000000",
           executionReserveSompi: "404000000",
+          maximumEntryFeesSompi: "320000000",
+          maximumNetworkCostSompi: "381000000",
+          minimumReturnSompi: "33000000",
           prizeSompi: "100000000",
+          settlementFeesSompi: "51000000",
         },
         network: "mainnet",
         unusedReserveReturnAddress: returnAddress,
@@ -247,6 +262,36 @@ describe("Giveaway V6 creator route", () => {
       review: { shardCount: 4 },
     });
     expect(body.funding.paymentUri).toContain(`${fundingAddress}?amount=5.14`);
+  });
+
+  it("returns the smaller reviewed funding intent for an eight-person giveaway", async () => {
+    mocks.compile.mockResolvedValue({
+      ...bootstrap,
+      expectedFundingSompi: 224_000_000n,
+    });
+
+    const response = await POST(request({ ...validBody(), amountKas: "0.5", participantCap: 8 }));
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(mocks.compile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ shardCount: 1 }),
+        economics: expect.objectContaining({ shardValueSompi: 164_000_000n }),
+      }),
+    );
+    expect(body).toMatchObject({
+      giveaway: { participantCap: 8 },
+      funding: {
+        amountKas: "2.24",
+        breakdown: {
+          maximumNetworkCostSompi: "141000000",
+          minimumReturnSompi: "33000000",
+        },
+      },
+      review: { shardCount: 1 },
+    });
+    expect(body.funding.paymentUri).toContain(`${fundingAddress}?amount=2.24`);
   });
 
   it("rejects unrecognized recovery input before chain access or compilation", async () => {

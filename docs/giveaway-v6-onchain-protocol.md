@@ -103,11 +103,15 @@ return. Every confirmed registration consumes one fixed fee from its shard.
 Freeze consolidates the remaining shard value. The draw returns unused
 execution budget to the committed Return Address. The UI presents this reserve
 separately from the prize and explains that unused reserve returns
-automatically. The reviewed creation profile permits eight entries per shard,
-or 32 participants across four shards. Each shard holds 1.01 KAS and each
-registration spends a fixed 0.10 KAS fee. The terminal fees are fixed at
-0.33 KAS for freeze, 0.18 KAS for draw, and 0.02 KAS for fallback return. With
-a 1 KAS prize and 0.10 KAS activation fee, the exact funding total is 5.14 KAS.
+automatically. The reviewed creation profiles permit 8, 16, or 32 participants
+using one, two, or four shards with eight entries per shard. Each registration
+spends a fixed 0.10 KAS fee. The profiles retain the same 0.84 KAS terminal
+reserve after every available place is used, so each shard holds 1.64, 1.22,
+or 1.01 KAS respectively. Terminal fees are fixed at 0.33 KAS for freeze,
+0.18 KAS for draw, and 0.02 KAS for fallback return. A completed full-capacity
+draw therefore returns at least 0.33 KAS of unused reserve; every unused place
+adds another 0.10 KAS. With a 0.5 KAS prize and 0.10 KAS activation fee, the
+exact funding totals are 2.24, 3.04, or 4.64 KAS.
 
 The current four-shard profile was measured with the pinned Toccata engine and
 production values. Activation uses 64,709 compute, 192,636 transient, and

@@ -6,6 +6,12 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { CreatorSignInGate } from "../../CreatorSignInGate";
 import { useCreatorSession } from "../../use-creator-session";
 import { FundingQrCode } from "@/lib/funding-qr";
+import {
+  buildGiveawayV6Budget,
+  GIVEAWAY_V6_ENTRY_FEE_SOMPI,
+  GIVEAWAY_V6_PARTICIPANT_CAPS,
+  type GiveawayV6ParticipantCap,
+} from "@/lib/giveaway-v6-budget";
 import { validateRecipientAddress } from "../../new-link/helpers";
 
 type Surface = "browser" | "telegram";
@@ -58,7 +64,11 @@ type CreateResponse = {
     breakdown: {
       activationFeeSompi: string;
       executionReserveSompi: string;
+      maximumEntryFeesSompi: string;
+      maximumNetworkCostSompi: string;
+      minimumReturnSompi: string;
       prizeSompi: string;
+      settlementFeesSompi: string;
     };
   };
 };
@@ -85,7 +95,17 @@ const DURATIONS = [
   { label: "6 hours", seconds: 6 * 60 * 60 },
   { label: "24 hours", seconds: 24 * 60 * 60 },
 ] as const;
-const TOTAL_FUNDING_KAS: Record<Prize, string> = { "0.2": "4.34", "0.5": "4.64", "1": "5.14" };
+const PRIZE_SOMPI: Record<Prize, bigint> = {
+  "0.2": 20_000_000n,
+  "0.5": 50_000_000n,
+  "1": 100_000_000n,
+};
+
+function formatSompi(value: bigint): string {
+  const whole = value / 100_000_000n;
+  const fraction = (value % 100_000_000n).toString().padStart(8, "0").replace(/0+$/u, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
 
 function durationLabel(seconds: number): string {
   if (seconds % 3_600 === 0) return `${seconds / 3_600} ${seconds === 3_600 ? "hour" : "hours"}`;
@@ -162,6 +182,7 @@ export function GiveawayV6Studio({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [prize, setPrize] = useState<Prize>("0.5");
+  const [participantCap, setParticipantCap] = useState<GiveawayV6ParticipantCap>(8);
   const [durationSeconds, setDurationSeconds] = useState(60 * 60);
   const [returnAddress, setReturnAddress] = useState("");
   const [loading, setLoading] = useState(false);
@@ -184,12 +205,16 @@ export function GiveawayV6Studio({
     const presetTitle = params.get("title")?.trim();
     const presetPrize = params.get("prize");
     const presetDuration = Number(params.get("duration"));
+    const presetParticipantCap = Number(params.get("participants"));
     if (presetTitle) setTitle(presetTitle.slice(0, 80));
     if (presetPrize === "0.2" || presetPrize === "0.5" || presetPrize === "1") {
       setPrize(presetPrize);
     }
     if (DURATIONS.some((duration) => duration.seconds === presetDuration)) {
       setDurationSeconds(presetDuration);
+    }
+    if (GIVEAWAY_V6_PARTICIPANT_CAPS.some((cap) => cap === presetParticipantCap)) {
+      setParticipantCap(presetParticipantCap as GiveawayV6ParticipantCap);
     }
   }, []);
 
@@ -358,6 +383,7 @@ export function GiveawayV6Studio({
           amountKas: prize,
           description: description.trim() || null,
           durationSeconds,
+          participantCap,
           returnAddress: returnAddress.trim(),
           title: title.trim(),
         }),
@@ -462,6 +488,7 @@ export function GiveawayV6Studio({
   }
 
   const step = giveawayV6StudioStep(selected);
+  const budget = buildGiveawayV6Budget(PRIZE_SOMPI[prize], participantCap);
   const publicUrl = selected
     ? new URL(
         selected.publicUrl,
@@ -621,6 +648,21 @@ export function GiveawayV6Studio({
                       </label>
                     ))}
                   </fieldset>
+                  <fieldset className="studio-prizes">
+                    <legend>Maximum participants</legend>
+                    {GIVEAWAY_V6_PARTICIPANT_CAPS.map((value) => (
+                      <label className={participantCap === value ? "is-selected" : ""} key={value}>
+                        <input
+                          checked={participantCap === value}
+                          name="participantCap"
+                          onChange={() => setParticipantCap(value)}
+                          type="radio"
+                          value={value}
+                        />
+                        {value}
+                      </label>
+                    ))}
+                  </fieldset>
                   <label className="field">
                     Entry time
                     <select
@@ -654,10 +696,18 @@ export function GiveawayV6Studio({
                   </label>
                   <div className="studio-cost">
                     <span>Total funding</span>
-                    <strong>{TOTAL_FUNDING_KAS[prize]} KAS</strong>
+                    <strong>{formatSompi(budget.expectedFundingSompi)} KAS</strong>
+                    <div className="studio-cost-breakdown">
+                      <span>Prize</span>
+                      <b>{prize} KAS</b>
+                      <span>Maximum on-chain cost</span>
+                      <b>{formatSompi(budget.maximumNetworkCostSompi)} KAS</b>
+                      <span>Returned at full capacity</span>
+                      <b>{formatSompi(budget.minimumReturnSompi)} KAS</b>
+                    </div>
                     <small>
-                      {prize} KAS prize plus the fixed covenant execution reserve. Unused reserve
-                      returns on-chain.
+                      Every unused participant place adds {formatSompi(GIVEAWAY_V6_ENTRY_FEE_SOMPI)}{" "}
+                      KAS to the return. Kaspa Links receives no platform fee.
                     </small>
                   </div>
                   <button
@@ -668,7 +718,8 @@ export function GiveawayV6Studio({
                     {loading ? "Preparing…" : "Review and create"}
                   </button>
                   <p className="studio-caption">
-                    Maximum 32 participants. Creating locks the terms but does not move KAS.
+                    Creating locks the selected {participantCap}-participant terms but does not move
+                    KAS.
                   </p>
                 </form>
               </section>

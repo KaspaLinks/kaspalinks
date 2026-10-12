@@ -36,16 +36,14 @@ import {
 } from "@kaspa-actions/application";
 import { Prisma, prisma } from "@kaspa-actions/db";
 import { formatSompiToKaspa } from "@kaspa-actions/kaspa";
+import { parseGiveawayV6ConfigJson } from "@kaspa-actions/kaspa-indexer";
 import { z } from "zod";
 
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { getTelegramGiveawayCard } from "@/lib/telegram-giveaway";
-import {
-  GIVEAWAY_V6_PARTICIPANT_CAP,
-  isGiveawayV6CreationEnabled,
-} from "@/lib/giveaway-v6-creation";
+import { isGiveawayV6CreationEnabled } from "@/lib/giveaway-v6-creation";
 import { isGiveawayLabEnabled } from "@/lib/giveaway-lab";
 
 export const runtime = "nodejs";
@@ -270,15 +268,22 @@ async function executeMenuAction(
       select: {
         publicId: true,
         title: true,
+        v6Bootstrap: { select: { config: true } },
         v6Projection: { select: { observedRegistrationCount: true, phase: true } },
       },
     });
     return rows.length
       ? rows
-          .map(
-            (row) =>
-              `${row.title} · ${row.v6Projection?.observedRegistrationCount ?? 0}/${GIVEAWAY_V6_PARTICIPANT_CAP} participants · ${row.v6Projection?.phase ?? "AWAITING_FUNDING"}\n${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/giveaways/${row.publicId}`,
-          )
+          .map((row) => {
+            let participantCap = "?";
+            try {
+              const config = parseGiveawayV6ConfigJson(row.v6Bootstrap?.config);
+              participantCap = String(config.shardCount * config.maxEntriesPerShard);
+            } catch {
+              // A malformed public projection remains visibly unverified.
+            }
+            return `${row.title} · ${row.v6Projection?.observedRegistrationCount ?? 0}/${participantCap} participants · ${row.v6Projection?.phase ?? "AWAITING_FUNDING"}\n${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/giveaways/${row.publicId}`;
+          })
           .join("\n\n")
       : "Create your first SilverScript giveaway below. Choose a return wallet, fund the prize and share your link.";
   }
