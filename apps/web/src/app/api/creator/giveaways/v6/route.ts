@@ -4,6 +4,7 @@ import {
   AuditActorType,
   GiveawayStatus,
   GiveawayV6BootstrapStatus,
+  GiveawayV6Phase,
   Network,
   prisma,
 } from "@kaspa-actions/db";
@@ -15,16 +16,119 @@ import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors
 import {
   buildGiveawayV6CreationTerms,
   createGiveawayV6InputSchema,
+  GIVEAWAY_V6_PARTICIPANT_CAP,
   isGiveawayV6CreationEnabled,
 } from "@/lib/giveaway-v6-creation";
-import {
-  compileGiveawayV6Bootstrap,
-  GiveawayV6CompilerError,
-} from "@/lib/giveaway-v6-compiler";
+import { compileGiveawayV6Bootstrap, GiveawayV6CompilerError } from "@/lib/giveaway-v6-compiler";
 import { readCurrentMainnetChainPosition } from "@/lib/mainnet-chain-position";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 
 export const runtime = "nodejs";
+
+export async function GET(request: Request) {
+  if (!isGiveawayV6CreationEnabled()) {
+    return apiError(ErrorCodes.NOT_FOUND, "Giveaway V6 creation is disabled.", 404);
+  }
+
+  const guard = await requireCreator(request, prisma, {
+    allowTelegramMiniApp: true,
+    allowTelegramOnly: true,
+  });
+  if (!guard.ok) return guard.response;
+  if (!guard.creator.prizeCovenantEnabled) {
+    return apiError(ErrorCodes.NOT_FOUND, "Giveaway V6 access is not enabled.", 404);
+  }
+
+  const limited = enforceRateLimit(RateBuckets.TOCCATA_LAB_FUNDING_STATUS, guard.creator.id);
+  if (!limited.allowed) return limited.response;
+
+  let giveaways: Awaited<ReturnType<typeof loadCreatorGiveaways>>;
+  try {
+    giveaways = await loadCreatorGiveaways(guard.creator.id);
+  } catch {
+    return apiError(ErrorCodes.SERVER_ERROR, "Giveaways could not be loaded.", 503);
+  }
+
+  return apiJson({
+    giveaways: giveaways.flatMap((giveaway) => {
+      const bootstrap = giveaway.v6Bootstrap;
+      if (!bootstrap) return [];
+      const phase = giveaway.v6Projection?.phase ?? GiveawayV6Phase.AWAITING_ACTIVATION;
+      return [
+        {
+          activation: {
+            activateUrl:
+              bootstrap.status === GiveawayV6BootstrapStatus.BOUND
+                ? `/api/creator/giveaways/v6/${giveaway.publicId}/activation`
+                : null,
+            submittedAt: bootstrap.activationSubmittedAt?.toISOString() ?? null,
+            transactionId: bootstrap.activationTransactionId,
+          },
+          amountKas: formatSompiToKaspa(giveaway.amountSompi),
+          closesAt: giveaway.closesAt.toISOString(),
+          createdAt: giveaway.createdAt.toISOString(),
+          description: giveaway.description,
+          funding: {
+            address: bootstrap.fundingAddress,
+            amountKas: formatSompiToKaspa(bootstrap.expectedFundingSompi),
+            amountSompi: bootstrap.expectedFundingSompi.toString(),
+            paymentUri: buildKaspaPaymentUri({
+              amountSompi: bootstrap.expectedFundingSompi,
+              label: "Kaspa Links Giveaway",
+              message: giveaway.title,
+              recipientAddress: bootstrap.fundingAddress,
+            }),
+            status: bootstrap.status,
+          },
+          participantCap: GIVEAWAY_V6_PARTICIPANT_CAP,
+          phase,
+          publicId: giveaway.publicId,
+          publicUrl: `/giveaways/${giveaway.publicId}`,
+          registrationCount: giveaway.v6Projection?.observedRegistrationCount ?? 0,
+          frozenEntryCount: giveaway.v6Projection?.frozenEntryCount ?? null,
+          shareReady: phase !== GiveawayV6Phase.AWAITING_ACTIVATION,
+          terminalTransactionId: giveaway.v6Projection?.terminalTransactionId ?? null,
+          title: giveaway.title,
+          winnerScriptPublicKeyHex: giveaway.v6Projection?.winnerScriptPublicKeyHex ?? null,
+        },
+      ];
+    }),
+  });
+}
+
+function loadCreatorGiveaways(creatorId: string) {
+  return prisma.giveaway.findMany({
+    orderBy: { createdAt: "desc" },
+    select: {
+      amountSompi: true,
+      closesAt: true,
+      createdAt: true,
+      description: true,
+      publicId: true,
+      title: true,
+      v6Bootstrap: {
+        select: {
+          activationSubmittedAt: true,
+          activationTransactionId: true,
+          expectedFundingSompi: true,
+          fundingAddress: true,
+          status: true,
+        },
+      },
+      v6Projection: {
+        select: {
+          frozenEntryCount: true,
+          observedRegistrationCount: true,
+          phase: true,
+          terminalTransactionId: true,
+          winnerScriptPublicKeyHex: true,
+        },
+      },
+    },
+    take: 20,
+    where: { creatorId, drawProtocolVersion: 6 },
+  });
+}
 
 export async function POST(request: Request) {
   if (!isGiveawayV6CreationEnabled()) {
@@ -196,10 +300,5 @@ export async function POST(request: Request) {
   );
 }
 
-const methodNotAllowed = () => apiMethodNotAllowed(["POST"]);
-export {
-  methodNotAllowed as DELETE,
-  methodNotAllowed as GET,
-  methodNotAllowed as PATCH,
-  methodNotAllowed as PUT,
-};
+const methodNotAllowed = () => apiMethodNotAllowed(["GET", "POST"]);
+export { methodNotAllowed as DELETE, methodNotAllowed as PATCH, methodNotAllowed as PUT };

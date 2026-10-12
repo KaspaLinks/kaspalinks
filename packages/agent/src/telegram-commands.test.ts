@@ -53,8 +53,8 @@ describe("parseTelegramCommand", () => {
   });
 
   it("parses a giveaway handoff without creating wallet material", () => {
-    expect(parseTelegramCommand("/giveaway 10,5 24h Weekend KAS")).toEqual({
-      amountKas: "10.5",
+    expect(parseTelegramCommand("/giveaway 0,5 24h Weekend KAS")).toEqual({
+      amountKas: "0.5",
       entryWindowSeconds: 86_400,
       kind: "prepare_giveaway",
       title: "Weekend KAS",
@@ -64,6 +64,7 @@ describe("parseTelegramCommand", () => {
 
   it.each([
     "/giveaway 10 soon Weekend",
+    "/giveaway 10 1h Unsupported prize",
     "/giveaway 10 8d Too long",
     "/giveaway 0 1h Empty reward",
     "/giveaway 10 1h",

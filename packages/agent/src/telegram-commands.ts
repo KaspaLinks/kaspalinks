@@ -35,14 +35,14 @@ function normalizedAmount(raw: string): null | string {
 function parseGiveawayDuration(raw: string): number {
   const match = /^(\d+)([mhd])$/i.exec(raw);
   if (!match) {
-    throw new TelegramCommandError("Use a duration such as 30m, 24h, or 7d.");
+    throw new TelegramCommandError("Use a duration such as 15m, 6h, or 24h.");
   }
   const value = Number(match[1]);
   const unit = match[2]?.toLowerCase();
   const multiplier = unit === "d" ? 86_400 : unit === "h" ? 3_600 : 60;
   const seconds = value * multiplier;
-  if (!Number.isSafeInteger(seconds) || seconds < 60 || seconds > 7 * 86_400) {
-    throw new TelegramCommandError("Giveaway duration must be between 1 minute and 7 days.");
+  if (!Number.isSafeInteger(seconds) || seconds < 60 || seconds > 86_400) {
+    throw new TelegramCommandError("Giveaway duration must be between 1 minute and 24 hours.");
   }
   return seconds;
 }
@@ -94,6 +94,9 @@ export function parseTelegramCommand(text: string): TelegramCommand | null {
     const amountKas = normalizedAmount(rawAmount);
     if (!amountKas) {
       throw new TelegramCommandError("Use /giveaway <KAS> <duration> <title>.");
+    }
+    if (amountKas !== "0.2" && amountKas !== "0.5" && amountKas !== "1") {
+      throw new TelegramCommandError("Giveaway prize must be 0.2, 0.5 or 1 KAS.");
     }
     const entryWindowSeconds = parseGiveawayDuration(rawDuration);
     const title = titleParts.join(" ").trim();

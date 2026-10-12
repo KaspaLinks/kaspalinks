@@ -440,7 +440,7 @@ export function NewLinkClient() {
     setGiveawayAccess(false);
     if (!signedIn || username !== "example") return;
     const controller = new AbortController();
-    void fetch("/api/toccata-lab/prize-covenant", {
+    void fetch("/api/creator/giveaways/v6", {
       headers: authHeaders,
       signal: controller.signal,
     })
@@ -678,7 +678,7 @@ export function NewLinkClient() {
         </div>
         <div className="quick-template-grid" aria-label="Quick link templates">
           {canShowGiveawayTemplate(username, giveawayAccess) && (
-            <Link className="quick-template-button" href="/toccata-lab/prize-covenant">
+            <Link className="quick-template-button" href="/giveaway/new">
               <span className="quick-template-icon" aria-hidden="true">
                 {BLANK_ICON}
               </span>
@@ -686,7 +686,7 @@ export function NewLinkClient() {
               <span className="quick-template-description">
                 Fund a prize and share a link for people to enter.
               </span>
-              <span className="quick-template-meta">Up to 100 participants · up to 24 hours</span>
+              <span className="quick-template-meta">Up to 32 participants · up to 24 hours</span>
             </Link>
           )}
           {LINK_TEMPLATES.map((template) => (

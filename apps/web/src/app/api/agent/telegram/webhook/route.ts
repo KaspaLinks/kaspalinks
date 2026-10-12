@@ -42,6 +42,10 @@ import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors
 
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { getTelegramGiveawayCard } from "@/lib/telegram-giveaway";
+import {
+  GIVEAWAY_V6_PARTICIPANT_CAP,
+  isGiveawayV6CreationEnabled,
+} from "@/lib/giveaway-v6-creation";
 import { isGiveawayLabEnabled } from "@/lib/giveaway-lab";
 
 export const runtime = "nodejs";
@@ -106,13 +110,20 @@ function usesCovenantStudio(creator: {
   telegramBetaEnabled?: boolean;
 }) {
   return (
-    process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED === "true" &&
+    isGiveawayV6CreationEnabled() &&
     creator.prizeCovenantEnabled === true &&
     creator.telegramBetaEnabled === true
   );
 }
-function covenantStudioUrl() {
-  return `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/toccata-lab/prize-covenant`;
+function covenantStudioUrl(mode: "create" | "manage" = "create") {
+  return `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/telegram?mode=${mode}`;
+}
+function covenantSetupUrl(input: { amountKas: string; entryWindowSeconds: number; title: string }) {
+  const url = new URL(covenantStudioUrl("create"));
+  url.searchParams.set("duration", String(input.entryWindowSeconds));
+  url.searchParams.set("prize", input.amountKas);
+  url.searchParams.set("title", input.title);
+  return url.toString();
 }
 function helpButtons(covenant = false) {
   return [
@@ -139,8 +150,8 @@ function helpButtons(covenant = false) {
 function giveawayAppButtons(covenant = false) {
   if (covenant)
     return [
-      [{ text: "Create giveaway", web_app: { url: covenantStudioUrl() } }],
-      [{ text: "Manage giveaways", web_app: { url: `${covenantStudioUrl()}?view=manage` } }],
+      [{ text: "Create giveaway", web_app: { url: covenantStudioUrl("create") } }],
+      [{ text: "Manage giveaways", web_app: { url: covenantStudioUrl("manage") } }],
     ];
   return [];
 }
@@ -252,17 +263,21 @@ async function executeMenuAction(
   covenant = false,
 ): Promise<string> {
   if (action === "giveaways" && covenant) {
-    const rows = await prisma.covenantPrototype.findMany({
-      where: { creatorId, publicTitle: { not: null } },
+    const rows = await prisma.giveaway.findMany({
+      where: { creatorId, drawProtocolVersion: 6, v6Bootstrap: { isNot: null } },
       orderBy: { createdAt: "desc" },
       take: 10,
-      select: { id: true, publicTitle: true, _count: { select: { registrations: true } } },
+      select: {
+        publicId: true,
+        title: true,
+        v6Projection: { select: { observedRegistrationCount: true, phase: true } },
+      },
     });
     return rows.length
       ? rows
           .map(
             (row) =>
-              `${row.publicTitle} · ${row._count.registrations} participants\n${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/giveaways/${row.id}`,
+              `${row.title} · ${row.v6Projection?.observedRegistrationCount ?? 0}/${GIVEAWAY_V6_PARTICIPANT_CAP} participants · ${row.v6Projection?.phase ?? "AWAITING_FUNDING"}\n${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/giveaways/${row.publicId}`,
           )
           .join("\n\n")
       : "Create your first SilverScript giveaway below. Choose a return wallet, fund the prize and share your link.";
@@ -660,7 +675,7 @@ async function handleMessage(
 
   let connection = await connectedCreator(telegramUserId);
   if (!connection && canCreateAccountFreeGiveaway(command)) {
-    if (process.env.GIVEAWAY_COVENANT_PROTOTYPE_ENABLED !== "true") {
+    if (!isGiveawayV6CreationEnabled()) {
       if (command?.kind === "prepare_giveaway" || command?.kind === "giveaways") {
         await client.sendMessage({
           chatId,
@@ -743,8 +758,8 @@ async function handleMessage(
   if (command.kind === "prepare_giveaway" && usesCovenantStudio(connection.creator)) {
     await client.sendMessage({
       chatId,
-      buttons: giveawayAppButtons(true),
-      text: "Create this giveaway in the SilverScript studio. Choose the title, prize and duration there, then review before creating. Current prizes: 0.2, 0.5 or 1 KAS; duration up to 24 hours. Nothing has been created or funded yet.",
+      buttons: [[{ text: "Review giveaway", web_app: { url: covenantSetupUrl(command) } }]],
+      text: `Review “${command.title}” in the SilverScript studio. The ${command.amountKas} KAS prize and duration are prefilled. Nothing has been created or funded yet.`,
     });
     return;
   }

@@ -1,14 +1,16 @@
 "use client";
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import { GiveawayV6Studio } from "../giveaway/new/GiveawayV6Studio";
 import { GiveawayEntryClient } from "../toccata-lab/giveaway/[publicId]/GiveawayEntryClient";
 
 export function TelegramGiveawayApp({
-  enabled,
+  entryEnabled,
+  studioEnabled,
   turnstile,
   botUsername,
 }: {
-  enabled: boolean;
+  entryEnabled: boolean;
+  studioEnabled: boolean;
   turnstile: { required: boolean; siteKey: string };
   botUsername: string;
 }) {
@@ -30,25 +32,17 @@ export function TelegramGiveawayApp({
         <p role="status">Loading giveaway…</p>
       </main>
     );
-  if (!enabled)
-    return (
-      <main className="main">
-        <h1>Giveaways are unavailable</h1>
-      </main>
-    );
   const match = /^g_([a-zA-Z0-9_-]{1,48})$/.exec(start);
-  if (match)
+  if (match && entryEnabled)
     return (
       <GiveawayEntryClient publicId={match[1]!} turnstile={turnstile} botUsername={botUsername} />
     );
+  if (studioEnabled) return <GiveawayV6Studio surface="telegram" />;
   return (
     <main className="main">
       <section className="card">
-        <h1>Kaspa giveaways</h1>
-        <p>Open a shared giveaway to enter and check its result.</p>
-        <Link className="btn btn-primary" href="/toccata-lab/giveaway">
-          Create a giveaway
-        </Link>
+        <h1>Giveaways are unavailable</h1>
+        <p>Please try again later.</p>
       </section>
     </main>
   );

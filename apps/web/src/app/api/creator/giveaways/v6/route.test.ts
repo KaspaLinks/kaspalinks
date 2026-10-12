@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   chain: vi.fn(),
   compile: vi.fn(),
   giveawayCreate: vi.fn(),
+  giveawayFindMany: vi.fn(),
   guard: vi.fn(),
   limit: vi.fn(),
   transaction: vi.fn(),
@@ -13,9 +14,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@kaspa-actions/db", () => ({
   AuditActorType: { CREATOR: "CREATOR" },
   GiveawayStatus: { OPEN: "OPEN" },
-  GiveawayV6BootstrapStatus: { AWAITING_FUNDING: "AWAITING_FUNDING" },
+  GiveawayV6BootstrapStatus: { AWAITING_FUNDING: "AWAITING_FUNDING", BOUND: "BOUND" },
+  GiveawayV6Phase: { AWAITING_ACTIVATION: "AWAITING_ACTIVATION" },
   Network: { MAINNET: "MAINNET" },
-  prisma: { $transaction: mocks.transaction },
+  prisma: {
+    $transaction: mocks.transaction,
+    giveaway: { findMany: mocks.giveawayFindMany },
+  },
 }));
 vi.mock("@/lib/audit", () => ({ writeAuditLog: mocks.audit }));
 vi.mock("@/lib/creator-guard", () => ({ requireCreator: mocks.guard }));
@@ -31,7 +36,7 @@ vi.mock("@/lib/rate-limit-helpers", () => ({
   RateBuckets: { TOCCATA_LAB_GIVEAWAY_MUTATION: "giveaway-mutation" },
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const fundingAddress = "kaspa:pr4khhd3dw35mpw6x8ussg63g62mu5hj9dnv9h6ujkm32v7uelzwkncj2d3uk";
 const returnAddress = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
@@ -81,6 +86,7 @@ beforeEach(() => {
   mocks.limit.mockReturnValue({ allowed: true });
   mocks.chain.mockResolvedValue({ daa: 536_000_000n, blueScore: 535_000_000n });
   mocks.compile.mockResolvedValue(bootstrap);
+  mocks.giveawayFindMany.mockResolvedValue([]);
   mocks.giveawayCreate.mockResolvedValue({
     createdAt: new Date("2026-10-11T12:00:00.000Z"),
     publicId: "cmi12345678901234567890123",
@@ -95,6 +101,74 @@ afterEach(() => {
 });
 
 describe("Giveaway V6 creator route", () => {
+  it("lists only creator-owned V6 setup state with JSON-safe amounts", async () => {
+    mocks.giveawayFindMany.mockResolvedValue([
+      {
+        amountSompi: 50_000_000n,
+        closesAt: new Date("2026-10-12T13:00:00.000Z"),
+        createdAt: new Date("2026-10-12T12:00:00.000Z"),
+        description: null,
+        publicId: "cmi12345678901234567890123",
+        title: "Weekend KAS",
+        v6Bootstrap: {
+          activationSubmittedAt: new Date("2026-10-12T12:05:00.000Z"),
+          activationTransactionId: "aa".repeat(32),
+          expectedFundingSompi: 464_000_000n,
+          fundingAddress,
+          status: "BOUND",
+        },
+        v6Projection: {
+          frozenEntryCount: null,
+          observedRegistrationCount: 7,
+          phase: "OPEN",
+          terminalTransactionId: null,
+          winnerScriptPublicKeyHex: null,
+        },
+      },
+    ]);
+
+    const response = await GET(
+      new Request("https://kaspalinks.com/api/creator/giveaways/v6", { method: "GET" }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.giveawayFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 20,
+        where: { creatorId: "creator-id", drawProtocolVersion: 6 },
+      }),
+    );
+    expect(body.giveaways[0]).toMatchObject({
+      amountKas: "0.5",
+      funding: {
+        amountKas: "4.64",
+        amountSompi: "464000000",
+        status: "BOUND",
+      },
+      participantCap: 32,
+      phase: "OPEN",
+      registrationCount: 7,
+      shareReady: true,
+    });
+    expect(body.giveaways[0].activation.activateUrl).toBe(
+      "/api/creator/giveaways/v6/cmi12345678901234567890123/activation",
+    );
+  });
+
+  it("returns the shared JSON error shape when the creator list is unavailable", async () => {
+    mocks.giveawayFindMany.mockRejectedValue(new Error("database unavailable"));
+
+    const response = await GET(
+      new Request("https://kaspalinks.com/api/creator/giveaways/v6", { method: "GET" }),
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "SERVER_ERROR", message: "Giveaways could not be loaded." },
+    });
+  });
+
   it("hides the flow until the independent creation gate is enabled", async () => {
     vi.stubEnv("GIVEAWAY_V6_CREATION_ENABLED", "false");
 

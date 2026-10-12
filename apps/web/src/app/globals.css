@@ -11965,6 +11965,11 @@ main.giveaway-guided-page {
   width: 100%;
   height: auto;
 }
+.studio-qr .funding-qr-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
 .studio-funding-amount {
   font-size: 2rem;
   color: var(--accent-bright);
