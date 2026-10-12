@@ -8,6 +8,7 @@ import {
   GiveawayV6ReconstructionConfig,
   GiveawayV6ReconstructionError,
   GiveawayV6RegistrationEvent,
+  prepareGiveawayV6RegistrationProof,
   reconstructGiveawayV6,
   serializeGiveawayV6Snapshot,
 } from "./giveaway-v6-reconstructor";
@@ -114,6 +115,83 @@ function buildFixtureHistory(includeDraw = true): GiveawayV6ChainEvent[] {
 }
 
 describe("reconstructGiveawayV6", () => {
+  it("prepares canonical append and address proofs for consecutive registrations", () => {
+    const activation = buildFixtureHistory(false)[0]!;
+    const empty = reconstructGiveawayV6(baseConfig, [activation]);
+    const firstPayout = fixture.shards[0]![0]!;
+    const first = prepareGiveawayV6RegistrationProof(baseConfig, empty, firstPayout);
+
+    expect(first).toMatchObject({
+      shardIndex: 0,
+      currentState: { count: 0, pendingHashHex: "00".repeat(32) },
+      nextState: { count: 0, pendingHashHex: first.commitmentHex },
+      tipOutpoint: { transactionId: txId(1), outputIndex: 1 },
+    });
+    expect(first.appendSiblingsHex).toHaveLength(baseConfig.treeDepth);
+    expect(first.addressSiblingsHex).toHaveLength(256);
+    expect(
+      foldSparseAddress(first.commitmentHex, "10", first.addressSiblingsHex),
+    ).toBe(first.currentState.addressRootHex);
+    expect(
+      foldSparseAddress(first.commitmentHex, "11", first.addressSiblingsHex),
+    ).toBe(first.nextState.addressRootHex);
+
+    const firstEvent: GiveawayV6RegistrationEvent = {
+      kind: "register",
+      transactionId: txId(70),
+      blockDaaScore: 80n,
+      shardIndex: first.shardIndex,
+      consumedOutpoint: first.tipOutpoint,
+      producedOutputIndex: 0,
+      payoutScriptPublicKeyHex: firstPayout,
+    };
+    const afterFirst = reconstructGiveawayV6(baseConfig, [activation, firstEvent]);
+    expect(afterFirst.shards[0]).toMatchObject({
+      finalizedEntryCount: first.nextState.count,
+      entriesRootHex: first.nextState.entriesRootHex,
+      addressRootHex: first.nextState.addressRootHex,
+      pendingEntry: { commitmentHex: first.nextState.pendingHashHex },
+    });
+
+    const secondPayout = fixture.shards[0]![1]!;
+    const second = prepareGiveawayV6RegistrationProof(baseConfig, afterFirst, secondPayout);
+    expect(second.currentState).toEqual(first.nextState);
+    expect(second.nextState.count).toBe(1);
+    expect(
+      foldEntry(0, "00", first.commitmentHex, second.appendSiblingsHex),
+    ).toBe(second.currentState.entriesRootHex);
+    expect(
+      foldEntry(0, "01", first.commitmentHex, second.appendSiblingsHex),
+    ).toBe(second.nextState.entriesRootHex);
+    expect(
+      foldSparseAddress(second.commitmentHex, "10", second.addressSiblingsHex),
+    ).toBe(second.currentState.addressRootHex);
+    expect(
+      foldSparseAddress(second.commitmentHex, "11", second.addressSiblingsHex),
+    ).toBe(second.nextState.addressRootHex);
+    const afterSecond = reconstructGiveawayV6(baseConfig, [
+      activation,
+      firstEvent,
+      {
+        ...firstEvent,
+        transactionId: txId(71),
+        blockDaaScore: 81n,
+        consumedOutpoint: second.tipOutpoint,
+        payoutScriptPublicKeyHex: secondPayout,
+      },
+    ]);
+    expect(afterSecond.shards[0]).toMatchObject({
+      finalizedEntryCount: second.nextState.count,
+      entriesRootHex: second.nextState.entriesRootHex,
+      addressRootHex: second.nextState.addressRootHex,
+      pendingEntry: { commitmentHex: second.nextState.pendingHashHex },
+    });
+    expectCode(
+      () => prepareGiveawayV6RegistrationProof(baseConfig, afterFirst, firstPayout),
+      "DUPLICATE_ENTRY",
+    );
+  });
+
   it("rebuilds the SilverScript fixture root and Mainnet-header winner from chain transitions", () => {
     const result = reconstructGiveawayV6(baseConfig, buildFixtureHistory());
 
@@ -265,6 +343,49 @@ function aggregateSingleEmptyShard(entriesRootHex: string, addressRootHex: strin
     .update(Buffer.from(entriesRootHex, "hex"))
     .update(Buffer.from(addressRootHex, "hex"))
     .digest("hex");
+}
+
+function foldEntry(
+  index: number,
+  leafDomain: "00" | "01",
+  commitmentHex: string,
+  siblingsHex: readonly string[],
+): string {
+  const leafValue = leafDomain === "00" ? Buffer.alloc(32) : Buffer.from(commitmentHex, "hex");
+  let hash = digest(Buffer.concat([Buffer.from(leafDomain, "hex"), leafValue]));
+  let position = index;
+  for (const siblingHex of siblingsHex) {
+    const sibling = Buffer.from(siblingHex, "hex");
+    hash =
+      position % 2 === 0
+        ? digest(Buffer.concat([Buffer.from([0x02]), hash, sibling]))
+        : digest(Buffer.concat([Buffer.from([0x02]), sibling, hash]));
+    position = Math.floor(position / 2);
+  }
+  return hash.toString("hex");
+}
+
+function foldSparseAddress(
+  commitmentHex: string,
+  leafDomain: "10" | "11",
+  siblingsHex: readonly string[],
+): string {
+  const commitment = Buffer.from(commitmentHex, "hex");
+  const leafValue = leafDomain === "10" ? Buffer.alloc(32) : commitment;
+  let hash = digest(Buffer.concat([Buffer.from(leafDomain, "hex"), leafValue]));
+  for (let index = 0; index < siblingsHex.length; index += 1) {
+    const sibling = Buffer.from(siblingsHex[index]!, "hex");
+    const bit = (commitment[Math.floor(index / 8)]! >> (index % 8)) & 1;
+    hash =
+      bit === 0
+        ? digest(Buffer.concat([Buffer.from([0x12]), hash, sibling]))
+        : digest(Buffer.concat([Buffer.from([0x12]), sibling, hash]));
+  }
+  return hash.toString("hex");
+}
+
+function digest(value: Uint8Array): Buffer {
+  return createHash("sha256").update(value).digest();
 }
 
 function expectCode(action: () => unknown, code: GiveawayV6ReconstructionError["code"]): void {

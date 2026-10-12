@@ -17,6 +17,10 @@ import {
   type ToccataSdkCapabilities,
 } from "@kaspa-actions/kaspa";
 import { z } from "zod";
+import {
+  decodeGiveawayV6Witness,
+  giveawayV6PayToScriptHashScriptPublicKeyHex,
+} from "@kaspa-actions/kaspa-indexer";
 
 import {
   TOCCATA_LAB_DEFAULT_LABEL,
@@ -697,6 +701,23 @@ export async function broadcastToccataGiveawayV6ActivationTransaction(input: {
   return { submittedTransactionId, transactionId };
 }
 
+export async function broadcastToccataGiveawayV6RegistrationTransaction(input: {
+  expectedTransactionId: string;
+  transactionSafeJson: string;
+}): Promise<ToccataClaimableBroadcastResult> {
+  const transactionId = validateGiveawayV6RegistrationBroadcastSafeJson(
+    input.transactionSafeJson,
+  );
+  if (input.expectedTransactionId.toLowerCase() !== transactionId) {
+    throw new Error("Giveaway V6 registration id does not match the expected transaction id.");
+  }
+  const submittedTransactionId = await submitClaimableSafeJsonViaKaspaWrpcRelay(
+    input.transactionSafeJson,
+    transactionId,
+  );
+  return { submittedTransactionId, transactionId };
+}
+
 export async function broadcastToccataBatchRefundTransaction(
   input: z.infer<typeof toccataBatchRefundBroadcastInputSchema>,
 ): Promise<ToccataClaimableBroadcastResult> {
@@ -1018,6 +1039,78 @@ export function validateGiveawayV6ActivationBroadcastSafeJson(transactionSafeJso
     if (covenantId !== outputCovenantId.toLowerCase()) {
       throw new Error("Giveaway V6 activation outputs must share one covenant id.");
     }
+  }
+  return parsed.id.toLowerCase();
+}
+
+/** Structural guard for one server-built, keyless V6 registration transition. */
+export function validateGiveawayV6RegistrationBroadcastSafeJson(
+  transactionSafeJson: string,
+): string {
+  let parsed: SafeJsonClaimableTransaction;
+  try {
+    parsed = JSON.parse(transactionSafeJson) as SafeJsonClaimableTransaction;
+  } catch {
+    throw new Error("Giveaway V6 registration JSON could not be parsed.");
+  }
+  if (parsed.version !== 1 || !isHexString(parsed.id, 64)) {
+    throw new Error("Giveaway V6 registration has an invalid Toccata transaction id.");
+  }
+  if (!Array.isArray(parsed.inputs) || parsed.inputs.length !== 1) {
+    throw new Error("Giveaway V6 registration requires exactly one keyless input.");
+  }
+  if (!Array.isArray(parsed.outputs) || parsed.outputs.length !== 1) {
+    throw new Error("Giveaway V6 registration must create exactly one shard successor.");
+  }
+  if (!isHexString(parsed.subnetworkId, 40) || parseLockTimeBigInt(parsed.lockTime) !== 0n) {
+    throw new Error("Giveaway V6 registration has invalid transaction metadata.");
+  }
+
+  const input = parsed.inputs[0] as SafeJsonClaimableInput;
+  if (parseToccataComputeBudget(input.computeBudget) !== 457) {
+    throw new Error("Giveaway V6 registration has an invalid compute budget.");
+  }
+  parseOutputIndex(input.index);
+  parseTransactionId(input.transactionId);
+  parseSequence(input.sequence);
+  parseSigOpCount(input.sigOpCount);
+  const signatureScriptHex = parseSignatureScript(input.signatureScript);
+  const fundingAmount = parseClaimableInputUtxoAmount(input.utxo);
+  const witness = decodeGiveawayV6Witness(signatureScriptHex);
+  if (witness.contract !== "shard" || witness.method !== "register") {
+    throw new Error("Giveaway V6 registration witness does not invoke the register method.");
+  }
+  if (!isRecord(input.utxo)) {
+    throw new Error("Giveaway V6 registration is missing its funding UTXO metadata.");
+  }
+  const fundingScriptPublicKeyHex = parseSafeJsonScriptPublicKey(input.utxo.scriptPublicKey);
+  if (
+    fundingScriptPublicKeyHex !==
+    giveawayV6PayToScriptHashScriptPublicKeyHex(witness.redeemScriptHex)
+  ) {
+    throw new Error("Giveaway V6 registration witness does not own its shard input.");
+  }
+
+  const output = parsed.outputs[0] as SafeJsonClaimableOutput;
+  const outputAmount = parseLabPositiveBigInt(
+    output.value,
+    "Giveaway V6 registration output amount",
+  );
+  if (fundingAmount - outputAmount !== 10_000_000n) {
+    throw new Error("Giveaway V6 registration does not spend the reviewed fixed fee.");
+  }
+  const outputScriptPublicKeyHex = parseSafeJsonScriptPublicKey(output.scriptPublicKey);
+  if (!/^0000aa20[0-9a-f]{64}87$/u.test(outputScriptPublicKeyHex)) {
+    throw new Error("Giveaway V6 registration successor must remain a P2SH covenant output.");
+  }
+  if (!isRecord(output.covenant)) {
+    throw new Error("Giveaway V6 registration output is missing its covenant binding.");
+  }
+  if (output.covenant.authorizingInput !== 0) {
+    throw new Error("Giveaway V6 registration covenant must reference input zero.");
+  }
+  if (!isHexString(output.covenant.covenantId, 64)) {
+    throw new Error("Giveaway V6 registration covenant id is invalid.");
   }
   return parsed.id.toLowerCase();
 }

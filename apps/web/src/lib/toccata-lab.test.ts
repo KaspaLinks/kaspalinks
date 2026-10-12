@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+import { giveawayV6PayToScriptHashScriptPublicKeyHex } from "@kaspa-actions/kaspa-indexer";
 
 import {
   createToccataClaimableAutoReturnScript,
@@ -7,6 +10,7 @@ import {
   readClaimableSpendMode,
   TOCCATA_LAB_DEFAULT_LABEL,
   validateGiveawayV6ActivationBroadcastSafeJson,
+  validateGiveawayV6RegistrationBroadcastSafeJson,
   validateRegisteredClaimableMetadata,
 } from "./toccata-lab";
 
@@ -126,6 +130,18 @@ describe("Claimable link helpers", () => {
     expect(() => validateGiveawayV6ActivationBroadcastSafeJson(JSON.stringify(activation))).toThrow(
       /share one covenant id/iu,
     );
+  });
+
+  it("accepts only a one-output V6 register witness for public registration", () => {
+    const registration = giveawayV6RegistrationSafeJson();
+
+    expect(validateGiveawayV6RegistrationBroadcastSafeJson(JSON.stringify(registration))).toBe(
+      "ee".repeat(32),
+    );
+    registration.outputs.push(structuredClone(registration.outputs[0]!));
+    expect(() =>
+      validateGiveawayV6RegistrationBroadcastSafeJson(JSON.stringify(registration)),
+    ).toThrow(/exactly one shard successor/iu);
   });
 
   it("rejects a signature script that reveals a different contract", () => {
@@ -282,6 +298,51 @@ function giveawayV6ActivationSafeJson() {
       scriptPublicKey: "000051",
       value: index === 0 ? "100000000" : "101000000",
     })),
+    subnetworkId: "00".repeat(20),
+    version: 1,
+  };
+}
+
+function giveawayV6RegistrationSafeJson() {
+  const fixture = JSON.parse(
+    readFileSync(
+      new URL("../../../../labs/claimable-script/fixtures/giveaway_v6_abi_vectors.json", import.meta.url),
+      "utf8",
+    ),
+  ) as {
+    shard: { callPrefixHex: { register: string }; redeemScriptHex: string };
+  };
+  const redeemBytes = fixture.shard.redeemScriptHex.length / 2;
+  const length = Buffer.alloc(2);
+  length.writeUInt16LE(redeemBytes);
+  const signatureScript =
+    fixture.shard.callPrefixHex.register +
+    `4d${length.toString("hex")}` +
+    fixture.shard.redeemScriptHex;
+  const shardScriptPublicKeyHex = giveawayV6PayToScriptHashScriptPublicKeyHex(
+    fixture.shard.redeemScriptHex,
+  );
+  return {
+    id: "ee".repeat(32),
+    inputs: [
+      {
+        computeBudget: 457,
+        index: 1,
+        sequence: "0",
+        sigOpCount: 0,
+        signatureScript,
+        transactionId: "ff".repeat(32),
+        utxo: { amount: "101000000", scriptPublicKey: shardScriptPublicKeyHex },
+      },
+    ],
+    lockTime: "0",
+    outputs: [
+      {
+        covenant: { authorizingInput: 0, covenantId: "dd".repeat(32) },
+        scriptPublicKey: `0000aa20${"11".repeat(32)}87`,
+        value: "91000000",
+      },
+    ],
     subnetworkId: "00".repeat(20),
     version: 1,
   };

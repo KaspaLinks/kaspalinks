@@ -167,6 +167,28 @@ export type GiveawayV6FreezePreview = {
   shardInputOutpoints: readonly GiveawayV6Outpoint[];
 };
 
+export type GiveawayV6RegistrationProof = {
+  appendSiblingsHex: readonly string[];
+  addressSiblingsHex: readonly string[];
+  commitmentHex: string;
+  currentState: {
+    shardIndex: number;
+    count: number;
+    entriesRootHex: string;
+    addressRootHex: string;
+    pendingHashHex: string;
+  };
+  nextState: {
+    shardIndex: number;
+    count: number;
+    entriesRootHex: string;
+    addressRootHex: string;
+    pendingHashHex: string;
+  };
+  shardIndex: number;
+  tipOutpoint: GiveawayV6Outpoint;
+};
+
 type NormalizedConfig = GiveawayV6ReconstructionConfig & {
   giveawayIdHex: string;
   returnScriptPublicKeyHex: string;
@@ -451,6 +473,116 @@ export function reconstructGiveawayV6(
   };
 }
 
+/**
+ * Derives the two Merkle proofs and the exact successor state for one public
+ * registration. The participant set comes only from the reconstructed chain
+ * snapshot; callers cannot inject database-only entries into either root.
+ */
+export function prepareGiveawayV6RegistrationProof(
+  configInput: GiveawayV6ReconstructionConfig,
+  snapshot: GiveawayV6ReconstructionSnapshot,
+  payoutScriptPublicKeyHexInput: string,
+): GiveawayV6RegistrationProof {
+  const config = normalizeConfig(configInput);
+  if (snapshot.phase !== "open") {
+    fail("INVALID_STATE", "Registrations require an open giveaway.");
+  }
+  if (snapshot.shards.length !== config.shardCount) {
+    fail("INVALID_STATE", "Reconstructed shard count disagrees with the giveaway config.");
+  }
+
+  const payoutScriptPublicKeyHex = normalizeScriptHex(
+    payoutScriptPublicKeyHexInput,
+    "registration payout script",
+  );
+  const commitment = sha256(hexToBytes(payoutScriptPublicKeyHex));
+  const commitmentHex = toHex(commitment);
+  for (const candidate of snapshot.shards) {
+    const entries = [
+      ...candidate.finalizedEntries,
+      ...(candidate.pendingEntry === null ? [] : [candidate.pendingEntry]),
+      ...(candidate.excludedLateEntry === null ? [] : [candidate.excludedLateEntry]),
+    ];
+    if (entries.some((entry) => entry.commitmentHex === commitmentHex)) {
+      fail("DUPLICATE_ENTRY", "A payout commitment may be registered only once.");
+    }
+  }
+
+  const shardIndex = commitment[0]! % config.shardCount;
+  const shard = snapshot.shards[shardIndex];
+  if (shard === undefined || shard.shardIndex !== shardIndex) {
+    fail("INVALID_STATE", "Reconstructed shard order is invalid.");
+  }
+  if (shard.excludedLateEntry !== null) {
+    fail("INVALID_STATE", "An open shard cannot contain an excluded late entry.");
+  }
+  const occupied = shard.finalizedEntries.length + (shard.pendingEntry === null ? 0 : 1);
+  if (occupied >= config.maxEntriesPerShard) {
+    fail("INVALID_STATE", "Registration exceeds the shard capacity committed by the covenant.");
+  }
+  if (
+    shard.pendingEntry !== null &&
+    shard.pendingEntry.registeredAtDaa > config.closesAtDaa
+  ) {
+    fail("INVALID_STATE", "A late pending registration cannot be advanced.");
+  }
+  if (shard.tipOutpoint === null) {
+    fail("INVALID_STATE", "Open registration shard is missing its chain tip.");
+  }
+
+  const finalizedCommitments = shard.finalizedEntries.map((entry) =>
+    hexToBytes(entry.commitmentHex),
+  );
+  const append = entryRootAndProof(
+    finalizedCommitments,
+    config.treeDepth,
+    finalizedCommitments.length,
+  );
+  if (toHex(append.root) !== shard.entriesRootHex) {
+    fail("INVALID_STATE", "Reconstructed entry root disagrees with its participant list.");
+  }
+  const nextFinalizedCommitments =
+    shard.pendingEntry === null
+      ? finalizedCommitments
+      : [...finalizedCommitments, hexToBytes(shard.pendingEntry.commitmentHex)];
+  const nextEntriesRoot = entryRootAndProof(nextFinalizedCommitments, config.treeDepth).root;
+
+  const addressCommitments = [
+    ...finalizedCommitments,
+    ...(shard.pendingEntry === null
+      ? []
+      : [hexToBytes(shard.pendingEntry.commitmentHex)]),
+  ];
+  const address = addressRootAndProof(addressCommitments, commitment);
+  if (toHex(address.root) !== shard.addressRootHex) {
+    fail("INVALID_STATE", "Reconstructed address root disagrees with its participant list.");
+  }
+  const nextAddressRoot = addressRoot([...addressCommitments, commitment]);
+  const pendingHashHex = shard.pendingEntry?.commitmentHex ?? toHex(ZERO_HASH);
+
+  return {
+    appendSiblingsHex: append.siblings.map(toHex),
+    addressSiblingsHex: address.siblings.map(toHex),
+    commitmentHex,
+    currentState: {
+      shardIndex,
+      count: shard.finalizedEntryCount,
+      entriesRootHex: shard.entriesRootHex,
+      addressRootHex: shard.addressRootHex,
+      pendingHashHex,
+    },
+    nextState: {
+      shardIndex,
+      count: shard.finalizedEntryCount + (shard.pendingEntry === null ? 0 : 1),
+      entriesRootHex: toHex(nextEntriesRoot),
+      addressRootHex: toHex(nextAddressRoot),
+      pendingHashHex: commitmentHex,
+    },
+    shardIndex,
+    tipOutpoint: { ...shard.tipOutpoint },
+  };
+}
+
 /** Converts every BigInt at the JSON boundary to a decimal string. */
 export function serializeGiveawayV6Snapshot(
   snapshot: GiveawayV6ReconstructionSnapshot,
@@ -669,9 +801,9 @@ function entryRootAndProof(
     fail("INVALID_STATE", "Entry count exceeds the configured Merkle tree capacity.");
   if (
     proofIndex !== undefined &&
-    (!Number.isInteger(proofIndex) || proofIndex < 0 || proofIndex >= commitments.length)
+    (!Number.isInteger(proofIndex) || proofIndex < 0 || proofIndex >= capacity)
   ) {
-    fail("INVALID_STATE", "Winner proof index is outside the populated entry tree.");
+    fail("INVALID_STATE", "Merkle proof index is outside the configured entry tree.");
   }
   const emptyLeaf = leaf(0x00, ZERO_HASH);
   let level = Array.from({ length: capacity }, (_, index) =>
@@ -692,6 +824,13 @@ function entryRootAndProof(
 }
 
 function addressRoot(commitments: readonly Uint8Array[]): Uint8Array {
+  return addressRootAndProof(commitments).root;
+}
+
+function addressRootAndProof(
+  commitments: readonly Uint8Array[],
+  proofCommitment?: Uint8Array,
+): { root: Uint8Array; siblings: Uint8Array[] } {
   const empty: Uint8Array[] = [leaf(0x10, ZERO_HASH)];
   for (let level = 0; level < ADDRESS_TREE_DEPTH; level += 1) {
     empty.push(node(0x12, empty[level]!, empty[level]!));
@@ -700,7 +839,18 @@ function addressRoot(commitments: readonly Uint8Array[]): Uint8Array {
   for (const commitment of commitments) {
     nodes.set(toHex(commitment), { position: commitment.slice(), hash: leaf(0x11, commitment) });
   }
+  if (proofCommitment !== undefined && nodes.has(toHex(proofCommitment))) {
+    fail("DUPLICATE_ENTRY", "Address-set proof target is already present.");
+  }
+  let proofPosition: Uint8Array<ArrayBufferLike> | undefined = proofCommitment?.slice();
+  const siblings: Uint8Array[] = [];
   for (let level = 0; level < ADDRESS_TREE_DEPTH; level += 1) {
+    if (proofPosition !== undefined) {
+      const siblingPosition = proofPosition.slice();
+      siblingPosition[0] = siblingPosition[0]! ^ 1;
+      siblings.push(nodes.get(toHex(siblingPosition))?.hash ?? empty[level]!);
+      proofPosition = shiftRightLittleEndian(proofPosition);
+    }
     const parents = new Map<string, { position: Uint8Array; hash: Uint8Array }>();
     const visited = new Set<string>();
     for (const key of [...nodes.keys()].sort()) {
@@ -721,7 +871,10 @@ function addressRoot(commitments: readonly Uint8Array[]): Uint8Array {
     }
     nodes = parents;
   }
-  return nodes.values().next().value?.hash ?? empty[ADDRESS_TREE_DEPTH]!;
+  return {
+    root: nodes.values().next().value?.hash ?? empty[ADDRESS_TREE_DEPTH]!,
+    siblings,
+  };
 }
 
 function shiftRightLittleEndian(value: Uint8Array): Uint8Array {

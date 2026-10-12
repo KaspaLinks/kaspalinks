@@ -10539,6 +10539,47 @@ body:has(main.deck-main) {
   background: rgba(73, 234, 203, 0.06);
 }
 
+.giveaway-v6-entry-form {
+  padding: clamp(18px, 4vw, 24px);
+  border: 1px solid rgba(73, 234, 203, 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(4, 18, 23, 0.46);
+}
+
+.giveaway-v6-entry-form h2,
+.giveaway-v6-entry-form p {
+  margin: 4px 0 0;
+}
+
+.giveaway-v6-entry-form input {
+  width: 100%;
+}
+
+.giveaway-v6-entry-success {
+  align-items: flex-start;
+}
+
+.giveaway-v6-entry-success > div {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.giveaway-v6-entry-success p {
+  margin: 0;
+}
+
+.giveaway-v6-entry-success code {
+  overflow-wrap: anywhere;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+}
+
+.giveaway-v6-entry-success a {
+  color: var(--accent-bright);
+  font-weight: 750;
+}
+
 .giveaway-v6-proof-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

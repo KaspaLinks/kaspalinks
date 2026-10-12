@@ -1,8 +1,11 @@
 import type { GiveawayV6ReconstructionSnapshot } from "@kaspa-actions/kaspa-indexer";
 import React from "react";
 
+import V6EntryClient from "./V6EntryClient";
+
 type Props = {
   amountKas: string;
+  entryAvailable: boolean;
   closesAt: Date;
   closesAtDaa: string;
   lastSyncedAt: Date | null;
@@ -14,6 +17,7 @@ type Props = {
   transitionCount: number;
   username: string;
   verificationPaused: boolean;
+  turnstileSiteKey: string;
   winnerAddress: string | null;
 };
 
@@ -23,7 +27,13 @@ export default function V6GiveawayView(props: Props) {
   const phaseIndex = phaseOrder.indexOf(props.snapshot.phase);
   const terminal = props.snapshot.phase === "drawn" || props.snapshot.phase === "returned";
   const participantCount =
-    props.snapshot.frozenEntryCount ?? props.snapshot.observedRegistrationCount;
+    props.snapshot.frozenEntryCount ??
+    props.snapshot.observedRegistrationCount -
+      props.snapshot.shards.filter(
+        (shard) =>
+          shard.pendingEntry !== null &&
+          shard.pendingEntry.registeredAtDaa > BigInt(props.closesAtDaa),
+      ).length;
   const explorerBase = props.network === "mainnet" ? "https://explorer.kaspa.org" : null;
 
   return (
@@ -84,6 +94,15 @@ export default function V6GiveawayView(props: Props) {
           snapshot={props.snapshot}
           winnerAddress={props.winnerAddress}
         />
+
+        {props.snapshot.phase === "open" ? (
+          <V6EntryClient
+            available={props.entryAvailable}
+            network={props.network}
+            publicId={props.publicId}
+            siteKey={props.turnstileSiteKey}
+          />
+        ) : null}
 
         <div className="giveaway-entry-meta">
           <span>SilverScript V6 · {props.network === "mainnet" ? "Mainnet" : "Testnet 10"}</span>

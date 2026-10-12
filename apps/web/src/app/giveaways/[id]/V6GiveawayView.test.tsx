@@ -1,7 +1,12 @@
 import type { GiveawayV6ReconstructionSnapshot } from "@kaspa-actions/kaspa-indexer";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("@/app/toccata-lab/giveaway/[publicId]/TurnstileWidget", () => ({
+  TurnstileWidget: () => <div data-testid="turnstile" />,
+}));
 
 import V6GiveawayView from "./V6GiveawayView";
 
@@ -40,6 +45,7 @@ function render(phase: GiveawayV6ReconstructionSnapshot["phase"]) {
   return renderToStaticMarkup(
     <V6GiveawayView
       amountKas="1"
+      entryAvailable={true}
       closesAt={new Date("2026-10-11T12:00:00.000Z")}
       closesAtDaa="123456"
       lastSyncedAt={new Date("2026-10-10T12:00:00.000Z")}
@@ -48,6 +54,7 @@ function render(phase: GiveawayV6ReconstructionSnapshot["phase"]) {
       returnAtDaa="223456"
       snapshot={snapshot(phase)}
       title="Community giveaway"
+      turnstileSiteKey="site-key"
       transitionCount={15}
       username="example"
       verificationPaused={false}

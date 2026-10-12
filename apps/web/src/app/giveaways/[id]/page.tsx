@@ -14,6 +14,7 @@ import {
 } from "@/lib/giveaway-prize-v3-chain";
 import { prototypeManifestSchema, prototypeTerms } from "@/lib/giveaway-prize-v3-prototype";
 import { publicCovenantVerificationReady, PUBLIC_COVENANT_LIMIT } from "@/lib/public-covenant";
+import { isGiveawayV6CreationEnabled } from "@/lib/giveaway-v6-creation";
 import DrawProof from "./DrawProof";
 import { giveawayV3Draw } from "@/lib/giveaway-prize-v3-proof";
 import { prototypeEntropySchema } from "@/lib/giveaway-prize-v3-prototype";
@@ -92,6 +93,12 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
       return (
         <V6GiveawayView
           amountKas={formatSompiToKaspa(restored.family.prizeValueSompi)}
+          entryAvailable={
+            isGiveawayV6CreationEnabled() &&
+            restored.snapshot.phase === "open" &&
+            v6Giveaway.v6Projection.lastErrorCode === null &&
+            publicCovenantVerificationReady()
+          }
           closesAtDaa={restored.config.closesAtDaa.toString()}
           closesAt={v6Giveaway.closesAt}
           lastSyncedAt={v6Giveaway.v6Projection.lastSyncedAt}
@@ -100,6 +107,7 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
           returnAtDaa={restored.config.returnAtDaa.toString()}
           snapshot={restored.snapshot}
           title={v6Giveaway.title}
+          turnstileSiteKey={process.env.TURNSTILE_SITE_KEY?.trim() ?? ""}
           transitionCount={restored.checkpoint?.transitions.length ?? 0}
           username={v6Giveaway.creator.username}
           verificationPaused={v6Giveaway.v6Projection.lastErrorCode !== null}
