@@ -112,6 +112,79 @@ function durationLabel(seconds: number): string {
   return `${Math.ceil(seconds / 60)} minutes`;
 }
 
+type GiveawayV6Budget = ReturnType<typeof buildGiveawayV6Budget>;
+
+function FundingCostExplanation({
+  budget,
+  participantCap,
+  prize,
+}: {
+  budget: GiveawayV6Budget;
+  participantCap: GiveawayV6ParticipantCap;
+  prize: Prize;
+}) {
+  const transactionReserveSompi = budget.activationFeeSompi + budget.executionReserveSompi;
+
+  return (
+    <section aria-label="Funding cost explanation" className="studio-cost">
+      <div className="studio-cost-total">
+        <span>Total to fund</span>
+        <strong>{formatSompi(budget.expectedFundingSompi)} KAS</strong>
+      </div>
+      <p className="studio-cost-answer">
+        <strong>Why more than the prize?</strong>
+        <span>
+          You fund the prize and the on-chain steps for up to {participantCap} participants, so
+          joining stays free.
+        </span>
+      </p>
+      <div
+        aria-label={`${prize} KAS prize plus ${formatSompi(transactionReserveSompi)} KAS on-chain reserve`}
+        className="studio-cost-formula"
+      >
+        <div>
+          <span>Prize</span>
+          <b>{prize} KAS</b>
+        </div>
+        <span aria-hidden="true">+</span>
+        <div>
+          <span>On-chain reserve</span>
+          <b>{formatSompi(transactionReserveSompi)} KAS</b>
+        </div>
+      </div>
+      <details className="studio-cost-details">
+        <summary>View reserve breakdown</summary>
+        <dl>
+          <div>
+            <dt>Contract activation</dt>
+            <dd>{formatSompi(budget.activationFeeSompi)} KAS</dd>
+          </div>
+          <div>
+            <dt>Up to {participantCap} on-chain entries</dt>
+            <dd>{formatSompi(budget.maximumEntryFeesSompi)} KAS</dd>
+          </div>
+          <div>
+            <dt>Close and winner payout</dt>
+            <dd>{formatSompi(budget.settlementFeesSompi)} KAS</dd>
+          </div>
+          <div className="studio-cost-return">
+            <dt>Reserved return after a full draw</dt>
+            <dd>{formatSompi(budget.minimumReturnSompi)} KAS</dd>
+          </div>
+        </dl>
+        <p>
+          Every unused participant place adds {formatSompi(GIVEAWAY_V6_ENTRY_FEE_SOMPI)} KAS to the
+          return path committed to your return address.
+        </p>
+      </details>
+      <div className="studio-cost-fee">
+        <span>Kaspa Links fee</span>
+        <b>0 KAS</b>
+      </div>
+    </section>
+  );
+}
+
 export function giveawayV6StudioStep(
   giveaway:
     | null
@@ -489,6 +562,16 @@ export function GiveawayV6Studio({
 
   const step = giveawayV6StudioStep(selected);
   const budget = buildGiveawayV6Budget(PRIZE_SOMPI[prize], participantCap);
+  const selectedPrize = selected
+    ? PRIZES.find((candidate) => candidate === selected.amountKas)
+    : undefined;
+  const selectedParticipantCap = selected
+    ? GIVEAWAY_V6_PARTICIPANT_CAPS.find((candidate) => candidate === selected.participantCap)
+    : undefined;
+  const selectedBudget =
+    selectedPrize && selectedParticipantCap
+      ? buildGiveawayV6Budget(PRIZE_SOMPI[selectedPrize], selectedParticipantCap)
+      : null;
   const publicUrl = selected
     ? new URL(
         selected.publicUrl,
@@ -694,22 +777,11 @@ export function GiveawayV6Studio({
                       Unused execution reserve can return only to this committed address.
                     </small>
                   </label>
-                  <div className="studio-cost">
-                    <span>Total funding</span>
-                    <strong>{formatSompi(budget.expectedFundingSompi)} KAS</strong>
-                    <div className="studio-cost-breakdown">
-                      <span>Prize</span>
-                      <b>{prize} KAS</b>
-                      <span>Maximum on-chain cost</span>
-                      <b>{formatSompi(budget.maximumNetworkCostSompi)} KAS</b>
-                      <span>Returned at full capacity</span>
-                      <b>{formatSompi(budget.minimumReturnSompi)} KAS</b>
-                    </div>
-                    <small>
-                      Every unused participant place adds {formatSompi(GIVEAWAY_V6_ENTRY_FEE_SOMPI)}{" "}
-                      KAS to the return. Kaspa Links receives no platform fee.
-                    </small>
-                  </div>
+                  <FundingCostExplanation
+                    budget={budget}
+                    participantCap={participantCap}
+                    prize={prize}
+                  />
                   <button
                     className="btn btn-primary studio-primary"
                     disabled={loading || !title.trim()}
@@ -786,6 +858,13 @@ export function GiveawayV6Studio({
                   </div>
                 </div>
               </div>
+              {selectedBudget && selectedPrize && selectedParticipantCap ? (
+                <FundingCostExplanation
+                  budget={selectedBudget}
+                  participantCap={selectedParticipantCap}
+                  prize={selectedPrize}
+                />
+              ) : null}
               <div className="studio-hint">
                 <strong>Exact amount only</strong>
                 <p>
