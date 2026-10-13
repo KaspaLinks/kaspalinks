@@ -14,3 +14,7 @@ export * from "./giveaway-v6-bootstrap.ts";
 export * from "./giveaway-v6-activation.ts";
 export * from "./giveaway-v6-registration.ts";
 export * from "./giveaway-v6-sync.ts";
+
+export * from "./giveaway-v6-settlement.ts";
+export * from "./giveaway-v6-prover.ts";
+export * from "./giveaway-v6-executor.ts";

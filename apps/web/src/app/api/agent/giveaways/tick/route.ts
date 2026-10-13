@@ -24,6 +24,7 @@ export async function POST(request: Request) {
   await processCovenantGiveaways(now);
   const due = await prisma.giveaway.findMany({
     where: {
+      drawProtocolVersion: { lt: 6 },
       status: "OPEN",
       openedAt: { not: null },
       closesAt: { lte: now },

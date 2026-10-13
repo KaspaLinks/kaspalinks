@@ -163,9 +163,12 @@ export type GiveawayV6PublicSnapshot = Omit<GiveawayV6ReconstructionSnapshot, "s
 export type GiveawayV6FreezePreview = {
   frozenRootHex: string;
   entryCount: number;
+  pendingSiblingsHex: readonly string[];
   prizeInputOutpoint: GiveawayV6Outpoint;
   shardInputOutpoints: readonly GiveawayV6Outpoint[];
 };
+
+export type GiveawayV6PreparedWinner = Omit<GiveawayV6WinnerSnapshot, "drawTransactionId">;
 
 export type GiveawayV6RegistrationProof = {
   appendSiblingsHex: readonly string[];
@@ -520,10 +523,7 @@ export function prepareGiveawayV6RegistrationProof(
   if (occupied >= config.maxEntriesPerShard) {
     fail("INVALID_STATE", "Registration exceeds the shard capacity committed by the covenant.");
   }
-  if (
-    shard.pendingEntry !== null &&
-    shard.pendingEntry.registeredAtDaa > config.closesAtDaa
-  ) {
+  if (shard.pendingEntry !== null && shard.pendingEntry.registeredAtDaa > config.closesAtDaa) {
     fail("INVALID_STATE", "A late pending registration cannot be advanced.");
   }
   if (shard.tipOutpoint === null) {
@@ -549,9 +549,7 @@ export function prepareGiveawayV6RegistrationProof(
 
   const addressCommitments = [
     ...finalizedCommitments,
-    ...(shard.pendingEntry === null
-      ? []
-      : [hexToBytes(shard.pendingEntry.commitmentHex)]),
+    ...(shard.pendingEntry === null ? [] : [hexToBytes(shard.pendingEntry.commitmentHex)]),
   ];
   const address = addressRootAndProof(addressCommitments, commitment);
   if (toHex(address.root) !== shard.addressRootHex) {
@@ -617,12 +615,19 @@ export function previewGiveawayV6Freeze(
 
   let aggregate = sha256(new Uint8Array());
   let entryCount = 0;
+  const pendingSiblingsHex: string[] = [];
   const shardInputOutpoints: GiveawayV6Outpoint[] = [];
   for (const shard of snapshot.shards) {
     if (shard.tipOutpoint === null)
       fail("INVALID_STATE", "Open shard is missing its current chain tip.");
     shardInputOutpoints.push({ ...shard.tipOutpoint });
     const eligibleEntries = [...shard.finalizedEntries];
+    const pendingProof = entryRootAndProof(
+      shard.finalizedEntries.map((entry) => hexToBytes(entry.commitmentHex)),
+      config.treeDepth,
+      shard.finalizedEntryCount,
+    );
+    pendingSiblingsHex.push(...pendingProof.siblings.map(toHex));
     if (shard.pendingEntry !== null && shard.pendingEntry.registeredAtDaa <= config.closesAtDaa) {
       eligibleEntries.push(shard.pendingEntry);
     }
@@ -643,9 +648,83 @@ export function previewGiveawayV6Freeze(
   return {
     frozenRootHex: toHex(aggregate),
     entryCount,
+    pendingSiblingsHex,
     prizeInputOutpoint: { ...snapshot.prizeOutpoint },
     shardInputOutpoints,
   };
+}
+
+/**
+ * Derives the only payout script and Merkle proof a valid draw may use. The
+ * selected-parent boundary is supplied as public chain data; the caller still
+ * has to provide the matching proof to the covenant.
+ */
+export function prepareGiveawayV6Winner(input: {
+  config: GiveawayV6ReconstructionConfig;
+  snapshot: GiveawayV6ReconstructionSnapshot;
+  candidateBlockHashHex: string;
+  candidateSequenceCommitmentHex: string;
+}): GiveawayV6PreparedWinner {
+  const config = normalizeConfig(input.config);
+  const snapshot = input.snapshot;
+  if (
+    snapshot.phase !== "frozen" ||
+    snapshot.frozenRootHex === null ||
+    snapshot.frozenEntryCount === null ||
+    snapshot.frozenEntryCount === 0
+  ) {
+    fail("INVALID_STATE", "Winner preparation requires a non-empty frozen giveaway.");
+  }
+  const candidateBlockHashHex = normalizeHashHex(
+    input.candidateBlockHashHex,
+    "candidate block hash",
+    "INVALID_EVENT",
+  );
+  const candidateSequenceCommitmentHex = normalizeHashHex(
+    input.candidateSequenceCommitmentHex,
+    "candidate sequence commitment",
+    "INVALID_EVENT",
+  );
+  const entries = snapshot.shards.flatMap((shard) => shard.finalizedEntries);
+  if (entries.length !== snapshot.frozenEntryCount) {
+    fail("INVALID_STATE", "Frozen entry cache does not match the committed entry count.");
+  }
+  const digest = sha256(
+    Uint8Array.of(0x61),
+    hexToBytes(config.giveawayIdHex),
+    hexToBytes(snapshot.frozenRootHex),
+    hexToBytes(candidateBlockHashHex),
+    hexToBytes(candidateSequenceCommitmentHex),
+  );
+  const globalIndex =
+    ((digest[0]! | (digest[1]! << 8) | (digest[2]! << 16) | (digest[3]! << 24)) >>> 0) %
+    entries.length;
+  let remaining = globalIndex;
+  for (const shard of snapshot.shards) {
+    if (remaining < shard.finalizedEntries.length) {
+      const entry = shard.finalizedEntries[remaining]!;
+      const tree = entryRootAndProof(
+        shard.finalizedEntries.map((value) => hexToBytes(value.commitmentHex)),
+        config.treeDepth,
+        remaining,
+      );
+      if (toHex(tree.root) !== shard.entriesRootHex) {
+        fail("INVALID_STATE", "Winner proof does not rebuild the frozen shard root.");
+      }
+      return {
+        globalIndex,
+        shardIndex: shard.shardIndex,
+        localIndex: remaining,
+        payoutScriptPublicKeyHex: entry.payoutScriptPublicKeyHex,
+        commitmentHex: entry.commitmentHex,
+        merkleSiblingsHex: tree.siblings.map(toHex),
+        candidateBlockHashHex,
+        candidateSequenceCommitmentHex,
+      };
+    }
+    remaining -= shard.finalizedEntries.length;
+  }
+  throw new Error("unreachable winner index");
 }
 
 function normalizeConfig(config: GiveawayV6ReconstructionConfig): NormalizedConfig {

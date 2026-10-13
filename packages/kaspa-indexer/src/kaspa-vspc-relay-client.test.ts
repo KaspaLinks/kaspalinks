@@ -101,6 +101,39 @@ describe("createKaspaVspcRelayClient", () => {
       code: "VSPC_PARSE_ERROR",
     });
   });
+
+  it("submits only exact prepared transaction IDs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        localTransactionId: START_HASH,
+        submittedTransactionId: START_HASH,
+      }),
+    );
+    const client = createKaspaVspcRelayClient({
+      relayUrl: "http://toccata-relay:3010",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(
+      client.submitTransaction({
+        expectedTransactionId: START_HASH,
+        transactionSafeJson: '{"version":1}',
+      }),
+    ).resolves.toEqual({
+      localTransactionId: START_HASH,
+      submittedTransactionId: START_HASH,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("http://toccata-relay:3010/submit"),
+      expect.objectContaining({
+        body: JSON.stringify({
+          expectedTransactionId: START_HASH,
+          transactionSafeJson: '{"version":1}',
+        }),
+        method: "POST",
+      }),
+    );
+  });
 });
 
 function jsonResponse(value: unknown, status = 200): Response {

@@ -98,6 +98,12 @@ enum GiveawayV6BootstrapStatus {
   BOUND
 }
 
+enum GiveawayV6TransitionKind {
+  FREEZE
+  DRAW
+  RETURN
+}
+
 enum CreatorAccountKind {
   REGISTERED
   TELEGRAM_ONLY
@@ -695,7 +701,7 @@ model GiveawayV6Projection {
   giveawayId                String          @unique
   giveaway                  Giveaway        @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
   network                   Network
-  covenantIdHex             String          @unique
+  covenantIdHex             String                           @unique
   anchorHash                String
   config                    Json
   family                    Json
@@ -714,11 +720,37 @@ model GiveawayV6Projection {
   lastSyncedAt              DateTime?
   lastErrorCode             String?
   lastErrorAt               DateTime?
+  executionNextAt           DateTime?        @default(now())
+  executionLeaseRevision    Int              @default(0)
+  executionLastAttemptAt    DateTime?
+  executionLastErrorCode    String?
+  deliveries                GiveawayV6TransitionDelivery[]
   createdAt                 DateTime         @default(now())
   updatedAt                 DateTime         @updatedAt
 
   @@index([phase, nextSyncAt])
   @@index([nextSyncAt])
+  @@index([phase, executionNextAt])
+}
+
+// Public, fully prepared keyless transitions. SafeJSON contains covenant
+// witnesses and public proofs only; it can never contain a wallet signature,
+// private key, passkey output, seed phrase, claim key, or refund key.
+model GiveawayV6TransitionDelivery {
+  id                  String                     @id @default(cuid())
+  projectionId        String
+  projection          GiveawayV6Projection       @relation(fields: [projectionId], references: [id], onDelete: Cascade)
+  kind                GiveawayV6TransitionKind
+  transactionId       String                     @unique
+  transactionSafeJson String
+  submittedAt         DateTime?
+  lastAttemptAt       DateTime?
+  lastErrorCode       String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  @@index([projectionId, kind, createdAt])
+  @@index([submittedAt])
 }
 
 model GiveawayEntry {

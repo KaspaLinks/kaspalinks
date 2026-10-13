@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { KaspaVspcError, type KaspaVspcV2Client } from "./kaspa-vspc-v2";
 
 const DEFAULT_TIMEOUT_MS = 35_000;
@@ -11,7 +13,19 @@ export type KaspaVspcRelayClientOptions = {
 
 export type KaspaVspcRelayClient = KaspaVspcV2Client & {
   getBlockHeaders(hashes: readonly string[]): Promise<unknown>;
+  submitTransaction(input: {
+    expectedTransactionId: string;
+    transactionSafeJson: string;
+  }): Promise<{ localTransactionId: string; submittedTransactionId: string }>;
 };
+
+const transactionIdSchema = z.string().regex(/^[0-9a-f]{64}$/u);
+const submitResponseSchema = z
+  .object({
+    localTransactionId: transactionIdSchema,
+    submittedTransactionId: transactionIdSchema,
+  })
+  .strict();
 
 /**
  * Internal HTTP adapter for the private, warm wRPC sidecar. Caddy must never
@@ -60,6 +74,39 @@ export function createKaspaVspcRelayClient(
         },
         timeoutMs,
       );
+    },
+    async submitTransaction(input) {
+      const expectedTransactionId = transactionIdSchema.parse(
+        input.expectedTransactionId.trim().toLowerCase(),
+      );
+      if (typeof input.transactionSafeJson !== "string" || input.transactionSafeJson.length === 0) {
+        throw new KaspaVspcError("VSPC_CONFIG_ERROR", "Prepared transaction SafeJSON is required.");
+      }
+      const payload = await requestJson(
+        fetchImpl,
+        new URL("submit", baseUrl),
+        {
+          body: JSON.stringify({
+            expectedTransactionId,
+            transactionSafeJson: input.transactionSafeJson,
+          }),
+          headers: { accept: "application/json", "content-type": "application/json" },
+          method: "POST",
+        },
+        timeoutMs,
+      );
+      const parsed = submitResponseSchema.safeParse(payload);
+      if (
+        !parsed.success ||
+        parsed.data.localTransactionId !== expectedTransactionId ||
+        parsed.data.submittedTransactionId !== expectedTransactionId
+      ) {
+        throw new KaspaVspcError(
+          "VSPC_PARSE_ERROR",
+          "Kaspa relay returned a mismatched transaction ID.",
+        );
+      }
+      return parsed.data;
     },
   };
 }

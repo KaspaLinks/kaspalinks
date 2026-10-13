@@ -6,7 +6,7 @@ export const GIVEAWAY_V6_ENTRY_FEE_SOMPI = 10_000_000n;
 export const GIVEAWAY_V6_ACTIVATION_FEE_SOMPI = 10_000_000n;
 export const GIVEAWAY_V6_FREEZE_FEE_SOMPI = 33_000_000n;
 export const GIVEAWAY_V6_DRAW_FEE_SOMPI = 18_000_000n;
-export const GIVEAWAY_V6_RETURN_FEE_SOMPI = 2_000_000n;
+export const GIVEAWAY_V6_RETURN_FEE_SOMPI = 3_000_000n;
 
 // The reviewed 32-person profile leaves 0.84 KAS after every possible entry.
 // Preserve that same terminal reserve for the smaller one- and two-shard profiles.

@@ -255,9 +255,10 @@ uses 64,709 compute / 192,636 transient / 196,467 contextual storage mass and
 has normalized fee mass 96,318. Registration uses 92,024 / 183,816 and needs a
 minimum 9,202,400 sompi relay fee. Full-family freeze uses 175,299 / 643,716
 and needs 32,185,800 sompi. The real proof-bearing draw uses 164,431 / 35,364,
-and fallback return uses 8,253 / 32,492. The reviewed fixed fees are therefore
+and the current compiler-pinned fallback return uses 42,792 transient mass.
+The reviewed fixed fees are therefore
 10,000,000 sompi for activation and registration, 33,000,000 for freeze,
-18,000,000 for draw, and 2,000,000 for return. All measured transitions remain
+18,000,000 for draw, and 3,000,000 for return. All measured transitions remain
 below the post-Toccata Mainnet limits of 500,000 compute, 500,000 storage, and
 1,000,000 transient mass. Continuous indexer replay and an on-chain canary
 remain delivery gates.

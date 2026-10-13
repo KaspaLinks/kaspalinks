@@ -115,11 +115,17 @@ describe("Giveaway V6 projection persistence", () => {
 
   it("uses a revision guard and stops polling terminal projections", async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const prisma = { giveawayV6Projection: { updateMany } } as unknown as PrismaClient;
+    const tx = {
+      giveawayV6Projection: { updateMany },
+      giveaway: { updateMany: vi.fn() },
+    };
+    const prisma = {
+      $transaction: vi.fn((callback) => callback(tx)),
+    } as unknown as PrismaClient;
 
     await persistGiveawayV6ProjectionAdvance(
       prisma,
-      { id: "projection-1", syncRevision: 7 },
+      { giveawayId: "giveaway-db-id", id: "projection-1", syncRevision: 7 },
       {
         status: "applied",
         checkpoint: checkpoint(),
@@ -134,6 +140,7 @@ describe("Giveaway V6 projection persistence", () => {
           cursorHash: "07".repeat(32),
           lastPageFingerprint: "08".repeat(32),
         },
+        giveawayUpdate: null,
       },
       new Date("2026-10-10T12:00:00.000Z"),
     );
@@ -148,13 +155,18 @@ describe("Giveaway V6 projection persistence", () => {
 
   it("does not overwrite a newer revision", async () => {
     const prisma = {
-      giveawayV6Projection: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      $transaction: vi.fn((callback) =>
+        callback({
+          giveawayV6Projection: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+          giveaway: { updateMany: vi.fn() },
+        }),
+      ),
     } as unknown as PrismaClient;
 
     await expect(
       persistGiveawayV6ProjectionAdvance(
         prisma,
-        { id: "projection-1", syncRevision: 7 },
+        { giveawayId: "giveaway-db-id", id: "projection-1", syncRevision: 7 },
         { status: "needs_headers", requiredHeaderHashes: ["0a".repeat(32)] },
       ),
     ).rejects.toMatchObject({ code: "STALE_PROJECTION" });

@@ -23,6 +23,46 @@ export type ToccataKeylessCovenantOutput = {
   scriptPublicKeyHex: string;
 };
 
+export type ToccataKeylessOutput = {
+  amountSompi: bigint | string;
+  covenant?: { authorizingInput: number; covenantIdHex: string } | null;
+  scriptPublicKeyHex: string;
+};
+
+export type ToccataKeylessInput = {
+  computeBudget: number;
+  funding: {
+    amountSompi: bigint | string;
+    blockDaaScore: bigint | string;
+    outputIndex: number;
+    scriptPublicKeyHex: string;
+    transactionId: string;
+  };
+  invocationStackHex: readonly string[];
+  redeemScriptHex: string;
+};
+
+export type ToccataKeylessTransactionInput = {
+  computeBudget: number;
+  fundingAmountSompi: string;
+  fundingOutputIndex: number;
+  fundingTransactionId: string;
+  signatureScriptHex: string;
+};
+
+export type ToccataKeylessTransaction = {
+  computeMass: string;
+  feeMass: string;
+  feeSompi: string;
+  inputs: readonly ToccataKeylessTransactionInput[];
+  mass: string;
+  minimumFeeSompi: string;
+  storageMass: string;
+  transactionId: string;
+  transactionSafeJson: string;
+  transientMass: string;
+};
+
 export type ToccataKeylessCovenantSpendInput = {
   computeBudget: number;
   feeSompi: bigint | string;
@@ -55,6 +95,13 @@ export type ToccataKeylessCovenantSpend = {
   transientMass: string;
 };
 
+export type ToccataKeylessTransactionBuildInput = {
+  feeSompi: bigint | string;
+  inputs: readonly ToccataKeylessInput[];
+  lockTime?: bigint | string;
+  outputs: readonly ToccataKeylessOutput[];
+};
+
 /**
  * Builds a keyless covenant transition without signing or broadcasting it.
  * The fee and every output are fixed before the witness is attached.
@@ -63,51 +110,147 @@ export function buildToccataKeylessCovenantSpend(
   input: ToccataKeylessCovenantSpendInput,
   wasmModule: KaspaWasmModule = loadKaspaWasm(),
 ): ToccataKeylessCovenantSpend {
-  assertToccataSdkReady(wasmModule);
-  const fundingTransactionId = normalizeHash(input.funding.transactionId, "funding transaction");
-  const fundingOutputIndex = normalizeOutputIndex(input.funding.outputIndex);
-  const fundingAmountSompi = parsePositiveU64(input.funding.amountSompi, "funding amount");
-  const fundingBlockDaaScore = parseU64(input.funding.blockDaaScore, "funding block DAA score");
-  const feeSompi = parsePositiveU64(input.feeSompi, "fee");
-  const computeBudget = normalizeComputeBudget(input.computeBudget);
-  const redeemScriptHex = normalizeHex(
-    input.redeemScriptHex,
-    "redeem script",
-    MAX_SIGNATURE_SCRIPT_BYTES,
+  const transaction = buildToccataKeylessTransaction(
+    {
+      feeSompi: input.feeSompi,
+      inputs: [
+        {
+          computeBudget: input.computeBudget,
+          funding: input.funding,
+          invocationStackHex: input.invocationStackHex,
+          redeemScriptHex: input.redeemScriptHex,
+        },
+      ],
+      outputs: input.outputs,
+    },
+    wasmModule,
   );
-  const expectedFundingScript = normalizeSerializedScriptPublicKey(
-    input.funding.scriptPublicKeyHex,
-    "funding script public key",
-  );
-  const derivedFundingScript = serializeScriptPublicKey(
-    wasmModule.payToScriptHashScript(redeemScriptHex).toJSON() as ScriptPublicKeyJson,
-  );
-  if (derivedFundingScript !== expectedFundingScript) {
-    throw new Error("Redeem script does not match the committed funding script public key.");
-  }
+  const onlyInput = transaction.inputs[0]!;
+  return {
+    computeMass: transaction.computeMass,
+    computeBudget: onlyInput.computeBudget,
+    feeMass: transaction.feeMass,
+    feeSompi: transaction.feeSompi,
+    fundingAmountSompi: onlyInput.fundingAmountSompi,
+    fundingOutputIndex: onlyInput.fundingOutputIndex,
+    fundingTransactionId: onlyInput.fundingTransactionId,
+    mass: transaction.mass,
+    minimumFeeSompi: transaction.minimumFeeSompi,
+    signatureScriptHex: onlyInput.signatureScriptHex,
+    storageMass: transaction.storageMass,
+    transactionId: transaction.transactionId,
+    transactionSafeJson: transaction.transactionSafeJson,
+    transientMass: transaction.transientMass,
+  };
+}
 
-  if (input.invocationStackHex.length === 0 || input.invocationStackHex.length > 32) {
-    throw new Error("Keyless invocation stack must contain between 1 and 32 items.");
+/**
+ * Builds a keyless covenant transaction with one or more public covenant
+ * inputs. Plain terminal outputs are allowed, but every amount, destination,
+ * witness and compute commitment is fixed and checked before the result can be
+ * submitted to a relay.
+ */
+export function buildToccataKeylessTransaction(
+  input: ToccataKeylessTransactionBuildInput,
+  wasmModule: KaspaWasmModule = loadKaspaWasm(),
+): ToccataKeylessTransaction {
+  assertToccataSdkReady(wasmModule);
+  const feeSompi = parsePositiveU64(input.feeSompi, "fee");
+  const lockTime = parseU64(input.lockTime ?? 0n, "lock time");
+  if (input.inputs.length === 0 || input.inputs.length > 32) {
+    throw new Error("Keyless covenant transaction must contain between 1 and 32 inputs.");
   }
-  const invocationStackHex = input.invocationStackHex.map((value, index) =>
-    normalizeHex(value, `invocation stack item ${index}`, MAX_SIGNATURE_SCRIPT_BYTES),
-  );
+  const inputs = input.inputs.map((candidate, inputIndex) => {
+    const fundingTransactionId = normalizeHash(
+      candidate.funding.transactionId,
+      `input ${inputIndex} funding transaction`,
+    );
+    const fundingOutputIndex = normalizeOutputIndex(candidate.funding.outputIndex);
+    const fundingAmountSompi = parsePositiveU64(
+      candidate.funding.amountSompi,
+      `input ${inputIndex} funding amount`,
+    );
+    const fundingBlockDaaScore = parseU64(
+      candidate.funding.blockDaaScore,
+      `input ${inputIndex} funding block DAA score`,
+    );
+    const computeBudget = normalizeComputeBudget(candidate.computeBudget);
+    const redeemScriptHex = normalizeHex(
+      candidate.redeemScriptHex,
+      `input ${inputIndex} redeem script`,
+      MAX_SIGNATURE_SCRIPT_BYTES,
+    );
+    const expectedFundingScript = normalizeSerializedScriptPublicKey(
+      candidate.funding.scriptPublicKeyHex,
+      `input ${inputIndex} funding script public key`,
+    );
+    const derivedFundingScript = serializeScriptPublicKey(
+      wasmModule.payToScriptHashScript(redeemScriptHex).toJSON() as ScriptPublicKeyJson,
+    );
+    if (derivedFundingScript !== expectedFundingScript) {
+      throw new Error("Redeem script does not match the committed funding script public key.");
+    }
+    if (candidate.invocationStackHex.length === 0 || candidate.invocationStackHex.length > 32) {
+      throw new Error("Keyless invocation stack must contain between 1 and 32 items.");
+    }
+    const invocationStackHex = candidate.invocationStackHex.map((value, stackIndex) =>
+      normalizeHex(
+        value,
+        `input ${inputIndex} invocation stack item ${stackIndex}`,
+        MAX_SIGNATURE_SCRIPT_BYTES,
+      ),
+    );
+    const invocation = new wasmModule.ScriptBuilder({ flags: { covenantsEnabled: true } });
+    for (const stackItem of invocationStackHex) invocation.addData(stackItem);
+    const redeemScript = wasmModule.ScriptBuilder.fromScript(redeemScriptHex, {
+      flags: { covenantsEnabled: true },
+    });
+    const signatureScriptHex = redeemScript.encodePayToScriptHashSignatureScript(
+      invocation.drain(),
+    );
+    if (signatureScriptHex.length / 2 > MAX_SIGNATURE_SCRIPT_BYTES) {
+      throw new Error("Keyless covenant signature script exceeds the reviewed size limit.");
+    }
+    return {
+      computeBudget,
+      expectedFundingScript,
+      fundingAmountSompi,
+      fundingBlockDaaScore,
+      fundingOutputIndex,
+      fundingTransactionId,
+      signatureScriptHex,
+    };
+  });
   if (input.outputs.length === 0 || input.outputs.length > 32) {
-    throw new Error("Keyless covenant spend must contain between 1 and 32 outputs.");
+    throw new Error("Keyless covenant transaction must contain between 1 and 32 outputs.");
   }
   const outputs = input.outputs.map((output, index) => ({
     amountSompi: parsePositiveU64(output.amountSompi, `output ${index} amount`),
-    covenant: {
-      authorizingInput: normalizeAuthorizingInput(output.covenant.authorizingInput, index),
-      covenantIdHex: normalizeHash(output.covenant.covenantIdHex, `output ${index} covenant ID`),
-    },
+    covenant:
+      output.covenant === undefined || output.covenant === null
+        ? null
+        : {
+            authorizingInput: normalizeAuthorizingInput(
+              output.covenant.authorizingInput,
+              index,
+              inputs.length,
+            ),
+            covenantIdHex: normalizeHash(
+              output.covenant.covenantIdHex,
+              `output ${index} covenant ID`,
+            ),
+          },
     scriptPublicKey: parseSerializedScriptPublicKey(
       output.scriptPublicKeyHex,
       `output ${index} script public key`,
     ),
   }));
+  const fundingTotal = inputs.reduce(
+    (sum, candidate) => checkedAdd(sum, candidate.fundingAmountSompi),
+    0n,
+  );
   const outputTotal = outputs.reduce((sum, output) => checkedAdd(sum, output.amountSompi), 0n);
-  if (checkedAdd(outputTotal, feeSompi) !== fundingAmountSompi) {
+  if (checkedAdd(outputTotal, feeSompi) !== fundingTotal) {
     throw new Error("Funding amount must equal the exact covenant outputs plus the fixed fee.");
   }
 
@@ -115,31 +258,33 @@ export function buildToccataKeylessCovenantSpend(
     JSON.stringify({
       gas: "0",
       id: "0".repeat(64),
-      inputs: [
-        {
-          computeBudget,
-          index: fundingOutputIndex,
-          sequence: "0",
-          sigOpCount: 0,
-          signatureScript: "",
-          transactionId: fundingTransactionId,
-          utxo: {
-            amount: fundingAmountSompi.toString(),
-            blockDaaScore: fundingBlockDaaScore.toString(),
-            isCoinbase: false,
-            scriptPublicKey: parseSerializedScriptPublicKey(
-              expectedFundingScript,
-              "funding script public key",
-            ),
-          },
+      inputs: inputs.map((candidate) => ({
+        computeBudget: candidate.computeBudget,
+        index: candidate.fundingOutputIndex,
+        sequence: "0",
+        sigOpCount: 0,
+        signatureScript: "",
+        transactionId: candidate.fundingTransactionId,
+        utxo: {
+          amount: candidate.fundingAmountSompi.toString(),
+          blockDaaScore: candidate.fundingBlockDaaScore.toString(),
+          isCoinbase: false,
+          scriptPublicKey: parseSerializedScriptPublicKey(
+            candidate.expectedFundingScript,
+            "funding script public key",
+          ),
         },
-      ],
-      lockTime: "0",
+      })),
+      lockTime: lockTime.toString(),
       outputs: outputs.map((output) => ({
-        covenant: {
-          authorizingInput: output.covenant.authorizingInput,
-          covenantId: output.covenant.covenantIdHex,
-        },
+        ...(output.covenant === null
+          ? {}
+          : {
+              covenant: {
+                authorizingInput: output.covenant.authorizingInput,
+                covenantId: output.covenant.covenantIdHex,
+              },
+            }),
         scriptPublicKey: output.scriptPublicKey,
         value: output.amountSompi.toString(),
       })),
@@ -149,26 +294,14 @@ export function buildToccataKeylessCovenantSpend(
     }),
   );
 
-  const invocation = new wasmModule.ScriptBuilder({ flags: { covenantsEnabled: true } });
-  for (const stackItem of invocationStackHex) invocation.addData(stackItem);
-  const redeemScript = wasmModule.ScriptBuilder.fromScript(redeemScriptHex, {
-    flags: { covenantsEnabled: true },
+  transaction.inputs.forEach((transactionInput, index) => {
+    transactionInput.signatureScript = inputs[index]!.signatureScriptHex;
   });
-  const signatureScriptHex = redeemScript.encodePayToScriptHashSignatureScript(invocation.drain());
-  if (signatureScriptHex.length / 2 > MAX_SIGNATURE_SCRIPT_BYTES) {
-    throw new Error("Keyless covenant signature script exceeds the reviewed size limit.");
-  }
-  const transactionInput = transaction.inputs[0];
-  if (!transactionInput) throw new Error("Could not build the keyless covenant input.");
-  transactionInput.signatureScript = signatureScriptHex;
   transaction.finalize();
 
   const masses = calculatePostToccataMass({
-    computeBudget,
-    fundingAmountSompi,
-    fundingScriptPublicKeyHex: expectedFundingScript,
+    inputs,
     outputs,
-    signatureScriptHex,
   });
   const minimumFeeSompi = maxBigInt(
     masses.feeMass * MINIMUM_RELAY_FEE_SOMPI_PER_GRAM,
@@ -182,38 +315,38 @@ export function buildToccataKeylessCovenantSpend(
 
   const transactionSafeJson = transaction.serializeToSafeJSON();
   const roundTrip = wasmModule.Transaction.deserializeFromSafeJSON(transactionSafeJson);
-  if (roundTrip.id !== transaction.id || roundTrip.inputs.length !== 1) {
+  if (roundTrip.id !== transaction.id || roundTrip.inputs.length !== inputs.length) {
     throw new Error("Keyless covenant transaction changed during SafeJSON round trip.");
   }
-  const serializedInput = roundTrip.inputs[0];
-  if (
-    !serializedInput ||
-    serializedInput.computeBudget !== computeBudget ||
-    serializedInput.signatureScript !== signatureScriptHex ||
-    serializedInput.previousOutpoint.transactionId !== fundingTransactionId ||
-    serializedInput.previousOutpoint.index !== fundingOutputIndex ||
-    roundTrip.outputs.length !== outputs.length
-  ) {
+  if (roundTrip.outputs.length !== outputs.length)
     throw new Error("Keyless covenant intent changed during SafeJSON round trip.");
-  }
   const roundTripJson = JSON.parse(roundTrip.serializeToSafeJSON()) as TransactionSafeJson;
-  const jsonInput = roundTripJson.inputs[0];
-  if (
-    !jsonInput ||
-    jsonInput.utxo.amount !== fundingAmountSompi.toString() ||
-    jsonInput.utxo.blockDaaScore !== fundingBlockDaaScore.toString() ||
-    jsonInput.utxo.isCoinbase !== false ||
-    jsonInput.utxo.scriptPublicKey !== expectedFundingScript
-  ) {
-    throw new Error("Keyless covenant funding UTXO changed during SafeJSON round trip.");
-  }
+  roundTrip.inputs.forEach((serializedInput, index) => {
+    const expected = inputs[index]!;
+    const jsonInput = roundTripJson.inputs[index];
+    if (
+      serializedInput.computeBudget !== expected.computeBudget ||
+      serializedInput.signatureScript !== expected.signatureScriptHex ||
+      serializedInput.previousOutpoint.transactionId !== expected.fundingTransactionId ||
+      serializedInput.previousOutpoint.index !== expected.fundingOutputIndex ||
+      !jsonInput ||
+      jsonInput.utxo.amount !== expected.fundingAmountSompi.toString() ||
+      jsonInput.utxo.blockDaaScore !== expected.fundingBlockDaaScore.toString() ||
+      jsonInput.utxo.isCoinbase !== false ||
+      jsonInput.utxo.scriptPublicKey !== expected.expectedFundingScript
+    ) {
+      throw new Error(`Keyless covenant input ${index} changed during SafeJSON round trip.`);
+    }
+  });
   roundTripJson.outputs.forEach((actual, index) => {
     const expected = outputs[index]!;
     if (
       actual.value !== expected.amountSompi.toString() ||
       actual.scriptPublicKey !== serializeScriptPublicKey(expected.scriptPublicKey) ||
-      actual.covenant.authorizingInput !== expected.covenant.authorizingInput ||
-      actual.covenant.covenantId !== expected.covenant.covenantIdHex
+      (expected.covenant === null
+        ? actual.covenant !== undefined && actual.covenant !== null
+        : actual.covenant?.authorizingInput !== expected.covenant.authorizingInput ||
+          actual.covenant?.covenantId !== expected.covenant.covenantIdHex)
     ) {
       throw new Error(`Keyless covenant output ${index} changed during SafeJSON round trip.`);
     }
@@ -221,15 +354,17 @@ export function buildToccataKeylessCovenantSpend(
 
   return {
     computeMass: masses.computeMass.toString(),
-    computeBudget,
     feeMass: masses.feeMass.toString(),
     feeSompi: feeSompi.toString(),
-    fundingAmountSompi: fundingAmountSompi.toString(),
-    fundingOutputIndex,
-    fundingTransactionId,
+    inputs: inputs.map((candidate) => ({
+      computeBudget: candidate.computeBudget,
+      fundingAmountSompi: candidate.fundingAmountSompi.toString(),
+      fundingOutputIndex: candidate.fundingOutputIndex,
+      fundingTransactionId: candidate.fundingTransactionId,
+      signatureScriptHex: candidate.signatureScriptHex,
+    })),
     mass: masses.normalizedMass.toString(),
     minimumFeeSompi: minimumFeeSompi.toString(),
-    signatureScriptHex,
     storageMass: masses.storageMass.toString(),
     transactionId: transaction.id,
     transactionSafeJson,
@@ -248,7 +383,7 @@ type TransactionSafeJson = {
     };
   }>;
   outputs: Array<{
-    covenant: { authorizingInput: number; covenantId: string };
+    covenant?: { authorizingInput: number; covenantId: string } | null;
     scriptPublicKey: string;
     value: string;
   }>;
@@ -273,13 +408,16 @@ function normalizeOutputIndex(value: number): number {
   return value;
 }
 
-function normalizeAuthorizingInput(value: number, outputIndex: number): number {
-  if (value !== 0) {
-    throw new Error(
-      `output ${outputIndex} authorizing input must reference the only transaction input at index zero.`,
-    );
+function normalizeAuthorizingInput(value: number, outputIndex: number, inputCount: number): number {
+  if (!Number.isInteger(value) || value < 0 || value >= inputCount || value > 0xffff) {
+    if (inputCount === 1) {
+      throw new Error(
+        `output ${outputIndex} authorizing input must reference the only transaction input at index zero.`,
+      );
+    }
+    throw new Error(`output ${outputIndex} authorizing input must reference a transaction input.`);
   }
-  return 0;
+  return value;
 }
 
 function parsePositiveU64(value: bigint | string, label: string): bigint {
@@ -339,26 +477,40 @@ function serializeScriptPublicKey(value: ScriptPublicKeyJson): string {
 }
 
 function calculatePostToccataMass(input: {
-  computeBudget: number;
-  fundingAmountSompi: bigint;
-  fundingScriptPublicKeyHex: string;
+  inputs: readonly {
+    computeBudget: number;
+    expectedFundingScript: string;
+    fundingAmountSompi: bigint;
+    signatureScriptHex: string;
+  }[];
   outputs: readonly {
     amountSompi: bigint;
+    covenant: { authorizingInput: number; covenantIdHex: string } | null;
     scriptPublicKey: ScriptPublicKeyJson;
   }[];
-  signatureScriptHex: string;
 }) {
-  const signatureScriptBytes = BigInt(input.signatureScriptHex.length / 2);
+  const signatureScriptBytes = input.inputs.map((candidate) =>
+    BigInt(candidate.signatureScriptHex.length / 2),
+  );
   const outputScriptBytes = input.outputs.map((output) =>
     BigInt(output.scriptPublicKey.script.length / 2),
   );
   const transactionSize =
     2n +
     8n +
-    (32n + 4n + 8n + signatureScriptBytes + 8n + 2n) +
+    signatureScriptBytes.reduce(
+      (sum, scriptBytes) => sum + 32n + 4n + 8n + scriptBytes + 8n + 2n,
+      0n,
+    ) +
     8n +
     outputScriptBytes.reduce(
-      (sum, scriptBytes) => sum + 8n + 2n + 8n + scriptBytes + 2n + 32n,
+      (sum, scriptBytes, index) =>
+        sum +
+        8n +
+        2n +
+        8n +
+        scriptBytes +
+        (input.outputs[index]!.covenant === null ? 0n : 2n + 32n),
       0n,
     ) +
     8n +
@@ -370,14 +522,20 @@ function calculatePostToccataMass(input: {
     (sum, scriptBytes) => sum + (2n + scriptBytes) * 10n,
     0n,
   );
-  const computeMass = transactionSize + outputScriptMass + BigInt(input.computeBudget) * 100n;
+  const computeMass =
+    transactionSize +
+    outputScriptMass +
+    input.inputs.reduce((sum, candidate) => sum + BigInt(candidate.computeBudget) * 100n, 0n);
   const transientMass = transactionSize * 4n;
   const normalizedTransientMass = divideCeil(transientMass, 2n);
   const storageMass = calculateStorageMass({
-    fundingAmountSompi: input.fundingAmountSompi,
-    fundingScriptBytes: BigInt((input.fundingScriptPublicKeyHex.length - 4) / 2),
+    inputs: input.inputs.map((candidate) => ({
+      amountSompi: candidate.fundingAmountSompi,
+      scriptBytes: BigInt((candidate.expectedFundingScript.length - 4) / 2),
+    })),
     outputs: input.outputs.map((output, index) => ({
       amountSompi: output.amountSompi,
+      covenantBytes: output.covenant === null ? 0n : 32n,
       scriptBytes: outputScriptBytes[index]!,
     })),
   });
@@ -399,14 +557,17 @@ function calculatePostToccataMass(input: {
 }
 
 function calculateStorageMass(input: {
-  fundingAmountSompi: bigint;
-  fundingScriptBytes: bigint;
-  outputs: readonly { amountSompi: bigint; scriptBytes: bigint }[];
+  inputs: readonly { amountSompi: bigint; scriptBytes: bigint }[];
+  outputs: readonly { amountSompi: bigint; covenantBytes: bigint; scriptBytes: bigint }[];
 }): bigint {
-  const inputPlurality = divideCeil(63n + input.fundingScriptBytes, 100n);
+  const inputCells = input.inputs.map((candidate) => ({
+    amountSompi: candidate.amountSompi,
+    plurality: divideCeil(63n + candidate.scriptBytes, 100n),
+  }));
+  const inputPlurality = inputCells.reduce((sum, candidate) => sum + candidate.plurality, 0n);
   const outputCells = input.outputs.map((output) => ({
     amountSompi: output.amountSompi,
-    plurality: divideCeil(63n + output.scriptBytes + 32n, 100n),
+    plurality: divideCeil(63n + output.scriptBytes + output.covenantBytes, 100n),
   }));
   const outputPlurality = outputCells.reduce((sum, output) => sum + output.plurality, 0n);
   const harmonicOutputs = outputCells.reduce(
@@ -419,11 +580,17 @@ function calculateStorageMass(input: {
     inputPlurality === 1n ||
     (outputPlurality === 2n && inputPlurality === 2n)
   ) {
-    const harmonicInput =
-      (STORAGE_MASS_PARAMETER * inputPlurality * inputPlurality) / input.fundingAmountSompi;
+    const harmonicInput = inputCells.reduce(
+      (sum, candidate) =>
+        sum +
+        (STORAGE_MASS_PARAMETER * candidate.plurality * candidate.plurality) /
+          candidate.amountSompi,
+      0n,
+    );
     return harmonicOutputs > harmonicInput ? harmonicOutputs - harmonicInput : 0n;
   }
-  const inputMean = maxBigInt(input.fundingAmountSompi / inputPlurality, 1n);
+  const fundingTotal = inputCells.reduce((sum, candidate) => sum + candidate.amountSompi, 0n);
+  const inputMean = maxBigInt(fundingTotal / inputPlurality, 1n);
   const arithmeticInput = inputPlurality * (STORAGE_MASS_PARAMETER / inputMean);
   return harmonicOutputs > arithmeticInput ? harmonicOutputs - arithmeticInput : 0n;
 }

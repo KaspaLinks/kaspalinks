@@ -53,7 +53,7 @@ describe("Giveaway V6 creator terms", () => {
       freezeFeeSompi: 33_000_000n,
       prizeValueSompi: 100_000_000n,
       shardValueSompi: 101_000_000n,
-      returnFeeSompi: 2_000_000n,
+      returnFeeSompi: 3_000_000n,
     });
   });
 

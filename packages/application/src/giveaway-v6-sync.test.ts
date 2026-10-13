@@ -44,6 +44,7 @@ function record() {
   });
   return {
     id: "projection-1",
+    giveawayId: "giveaway-db-id",
     createdAt: new Date("2026-10-10T10:00:00.000Z"),
     nextSyncAt: new Date("2026-10-10T11:59:00.000Z"),
     ...data,
@@ -61,6 +62,7 @@ function relay(overrides: Partial<KaspaVspcRelayClient> = {}): KaspaVspcRelayCli
       chainBlockAcceptedTransactions: [],
     }),
     getBlockHeaders: vi.fn(),
+    submitTransaction: vi.fn(),
     ...overrides,
   };
 }
@@ -73,6 +75,12 @@ describe("Giveaway V6 projection worker", () => {
       .mockResolvedValueOnce({ count: 1 })
       .mockResolvedValueOnce({ count: 1 });
     const prisma = {
+      $transaction: vi.fn((callback) =>
+        callback({
+          giveawayV6Projection: { updateMany },
+          giveaway: { updateMany: vi.fn() },
+        }),
+      ),
       giveawayV6Projection: {
         findMany: vi.fn().mockResolvedValue([row]),
         updateMany,

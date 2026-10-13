@@ -1,4 +1,11 @@
-import { GiveawayV6Phase, Network, Prisma, type PrismaClient } from "@kaspa-actions/db";
+import {
+  GiveawayStatus,
+  GiveawayV6Phase,
+  Network,
+  Prisma,
+  type PrismaClient,
+} from "@kaspa-actions/db";
+import { kaspaAddressFromScriptPublicKeyHex } from "@kaspa-actions/kaspa";
 import {
   advanceGiveawayV6Projection,
   parseGiveawayV6ConfigJson,
@@ -63,6 +70,17 @@ export type PreparedGiveawayV6ProjectionAdvance =
         cursorHash: string;
         lastPageFingerprint: string;
       };
+      giveawayUpdate: {
+        status?: GiveawayStatus;
+        entriesFrozenAt?: Date;
+        entriesRoot?: string;
+        entryCountAtDraw?: number;
+        winnerIndex?: number;
+        winnerAddress?: string;
+        entropyBlockHash?: string;
+        entropyBlockBlueScore?: bigint;
+        drawnAt?: Date;
+      } | null;
     };
 
 export class GiveawayV6ProjectionPersistenceError extends Error {
@@ -169,6 +187,13 @@ export function prepareGiveawayV6ProjectionAdvance(input: {
   if (result.status === "needs_headers") return result;
 
   const snapshot = result.projection.snapshot;
+  const drawEvent = [...result.projection.events].reverse().find((event) => event.kind === "draw");
+  const giveawayUpdate = prepareGiveawayUpdate({
+    network: input.record.network,
+    previousPhase: input.record.phase,
+    snapshot,
+    drawEvent,
+  });
   return {
     status: "applied",
     checkpoint: result.checkpoint,
@@ -185,6 +210,7 @@ export function prepareGiveawayV6ProjectionAdvance(input: {
       cursorHash: result.checkpoint.cursorHash,
       lastPageFingerprint: result.checkpoint.lastPageFingerprint,
     },
+    giveawayUpdate,
   };
 }
 
@@ -194,7 +220,7 @@ export function prepareGiveawayV6ProjectionAdvance(input: {
  */
 export async function persistGiveawayV6ProjectionAdvance(
   prisma: PrismaClient,
-  record: Pick<GiveawayV6ProjectionRecord, "id" | "syncRevision">,
+  record: { giveawayId: string; id: string; syncRevision: number },
   prepared: PreparedGiveawayV6ProjectionAdvance,
   now = new Date(),
 ): Promise<void> {
@@ -220,16 +246,67 @@ export async function persistGiveawayV6ProjectionAdvance(
               : new Date(now.getTime() + 5_000),
           syncRevision: { increment: 1 },
         };
-  const updated = await prisma.giveawayV6Projection.updateMany({
-    data,
-    where: { id: record.id, syncRevision: record.syncRevision },
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.giveawayV6Projection.updateMany({
+      data,
+      where: { id: record.id, syncRevision: record.syncRevision },
+    });
+    if (updated.count !== 1) {
+      throw new GiveawayV6ProjectionPersistenceError(
+        "STALE_PROJECTION",
+        "A newer Giveaway V6 projection revision already exists.",
+      );
+    }
+    if (prepared.status === "applied" && prepared.giveawayUpdate !== null) {
+      await tx.giveaway.updateMany({
+        data: prepared.giveawayUpdate,
+        where: { drawProtocolVersion: 6, id: record.giveawayId },
+      });
+    }
   });
-  if (updated.count !== 1) {
-    throw new GiveawayV6ProjectionPersistenceError(
-      "STALE_PROJECTION",
-      "A newer Giveaway V6 projection revision already exists.",
-    );
+}
+
+function prepareGiveawayUpdate(input: {
+  network: Network;
+  previousPhase: GiveawayV6Phase;
+  snapshot: GiveawayV6ReconstructionSnapshot;
+  drawEvent: { kind: "draw"; candidateBlueScore: bigint } | undefined;
+}) {
+  const { snapshot } = input;
+  if (snapshot.phase === "drawn" && snapshot.winner !== null) {
+    return {
+      status: GiveawayStatus.DRAWN,
+      entriesFrozenAt: new Date(),
+      entriesRoot: snapshot.frozenRootHex ?? undefined,
+      entryCountAtDraw: snapshot.frozenEntryCount ?? undefined,
+      winnerIndex: snapshot.winner.globalIndex,
+      winnerAddress: kaspaAddressFromScriptPublicKeyHex(
+        snapshot.winner.payoutScriptPublicKeyHex,
+        input.network === Network.MAINNET ? "mainnet" : "testnet-10",
+      ),
+      entropyBlockHash: snapshot.winner.candidateBlockHashHex,
+      entropyBlockBlueScore: input.drawEvent?.candidateBlueScore,
+      drawnAt: new Date(),
+    };
   }
+  if (snapshot.phase === "returned") {
+    return {
+      status:
+        snapshot.frozenEntryCount === 0 ? GiveawayStatus.NO_ENTRIES : GiveawayStatus.CANCELLED,
+      entriesFrozenAt: new Date(),
+      entriesRoot: snapshot.frozenRootHex ?? undefined,
+      entryCountAtDraw: snapshot.frozenEntryCount ?? undefined,
+      drawnAt: new Date(),
+    };
+  }
+  if (snapshot.phase === "frozen" && input.previousPhase !== GiveawayV6Phase.FROZEN) {
+    return {
+      entriesFrozenAt: new Date(),
+      entriesRoot: snapshot.frozenRootHex ?? undefined,
+      entryCountAtDraw: snapshot.frozenEntryCount ?? undefined,
+    };
+  }
+  return null;
 }
 
 function networkId(network: Network): "mainnet" | "testnet-10" {

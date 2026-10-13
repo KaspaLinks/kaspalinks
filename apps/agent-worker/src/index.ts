@@ -1,6 +1,8 @@
 import { TelegramApiClient } from "@kaspa-actions/agent";
 import {
   detectAndConfirmPayment,
+  createGiveawayV6EntropyProverClient,
+  executeDueGiveawayV6Settlements,
   expireAgentData,
   scheduleNextPaymentDetection,
   syncDueGiveawayV6Projections,
@@ -46,6 +48,14 @@ const giveawayV6Relay =
         relayUrl: process.env.TOCCATA_WRPC_RELAY_URL?.trim() || "http://toccata-relay:3010",
       })
     : null;
+
+const giveawayV6Prover = process.env.GIVEAWAY_V6_PROVER_URL?.trim()
+  ? createGiveawayV6EntropyProverClient({ baseUrl: process.env.GIVEAWAY_V6_PROVER_URL.trim() })
+  : null;
+const giveawayV6SettlementEnabled =
+  process.env.GIVEAWAY_V6_SETTLEMENT_ENABLED === "true" &&
+  giveawayV6Relay !== null &&
+  giveawayV6Prover !== null;
 
 async function expirePendingRequests(now: Date) {
   const expired = await prisma.paymentRequest.findMany({
@@ -103,7 +113,17 @@ async function tick(client: TelegramApiClient) {
     processGiveawayReminders(now),
     processClaimableReturns(now),
     giveawayV6Relay
-      ? syncDueGiveawayV6Projections(prisma, giveawayV6Relay, now)
+      ? (async () => {
+          await syncDueGiveawayV6Projections(prisma, giveawayV6Relay, now);
+          if (giveawayV6SettlementEnabled) {
+            await executeDueGiveawayV6Settlements(
+              prisma,
+              giveawayV6Relay,
+              giveawayV6Prover,
+              new Date(),
+            );
+          }
+        })()
       : Promise.resolve(),
   ]);
   for (const result of results)

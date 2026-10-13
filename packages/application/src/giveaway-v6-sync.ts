@@ -18,6 +18,7 @@ const RETRY_MS = 15_000;
 
 const projectionSelect = {
   id: true,
+  giveawayId: true,
   network: true,
   covenantIdHex: true,
   anchorHash: true,
@@ -98,7 +99,7 @@ export async function syncDueGiveawayV6Projections(
 async function syncOne(
   prisma: PrismaClient,
   client: KaspaVspcRelayClient,
-  record: GiveawayV6ProjectionRecord,
+  record: GiveawayV6ProjectionRecord & { giveawayId: string },
   now: Date,
 ): Promise<void> {
   const page = await readKaspaVspcV2Page(client, {

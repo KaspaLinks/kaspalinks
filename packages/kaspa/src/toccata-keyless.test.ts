@@ -2,7 +2,10 @@ import { createRequire } from "node:module";
 
 import { describe, expect, it } from "vitest";
 
-import { buildToccataKeylessCovenantSpend } from "./toccata-keyless";
+import {
+  buildToccataKeylessCovenantSpend,
+  buildToccataKeylessTransaction,
+} from "./toccata-keyless";
 
 const kaspa = createRequire(import.meta.url)("kaspa-wasm") as typeof import("kaspa-wasm");
 const REDEEM_SCRIPT = "51";
@@ -105,6 +108,36 @@ describe("Toccata keyless covenant transaction", () => {
         ],
       }),
     ).toThrowError(/only transaction input at index zero/iu);
+  });
+
+  it("preserves multiple covenant inputs and plain terminal outputs", () => {
+    const result = buildToccataKeylessTransaction({
+      feeSompi: 2_000_000n,
+      inputs: [0, 1].map((index) => ({
+        computeBudget: 20 + index,
+        funding: {
+          amountSompi: 101_000_000n,
+          blockDaaScore: 536_000_000n + BigInt(index),
+          outputIndex: index,
+          scriptPublicKeyHex: FUNDING_SCRIPT,
+          transactionId: `${index + 1}`.repeat(64),
+        },
+        invocationStackHex: [index === 0 ? "31" : "32", "97cde3a1"],
+        redeemScriptHex: REDEEM_SCRIPT,
+      })),
+      outputs: [{ amountSompi: 200_000_000n, scriptPublicKeyHex: "000051" }],
+    });
+    const parsed = JSON.parse(result.transactionSafeJson) as {
+      inputs: Array<{ computeBudget: number; signatureScript: string }>;
+      outputs: Array<{ covenant?: unknown; value: string }>;
+    };
+
+    expect(result.inputs).toHaveLength(2);
+    expect(parsed.inputs.map((input) => input.computeBudget)).toEqual([20, 21]);
+    expect(parsed.inputs.every((input) => input.signatureScript.length > 0)).toBe(true);
+    expect(parsed.outputs).toEqual([
+      { covenant: null, value: "200000000", scriptPublicKey: "000051" },
+    ]);
   });
 });
 

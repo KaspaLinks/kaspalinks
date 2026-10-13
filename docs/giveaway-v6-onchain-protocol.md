@@ -108,7 +108,7 @@ using one, two, or four shards with eight entries per shard. Each registration
 spends a fixed 0.10 KAS fee. The profiles retain the same 0.84 KAS terminal
 reserve after every available place is used, so each shard holds 1.64, 1.22,
 or 1.01 KAS respectively. Terminal fees are fixed at 0.33 KAS for freeze,
-0.18 KAS for draw, and 0.02 KAS for fallback return. A completed full-capacity
+0.18 KAS for draw, and 0.03 KAS for fallback return. A completed full-capacity
 draw therefore returns at least 0.33 KAS of unused reserve; every unused place
 adds another 0.10 KAS. With a 0.5 KAS prize and 0.10 KAS activation fee, the
 exact funding totals are 2.24, 3.04, or 4.64 KAS.
@@ -120,9 +120,10 @@ minimum relay fee is 0.096318 KAS and the fixed 0.10 KAS fee covers it.
 Registration uses 92,024 compute and 183,816 transient mass, requiring at least
 0.092024 KAS. A complete freeze uses 175,299 compute and 643,716 transient
 mass; its normalized minimum fee is 0.321858 KAS. The twelve-participant
-Groth16 draw uses 164,431 compute and 35,364 transient mass, and fallback
-return uses 8,253 compute and 32,492 transient mass. The fixed fees include a
-small policy buffer and all measured transactions fit the post-Toccata Mainnet
+Groth16 draw uses 164,431 compute and 35,364 transient mass. A fresh check of
+the current compiler-pinned Prize artifact measured 42,792 transient mass for
+fallback return; its fixed fee is therefore 0.03 KAS. The fixed fees include a
+policy buffer and all measured transactions fit the post-Toccata Mainnet
 limits of 500,000 compute, 500,000 storage, and 1,000,000 transient mass.
 
 ## Mobile experience
