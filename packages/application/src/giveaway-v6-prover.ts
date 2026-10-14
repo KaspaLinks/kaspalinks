@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { request as httpRequest } from "node:http";
 
 import { z } from "zod";
 
@@ -22,10 +23,7 @@ const pendingSchema = z
 const readySchema = z
   .object({
     status: z.literal("ready"),
-    compactProofHex: z
-      .string()
-      .regex(/^(?:[0-9a-f]{2})+$/u)
-      .max(500_000),
+    compactProofHex: z.string().regex(/^[0-9a-f]{256}$/u),
     parentBlockHashHex: hashSchema,
     parentBlueScore: u64Schema,
     parentSequenceCommitmentHex: hashSchema,
@@ -81,25 +79,92 @@ export function createGiveawayV6EntropyProverClient(options: {
         if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
           throw new Error("Entropy prover response is too large.");
         }
-        if (!response.ok) throw new Error(`Entropy prover rejected the job (${response.status}).`);
-        const parsed = responseSchema.safeParse(JSON.parse(text) as unknown);
-        if (!parsed.success) throw new Error("Entropy prover returned an invalid response.");
-        if (parsed.data.status === "pending") return parsed.data;
-        return {
-          status: "ready",
-          compactProofHex: parsed.data.compactProofHex,
-          entropy: {
-            parentBlockHashHex: parsed.data.parentBlockHashHex,
-            parentBlueScore: parsed.data.parentBlueScore,
-            parentSequenceCommitmentHex: parsed.data.parentSequenceCommitmentHex,
-            candidateBlockHashHex: parsed.data.candidateBlockHashHex,
-            candidateBlueScore: parsed.data.candidateBlueScore,
-            candidateSequenceCommitmentHex: parsed.data.candidateSequenceCommitmentHex,
-          },
-        };
+        return decodeResponse(response.status, text);
       } finally {
         clearTimeout(timeout);
       }
+    },
+  };
+}
+
+/** Connects the container to a Mac prover through a private SSH-forwarded Unix socket. */
+export function createGiveawayV6EntropyProverSocketClient(options: {
+  socketPath: string;
+  timeoutMs?: number;
+}): GiveawayV6EntropyProver {
+  if (!options.socketPath.startsWith("/") || options.socketPath.includes("\0")) {
+    throw new Error("Entropy prover socket path must be absolute.");
+  }
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 120_000) {
+    throw new Error("Entropy prover timeout must be between 1000 and 120000 milliseconds.");
+  }
+  return {
+    async requestProof(input) {
+      const body = JSON.stringify(buildRequest(input));
+      return new Promise<GiveawayV6EntropyProofResult>((resolve, reject) => {
+        const request = httpRequest(
+          {
+            socketPath: options.socketPath,
+            path: "/prove",
+            method: "POST",
+            headers: { accept: "application/json", "content-type": "application/json" },
+          },
+          (response) => {
+            const declaredLength = response.headers["content-length"];
+            if (declaredLength && Number(declaredLength) > MAX_RESPONSE_BYTES) {
+              response.destroy();
+              reject(new Error("Entropy prover response is too large."));
+              return;
+            }
+            const chunks: Buffer[] = [];
+            let size = 0;
+            response.on("data", (chunk: Buffer) => {
+              size += chunk.length;
+              if (size > MAX_RESPONSE_BYTES) {
+                response.destroy();
+                reject(new Error("Entropy prover response is too large."));
+              } else chunks.push(chunk);
+            });
+            response.on("error", reject);
+            response.on("end", () => {
+              try {
+                resolve(decodeResponse(response.statusCode ?? 0, Buffer.concat(chunks).toString("utf8")));
+              } catch (error) {
+                reject(error);
+              }
+            });
+          },
+        );
+        request.setTimeout(timeoutMs, () => request.destroy(new Error("Entropy prover timed out.")));
+        request.on("error", reject);
+        request.end(body);
+      });
+    },
+  };
+}
+
+function decodeResponse(status: number, text: string): GiveawayV6EntropyProofResult {
+  if (status < 200 || status >= 300) throw new Error(`Entropy prover rejected the job (${status}).`);
+  let value: unknown;
+  try {
+    value = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error("Entropy prover returned invalid JSON.");
+  }
+  const parsed = responseSchema.safeParse(value);
+  if (!parsed.success) throw new Error("Entropy prover returned an invalid response.");
+  if (parsed.data.status === "pending") return parsed.data;
+  return {
+    status: "ready",
+    compactProofHex: parsed.data.compactProofHex,
+    entropy: {
+      parentBlockHashHex: parsed.data.parentBlockHashHex,
+      parentBlueScore: parsed.data.parentBlueScore,
+      parentSequenceCommitmentHex: parsed.data.parentSequenceCommitmentHex,
+      candidateBlockHashHex: parsed.data.candidateBlockHashHex,
+      candidateBlueScore: parsed.data.candidateBlueScore,
+      candidateSequenceCommitmentHex: parsed.data.candidateSequenceCommitmentHex,
     },
   };
 }

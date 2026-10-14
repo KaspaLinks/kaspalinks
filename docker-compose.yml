@@ -82,6 +82,7 @@ services:
       GIVEAWAY_V6_PROJECTION_ENABLED: ${GIVEAWAY_V6_PROJECTION_ENABLED:-false}
       GIVEAWAY_V6_SETTLEMENT_ENABLED: ${GIVEAWAY_V6_SETTLEMENT_ENABLED:-false}
       GIVEAWAY_V6_PROVER_URL: ${GIVEAWAY_V6_PROVER_URL:-}
+      GIVEAWAY_V6_PROVER_SOCKET: ${GIVEAWAY_V6_PROVER_SOCKET:-}
       DATABASE_URL: ${DATABASE_URL}
       KASPA_INDEXER_ENABLED: ${KASPA_INDEXER_ENABLED:-false}
       KASPA_MAINNET_INDEXER_PROVIDER_ID: ${KASPA_MAINNET_INDEXER_PROVIDER_ID:-}
@@ -93,6 +94,8 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TOCCATA_WRPC_RELAY_URL: ${TOCCATA_WRPC_RELAY_URL:-http://toccata-relay:3010}
+    volumes:
+      - /var/lib/kaspa-giveaway-prover:/var/lib/kaspa-giveaway-prover:ro
     depends_on:
       postgres:
         condition: service_healthy

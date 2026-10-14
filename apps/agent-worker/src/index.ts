@@ -2,6 +2,7 @@ import { TelegramApiClient } from "@kaspa-actions/agent";
 import {
   detectAndConfirmPayment,
   createGiveawayV6EntropyProverClient,
+  createGiveawayV6EntropyProverSocketClient,
   executeDueGiveawayV6Settlements,
   expireAgentData,
   scheduleNextPaymentDetection,
@@ -49,9 +50,11 @@ const giveawayV6Relay =
       })
     : null;
 
-const giveawayV6Prover = process.env.GIVEAWAY_V6_PROVER_URL?.trim()
-  ? createGiveawayV6EntropyProverClient({ baseUrl: process.env.GIVEAWAY_V6_PROVER_URL.trim() })
-  : null;
+const giveawayV6Prover = process.env.GIVEAWAY_V6_PROVER_SOCKET?.trim()
+  ? createGiveawayV6EntropyProverSocketClient({ socketPath: process.env.GIVEAWAY_V6_PROVER_SOCKET.trim() })
+  : process.env.GIVEAWAY_V6_PROVER_URL?.trim()
+    ? createGiveawayV6EntropyProverClient({ baseUrl: process.env.GIVEAWAY_V6_PROVER_URL.trim() })
+    : null;
 const giveawayV6SettlementEnabled =
   process.env.GIVEAWAY_V6_SETTLEMENT_ENABLED === "true" &&
   giveawayV6Relay !== null &&

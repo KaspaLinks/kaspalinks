@@ -8,6 +8,7 @@ use risc0_zkvm::{
 };
 use serde::Deserialize;
 
+pub mod job;
 pub mod participants;
 
 #[derive(Debug)]

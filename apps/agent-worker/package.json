@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
+    "giveaway:prover-local": "tsx src/local-giveaway-prover.ts",
     "telegram:webhook:set": "tsx src/register-webhook.ts"
   },
   "dependencies": {

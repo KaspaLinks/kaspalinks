@@ -8,6 +8,7 @@ license.workspace = true
 borsh.workspace = true
 giveaway-entropy-core = { path = "../core" }
 giveaway-entropy-methods = { path = "../methods" }
+kaspa-txscript-zk-sdk = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
 risc0-zkvm.workspace = true
 serde.workspace = true
 serde_json.workspace = true

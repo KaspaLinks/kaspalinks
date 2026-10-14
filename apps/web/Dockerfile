@@ -14,29 +14,6 @@ RUN apt-get update \
 
 RUN corepack enable && corepack prepare pnpm@11.1.1 --activate
 
-FROM debian:bookworm-slim AS silverscript
-
-ARG TARGETARCH=amd64
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl \
-  && rm -rf /var/lib/apt/lists/*
-
-RUN set -eux; \
-  case "${TARGETARCH}" in \
-    amd64) \
-      archive="silverc-linux-x86_64.tar.gz"; \
-      checksum="058ffa17a390526f27280752f864b1bd680217cded14dfc5b7fd168d7e943fb5" ;; \
-    arm64) \
-      archive="silverc-linux-arm64.tar.gz"; \
-      checksum="6f8cf9a1eaf2904fa75c1b1ff85a1803a4d4939325de00431b6b05e20854083f" ;; \
-    *) echo "unsupported SilverScript target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
-  esac; \
-  curl -fsSL "https://github.com/kaspanet/silverscript/releases/download/v1.0.0/${archive}" -o /tmp/silverc.tar.gz; \
-  echo "${checksum}  /tmp/silverc.tar.gz" | sha256sum -c -; \
-  tar -xzf /tmp/silverc.tar.gz -C /tmp; \
-  install -m 0755 /tmp/silverc /usr/local/bin/silverc
-
 FROM base AS deps
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -55,12 +32,6 @@ COPY vendor/kaspa-wasm-v2.0.1 ./vendor/kaspa-wasm-v2.0.1
 
 RUN pnpm install --frozen-lockfile
 
-FROM deps AS builder
-
-COPY . .
-
-RUN pnpm db:generate && pnpm --filter @kaspa-actions/web build
-
 FROM deps AS agent-worker
 
 ENV AGENT_WORKER_ENABLED=false
@@ -70,12 +41,17 @@ COPY . .
 
 RUN pnpm db:generate \
   && groupadd --system --gid 1001 nodejs \
-  && useradd --system --uid 1001 --gid nodejs agent \
-  && chown -R agent:nodejs /app
+  && useradd --system --uid 1001 --gid nodejs agent
 
 USER agent
 
 CMD ["./node_modules/.bin/tsx", "apps/agent-worker/src/index.ts"]
+
+FROM deps AS builder
+
+COPY . .
+
+RUN pnpm db:generate && pnpm --filter @kaspa-actions/web build
 
 FROM node:24-bookworm-slim AS wrpc-relay
 
@@ -101,6 +77,29 @@ USER relay
 EXPOSE 3010
 
 CMD ["node", "apps/wrpc-relay/server.mjs"]
+
+FROM debian:bookworm-slim AS silverscript
+
+ARG TARGETARCH=amd64
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+  case "${TARGETARCH}" in \
+    amd64) \
+      archive="silverc-linux-x86_64.tar.gz"; \
+      checksum="058ffa17a390526f27280752f864b1bd680217cded14dfc5b7fd168d7e943fb5" ;; \
+    arm64) \
+      archive="silverc-linux-arm64.tar.gz"; \
+      checksum="6f8cf9a1eaf2904fa75c1b1ff85a1803a4d4939325de00431b6b05e20854083f" ;; \
+    *) echo "unsupported SilverScript target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://github.com/kaspanet/silverscript/releases/download/v1.0.0/${archive}" -o /tmp/silverc.tar.gz; \
+  echo "${checksum}  /tmp/silverc.tar.gz" | sha256sum -c -; \
+  tar -xzf /tmp/silverc.tar.gz -C /tmp; \
+  install -m 0755 /tmp/silverc /usr/local/bin/silverc
 
 FROM node:24-bookworm-slim AS runner
 
