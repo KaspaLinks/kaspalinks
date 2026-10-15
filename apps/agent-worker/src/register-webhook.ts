@@ -19,7 +19,7 @@ await client.setMyCommands([
   { command: "tip", description: "Create: /tip [KAS] <title>" },
   { command: "donation", description: "Create: /donation [KAS] <title>" },
   { command: "goal", description: "Create: /goal <KAS target> <title>" },
-  { command: "giveaway", description: "Create: /giveaway <KAS> <30m|24h|7d> <title>" },
+  { command: "giveaway", description: "Create: /giveaway <KAS> <title>" },
   { command: "stop", description: "Turn off all giveaway result reminders" },
   { command: "disconnect", description: "Disconnect this Telegram chat" },
 ]);

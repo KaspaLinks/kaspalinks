@@ -12,6 +12,7 @@ import V6GiveawayView from "./V6GiveawayView";
 
 function snapshot(
   phase: GiveawayV6ReconstructionSnapshot["phase"],
+  frozenEntryCount = 12,
 ): GiveawayV6ReconstructionSnapshot {
   return {
     phase,
@@ -21,7 +22,7 @@ function snapshot(
     terminalTransactionId: phase === "drawn" ? "03".repeat(32) : null,
     prizeOutpoint: { transactionId: "01".repeat(32), outputIndex: 0 },
     observedRegistrationCount: 12,
-    frozenEntryCount: phase === "awaiting_activation" || phase === "open" ? null : 12,
+    frozenEntryCount: phase === "awaiting_activation" || phase === "open" ? null : frozenEntryCount,
     frozenRootHex: phase === "awaiting_activation" || phase === "open" ? null : "04".repeat(32),
     shards: [],
     winner:
@@ -41,7 +42,7 @@ function snapshot(
   };
 }
 
-function render(phase: GiveawayV6ReconstructionSnapshot["phase"]) {
+function render(phase: GiveawayV6ReconstructionSnapshot["phase"], frozenEntryCount?: number) {
   return renderToStaticMarkup(
     <V6GiveawayView
       amountKas="1"
@@ -52,7 +53,7 @@ function render(phase: GiveawayV6ReconstructionSnapshot["phase"]) {
       network="mainnet"
       publicId="cm12345678901234567890123"
       returnAtDaa="223456"
-      snapshot={snapshot(phase)}
+      snapshot={snapshot(phase, frozenEntryCount)}
       title="Community giveaway"
       turnstileSiteKey="site-key"
       transitionCount={15}
@@ -74,6 +75,31 @@ describe("V6GiveawayView", () => {
     expect(html).toContain("223456");
     expect(html).toContain("Open verification data");
     expect(html).not.toMatch(/privateKey|seedPhrase|witness/i);
+  });
+
+  it("names the close in UTC on the server and promises an automatic payout", () => {
+    const html = render("open");
+
+    expect(html).toContain(
+      'Entries close <time dateTime="2026-10-11T12:00:00.000Z">Oct 11, 12:00 UTC</time>',
+    );
+    expect(html).toContain("the winner is paid automatically, usually within about 30 minutes");
+    expect(html).toContain("Paid automatically, usually about 30 minutes after close");
+  });
+
+  it("tells participants when the winner is expected while the proof runs", () => {
+    const html = render("frozen");
+
+    expect(html).toContain("Entries locked · drawing winner");
+    expect(html).toContain("Kaspa Links is proving the random block now");
+    expect(html).toContain('<time dateTime="2026-10-11T12:30:00.000Z">Oct 11, 12:30 UTC</time>');
+  });
+
+  it("does not promise a draw when nobody entered", () => {
+    const html = render("frozen", 0);
+
+    expect(html).toContain("Entries closed · nobody entered");
+    expect(html).not.toContain("proving the random block");
   });
 
   it("shows the winner and payout transaction after the draw", () => {

@@ -1,7 +1,10 @@
 import type { GiveawayV6ReconstructionSnapshot } from "@kaspa-actions/kaspa-indexer";
 import React from "react";
 
+import { GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES } from "@/lib/giveaway-v6-slots";
+
 import V6EntryClient from "./V6EntryClient";
+import { V6SlotTime } from "./V6SlotTime";
 
 type Props = {
   amountKas: string;
@@ -76,7 +79,7 @@ export default function V6GiveawayView(props: Props) {
                 ? props.snapshot.phase === "drawn"
                   ? "Winner paid"
                   : "Prize returned"
-                : "Automatic after close"
+                : `Paid automatically, usually about ${GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES} minutes after close`
             }
             state={terminal ? "complete" : phaseIndex === 2 ? "active" : "pending"}
           />
@@ -195,15 +198,40 @@ function PhasePanel({
     return (
       <div className="giveaway-result-state giveaway-v6-open-panel">
         <h2>Entries are open</h2>
-        <p>Closing time: {formatDate(closesAt)}. An entry counts only after Kaspa confirms it.</p>
+        <p>
+          Entries close <V6SlotTime iso={closesAt.toISOString()} />. An entry counts only after
+          Kaspa confirms it.
+        </p>
+        <p>
+          After that, the list is locked on Kaspa, the random block is proven and the winner is paid
+          automatically, usually within about {GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES} minutes.
+        </p>
+      </div>
+    );
+  }
+  if (snapshot.phase === "frozen" && snapshot.frozenEntryCount === 0) {
+    return (
+      <div className="giveaway-result-state">
+        <h2>Entries closed · nobody entered</h2>
+        <p>
+          Without participants there is no draw. The prize returns automatically to the address the
+          creator committed before funding.
+        </p>
       </div>
     );
   }
   if (snapshot.phase === "frozen") {
+    const expectedAt = new Date(
+      closesAt.getTime() + GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES * 60 * 1_000,
+    );
     return (
       <div className="giveaway-result-state">
         <h2>Entries locked · drawing winner</h2>
-        <p>The participant root is frozen. The committed Kaspa block now determines the result.</p>
+        <p>
+          The participant list is locked on Kaspa. Kaspa Links is proving the random block now; the
+          winner is expected around <V6SlotTime iso={expectedAt.toISOString()} />. Nobody can change
+          the list or redirect the prize.
+        </p>
       </div>
     );
   }

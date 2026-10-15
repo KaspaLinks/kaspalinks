@@ -280,10 +280,14 @@ wallet, claim, refund, or recovery material.
 
 Creates a reviewed SilverScript V6 pre-funding record for an authenticated canary Creator or an
 authorized Telegram-only Giveaway workspace. The strict body contains `title`, optional
-`description`, `amountKas` (`0.2`, `0.5`, or `1`), `durationSeconds` (30 seconds through 24 hours),
-`participantCap` (`8`, `16`, or `32`), and a Mainnet `returnAddress`. The server reads the current
-Mainnet DAA and blue score, compiles the pinned Prize and Shard contracts, then atomically stores the
-Giveaway and public bootstrap before returning the exact Kaspium `paymentUri`. The response
+`description`, `amountKas` (`0.2`, `0.5`, or `1`), `slotStartsAt`, `participantCap` (`8`, `16`, or
+`32`), and a Mainnet `returnAddress`. `slotStartsAt` is an ISO 8601 timestamp of a draw slot:
+00:00, 06:00, 12:00 or 18:00 UTC, at least 30 minutes and at most 24 hours ahead. The first
+Giveaway of a slot projects it onto the current Mainnet DAA and blue score and stores the result;
+later Giveaways of the slot commit the same chain terms, so one entropy proof serves all of them.
+A slot that the chain has already brought within 30 minutes is rejected. The server then compiles
+the pinned Prize and Shard contracts and atomically stores the Giveaway and public bootstrap before
+returning the exact Kaspium `paymentUri`. The response
 separates prize, execution reserve, and activation fee. Its breakdown also exposes maximum entry
 and settlement fees plus the minimum unused reserve returned after a full-capacity draw. The link
 remains `shareReady: false` until funding and keyless activation confirm.

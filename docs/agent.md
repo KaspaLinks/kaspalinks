@@ -67,7 +67,7 @@ remains in the Mini App browser and is never stored by Telegram or KaspaLinks.
 /payments
 /stats
 /giveaways
-/giveaway <KAS> <duration> <title>
+/giveaway <KAS> <title>
 /link <KAS> <title>
 /invoice <KAS> <title>
 /tip [KAS] <title>
@@ -77,8 +77,10 @@ remains in the Mini App browser and is never stored by Telegram or KaspaLinks.
 /stop — disable all public giveaway result reminders
 ```
 
-Durations use `m`, `h`, or `d`, for example `/giveaway 10 24h Weekend KAS`. Explicit Slash
-Commands execute deterministically. Giveaway commands stop at a browser handoff.
+For example `/giveaway 0.5 Weekend KAS`. Giveaways end at fixed draw times (00:00, 06:00, 12:00
+or 18:00 UTC, up to 24 hours ahead), which the creator picks in the Mini App; an old-style duration
+such as `24h` is rejected with a pointer to them. Explicit Slash Commands execute
+deterministically. Giveaway commands stop at a browser handoff.
 
 ## Payment events and notifications
 

@@ -100,3 +100,68 @@ export function deriveGiveawayV6SlotTerms(input: {
     returnAtDaa: closesAtDaa + BigInt(GIVEAWAY_V6_RETURN_DELAY_SECONDS) * DAA_PER_SECOND,
   };
 }
+
+/**
+ * What creators and participants are told to expect between the close and the
+ * payout: about 24 minutes of proving on the measured home prover, plus the
+ * entropy delay, confirmation and the draw transaction.
+ */
+export const GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES = 30;
+
+type SlotFormatOptions = { locale?: string; timeZone?: string };
+
+/** `18:00 UTC`, the same for every viewer. */
+export function formatGiveawayV6SlotUtc(date: Date): string {
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${hours}:${minutes} UTC`;
+}
+
+/** `Today 20:00` or `Tomorrow 02:00` in the viewer's time zone. */
+export function formatGiveawayV6SlotLocal(
+  date: Date,
+  now: Date,
+  options: SlotFormatOptions = {},
+): string {
+  const day = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: options.timeZone,
+    year: "numeric",
+  });
+  const time = new Intl.DateTimeFormat(options.locale, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: options.timeZone,
+  })
+    .format(date)
+    // Newer ICU data puts a narrow no-break space before AM/PM.
+    .replace(/\s/gu, " ");
+  const target = day.format(date);
+  if (target === day.format(now)) return `Today ${time}`;
+  if (target === day.format(new Date(now.getTime() + 24 * 60 * 60 * 1_000))) {
+    return `Tomorrow ${time}`;
+  }
+  const weekday = new Intl.DateTimeFormat("en", {
+    timeZone: options.timeZone,
+    weekday: "short",
+  }).format(date);
+  return `${weekday} ${time}`;
+}
+
+/** `in 3 h 12 min`, rounded down to whole minutes. */
+export function formatGiveawayV6Remaining(date: Date, now: Date): string {
+  const totalMinutes = Math.max(0, Math.floor((date.getTime() - now.getTime()) / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `in ${minutes} min`;
+  return minutes === 0 ? `in ${hours} h` : `in ${hours} h ${minutes} min`;
+}
+
+export function describeGiveawayV6SlotOption(
+  date: Date,
+  now: Date,
+  options: SlotFormatOptions = {},
+): string {
+  return `${formatGiveawayV6SlotLocal(date, now, options)} (${formatGiveawayV6SlotUtc(date)}) · ${formatGiveawayV6Remaining(date, now)}`;
+}

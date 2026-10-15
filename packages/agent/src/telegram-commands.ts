@@ -5,12 +5,7 @@ export type TelegramCommand =
   | { kind: "stop_giveaway_alerts" }
   | { kind: "connect"; code: string }
   | { kind: "disconnect" | "giveaways" | "help" | "links" | "payments" | "start" | "stats" }
-  | {
-      amountKas: string;
-      entryWindowSeconds: number;
-      kind: "prepare_giveaway";
-      title: string;
-    }
+  | { amountKas: string; kind: "prepare_giveaway"; title: string }
   | {
       amountKas?: string;
       kind: "create_action";
@@ -30,21 +25,6 @@ function normalizedAmount(raw: string): null | string {
     throw new TelegramCommandError("Use a positive KAS amount with at most 8 decimal places.");
   }
   return normalized;
-}
-
-function parseGiveawayDuration(raw: string): number {
-  const match = /^(\d+)([mhd])$/i.exec(raw);
-  if (!match) {
-    throw new TelegramCommandError("Use a duration such as 15m, 6h, or 24h.");
-  }
-  const value = Number(match[1]);
-  const unit = match[2]?.toLowerCase();
-  const multiplier = unit === "d" ? 86_400 : unit === "h" ? 3_600 : 60;
-  const seconds = value * multiplier;
-  if (!Number.isSafeInteger(seconds) || seconds < 60 || seconds > 86_400) {
-    throw new TelegramCommandError("Giveaway duration must be between 1 minute and 24 hours.");
-  }
-  return seconds;
 }
 
 export function slugifyAgentTitle(title: string): string {
@@ -90,20 +70,26 @@ export function parseTelegramCommand(text: string): TelegramCommand | null {
   }
 
   if (command === "giveaway") {
-    const [rawAmount = "", rawDuration = "", ...titleParts] = rest.split(/\s+/);
+    const [rawAmount = "", ...titleParts] = rest.split(/\s+/);
     const amountKas = normalizedAmount(rawAmount);
     if (!amountKas) {
-      throw new TelegramCommandError("Use /giveaway <KAS> <duration> <title>.");
+      throw new TelegramCommandError("Use /giveaway <KAS> <title>.");
     }
     if (amountKas !== "0.2" && amountKas !== "0.5" && amountKas !== "1") {
       throw new TelegramCommandError("Giveaway prize must be 0.2, 0.5 or 1 KAS.");
     }
-    const entryWindowSeconds = parseGiveawayDuration(rawDuration);
+    // Giveaways end at fixed draw times chosen in the Mini App. An old-style
+    // duration would otherwise silently become the start of the title.
+    if (/^\d+[mhd]$/i.test(titleParts[0] ?? "")) {
+      throw new TelegramCommandError(
+        "Giveaways now end at fixed draw times. Use /giveaway <KAS> <title> and pick the time in the app.",
+      );
+    }
     const title = titleParts.join(" ").trim();
-    if (!title) throw new TelegramCommandError("Giveaway title is required after the duration.");
+    if (!title) throw new TelegramCommandError("Giveaway title is required after the prize.");
     if (title.length > 80)
       throw new TelegramCommandError("Title must be 80 characters or shorter.");
-    return { amountKas, entryWindowSeconds, kind: "prepare_giveaway", title };
+    return { amountKas, kind: "prepare_giveaway", title };
   }
 
   const types = {

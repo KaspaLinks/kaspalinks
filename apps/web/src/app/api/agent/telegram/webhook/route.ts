@@ -116,9 +116,8 @@ function usesCovenantStudio(creator: {
 function covenantStudioUrl(mode: "create" | "manage" = "create") {
   return `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/telegram?mode=${mode}`;
 }
-function covenantSetupUrl(input: { amountKas: string; entryWindowSeconds: number; title: string }) {
+function covenantSetupUrl(input: { amountKas: string; title: string }) {
   const url = new URL(covenantStudioUrl("create"));
-  url.searchParams.set("duration", String(input.entryWindowSeconds));
   url.searchParams.set("prize", input.amountKas);
   url.searchParams.set("title", input.title);
   return url.toString();
@@ -166,11 +165,12 @@ const helpText = [
   "/tip [KAS] <title> — optional fixed amount",
   "/donation [KAS] <title> — optional fixed amount",
   "/goal <KAS target> <title> — fundraising target",
-  "/giveaway <KAS prize> <duration> <title> — open setup; choose details in the Mini App",
+  "/giveaway <KAS prize> <title> — open setup; choose the draw time in the Mini App",
   "",
   "SilverScript Mini App: set up → choose return wallet → fund → share.",
-  "A KaspaLinks account is optional in Telegram. Prizes: 0.2, 0.5 or 1 KAS; duration up to 24h.",
-  "Example: /giveaway 0.5 24h Weekend KAS",
+  "A KaspaLinks account is optional in Telegram. Prizes: 0.2, 0.5 or 1 KAS.",
+  "Giveaways end at 00:00, 06:00, 12:00 or 18:00 UTC, up to 24h ahead; the winner is paid about 30 minutes later.",
+  "Example: /giveaway 0.5 Weekend KAS",
   "Example: /link 5.5 Design payment",
   "",
   "View your account",
@@ -186,11 +186,12 @@ const telegramOnlyHelpText = [
   "",
   "Create and manage giveaways with your Telegram account. No KaspaLinks account is required.",
   "",
-  "/giveaway <KAS prize> <duration> <title> — open setup",
+  "/giveaway <KAS prize> <title> — open setup",
   "/giveaways — manage your giveaways",
   "/stop — turn off giveaway result reminders",
   "",
-  "Example: /giveaway 0.5 24h Weekend KAS",
+  "Example: /giveaway 0.5 Weekend KAS",
+  "Giveaways end at 00:00, 06:00, 12:00 or 18:00 UTC, up to 24h ahead. Pick the draw time in the Mini App; the winner is paid about 30 minutes later.",
   "Choose the return wallet before funding. SilverScript can return unspent KAS only to that address; no private key or recovery file is sent to KaspaLinks or Telegram.",
 ].join("\n");
 
@@ -764,7 +765,7 @@ async function handleMessage(
     await client.sendMessage({
       chatId,
       buttons: [[{ text: "Review giveaway", web_app: { url: covenantSetupUrl(command) } }]],
-      text: `Review “${command.title}” in the SilverScript studio. The ${command.amountKas} KAS prize and duration are prefilled. Nothing has been created or funded yet.`,
+      text: `Review “${command.title}” in the SilverScript studio. The ${command.amountKas} KAS prize is prefilled; pick the draw time there. Nothing has been created or funded yet.`,
     });
     return;
   }

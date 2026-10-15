@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   checkGiveawayV6Slot,
   deriveGiveawayV6SlotTerms,
+  describeGiveawayV6SlotOption,
+  formatGiveawayV6Remaining,
+  formatGiveawayV6SlotLocal,
+  formatGiveawayV6SlotUtc,
   isGiveawayV6SlotBoundary,
   listGiveawayV6Slots,
 } from "./giveaway-v6-slots";
@@ -78,5 +82,34 @@ describe("Giveaway V6 draw slots", () => {
         now: at("2026-10-15T12:00:00.000Z"),
       }),
     ).toThrow("future");
+  });
+
+  it("labels a slot in the viewer's zone next to its UTC time", () => {
+    const now = at("2026-10-15T15:48:00.000Z");
+    const berlin = { locale: "de-DE", timeZone: "Europe/Berlin" };
+
+    expect(describeGiveawayV6SlotOption(at("2026-10-15T18:00:00.000Z"), now, berlin)).toBe(
+      "Today 20:00 (18:00 UTC) · in 2 h 12 min",
+    );
+    expect(
+      formatGiveawayV6SlotLocal(
+        at("2026-10-15T00:00:00.000Z"),
+        at("2026-10-14T20:00:00.000Z"),
+        berlin,
+      ),
+    ).toBe("Tomorrow 2:00");
+    expect(
+      formatGiveawayV6SlotLocal(at("2026-10-16T00:00:00.000Z"), now, {
+        locale: "en-US",
+        timeZone: "America/New_York",
+      }),
+    ).toBe("Today 8:00 PM");
+  });
+
+  it("counts down in whole minutes", () => {
+    const slot = at("2026-10-15T18:00:00.000Z");
+    expect(formatGiveawayV6Remaining(slot, at("2026-10-15T17:15:30.000Z"))).toBe("in 44 min");
+    expect(formatGiveawayV6Remaining(slot, at("2026-10-15T12:00:00.000Z"))).toBe("in 6 h");
+    expect(formatGiveawayV6SlotUtc(at("2026-10-16T06:00:00.000Z"))).toBe("06:00 UTC");
   });
 });

@@ -53,9 +53,8 @@ describe("parseTelegramCommand", () => {
   });
 
   it("parses a giveaway handoff without creating wallet material", () => {
-    expect(parseTelegramCommand("/giveaway 0,5 24h Weekend KAS")).toEqual({
+    expect(parseTelegramCommand("/giveaway 0,5 Weekend KAS")).toEqual({
       amountKas: "0.5",
-      entryWindowSeconds: 86_400,
       kind: "prepare_giveaway",
       title: "Weekend KAS",
     });
@@ -63,13 +62,18 @@ describe("parseTelegramCommand", () => {
   });
 
   it.each([
-    "/giveaway 10 soon Weekend",
-    "/giveaway 10 1h Unsupported prize",
-    "/giveaway 10 8d Too long",
-    "/giveaway 0 1h Empty reward",
-    "/giveaway 10 1h",
+    "/giveaway soon Weekend",
+    "/giveaway 10 Unsupported prize",
+    "/giveaway 0 Empty reward",
+    "/giveaway 0.5",
   ])("rejects invalid giveaway setup in %s", (text) => {
     expect(() => parseTelegramCommand(text)).toThrow(TelegramCommandError);
+  });
+
+  it("points an old-style duration to the fixed draw times", () => {
+    expect(() => parseTelegramCommand("/giveaway 0.5 24h Weekend KAS")).toThrow(
+      "Giveaways now end at fixed draw times",
+    );
   });
 });
 

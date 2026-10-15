@@ -171,7 +171,7 @@ describe("Telegram Agent webhook", () => {
     );
   });
 
-  it("explains command units and duration syntax in help", async () => {
+  it("explains command units and the fixed draw times in help", async () => {
     mocks.findConnection.mockResolvedValue({
       creator: { defaultRecipientAddress: null },
       creatorId: "creator-1",
@@ -195,7 +195,9 @@ describe("Telegram Agent webhook", () => {
     const help = mocks.sendMessage.mock.calls[0]?.[0]?.text as string;
     expect(help).toContain("Amounts are always entered in KAS");
     expect(help).toContain("SilverScript Mini App");
-    expect(help).toContain("24h");
+    expect(help).toContain("00:00, 06:00, 12:00 or 18:00 UTC");
+    expect(help).toContain("Example: /giveaway 0.5 Weekend KAS");
+    expect(help).not.toContain("<duration>");
     expect(help).not.toContain("7d");
   });
 
@@ -272,7 +274,7 @@ describe("Telegram Agent webhook", () => {
           chat: { id: 123, type: "private" },
           from: { id: 123 },
           message_id: 2,
-          text: "/giveaway 0,5 24h Weekend KAS",
+          text: "/giveaway 0,5 Weekend KAS",
         },
         update_id: 4,
       }),
@@ -478,7 +480,7 @@ describe("SilverScript bot handoff", () => {
     expect(JSON.stringify(sent.buttons)).not.toContain("/toccata-lab/giveaway");
   });
   it("opens SilverScript without creating a legacy draft", async () => {
-    expect((await POST(request("/giveaway 0.5 24h Test"))).status).toBe(200);
+    expect((await POST(request("/giveaway 0.5 Test"))).status).toBe(200);
     expect(mocks.createGiveawaySetupDraft).not.toHaveBeenCalled();
     expect(JSON.stringify(mocks.sendMessage.mock.calls)).not.toContain("Older giveaways");
     expect(JSON.stringify(mocks.sendMessage.mock.calls)).not.toContain("/toccata-lab/giveaway");
@@ -489,7 +491,7 @@ describe("SilverScript bot handoff", () => {
             {
               text: "Review giveaway",
               web_app: {
-                url: "https://kaspalinks.com/telegram?mode=create&duration=86400&prize=0.5&title=Test",
+                url: "https://kaspalinks.com/telegram?mode=create&prize=0.5&title=Test",
               },
             },
           ],
@@ -500,7 +502,7 @@ describe("SilverScript bot handoff", () => {
   it("creates a Telegram-only workspace before opening SilverScript", async () => {
     mocks.findConnection.mockResolvedValue(null);
 
-    expect((await POST(request("/giveaway 0.5 24h Test"))).status).toBe(200);
+    expect((await POST(request("/giveaway 0.5 Test"))).status).toBe(200);
 
     expect(mocks.ensureWorkspace).toHaveBeenCalledWith(expect.anything(), {
       telegramChatId: "123",
@@ -513,7 +515,7 @@ describe("SilverScript bot handoff", () => {
             {
               text: "Review giveaway",
               web_app: {
-                url: "https://kaspalinks.com/telegram?mode=create&duration=86400&prize=0.5&title=Test",
+                url: "https://kaspalinks.com/telegram?mode=create&prize=0.5&title=Test",
               },
             },
           ],

@@ -12,6 +12,11 @@ import {
   GIVEAWAY_V6_PARTICIPANT_CAPS,
   type GiveawayV6ParticipantCap,
 } from "@/lib/giveaway-v6-budget";
+import {
+  describeGiveawayV6SlotOption,
+  GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES,
+  listGiveawayV6Slots,
+} from "@/lib/giveaway-v6-slots";
 import { validateRecipientAddress } from "../../new-link/helpers";
 
 type Surface = "browser" | "telegram";
@@ -89,12 +94,7 @@ type ActivationResponse = {
 };
 
 const PRIZES: Prize[] = ["0.2", "0.5", "1"];
-const DURATIONS = [
-  { label: "15 min", seconds: 15 * 60 },
-  { label: "1 hour", seconds: 60 * 60 },
-  { label: "6 hours", seconds: 6 * 60 * 60 },
-  { label: "24 hours", seconds: 24 * 60 * 60 },
-] as const;
+const SLOT_REFRESH_MS = 30_000;
 const PRIZE_SOMPI: Record<Prize, bigint> = {
   "0.2": 20_000_000n,
   "0.5": 50_000_000n,
@@ -107,9 +107,16 @@ function formatSompi(value: bigint): string {
   return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
-function durationLabel(seconds: number): string {
-  if (seconds % 3_600 === 0) return `${seconds / 3_600} ${seconds === 3_600 ? "hour" : "hours"}`;
-  return `${Math.ceil(seconds / 60)} minutes`;
+/**
+ * Keeps the chosen slot while it is still offered and otherwise falls back to
+ * the earliest one, so a slot that passed its cutoff is never submitted.
+ */
+export function chooseGiveawayV6Slot(slots: Date[], preferred: string): string {
+  return (
+    slots.find((slot) => slot.toISOString() === preferred)?.toISOString() ??
+    slots[0]?.toISOString() ??
+    ""
+  );
 }
 
 type GiveawayV6Budget = ReturnType<typeof buildGiveawayV6Budget>;
@@ -256,7 +263,8 @@ export function GiveawayV6Studio({
   const [description, setDescription] = useState("");
   const [prize, setPrize] = useState<Prize>("0.5");
   const [participantCap, setParticipantCap] = useState<GiveawayV6ParticipantCap>(8);
-  const [durationSeconds, setDurationSeconds] = useState(60 * 60);
+  const [preferredSlot, setPreferredSlot] = useState("");
+  const [slotClock, setSlotClock] = useState<null | number>(null);
   const [returnAddress, setReturnAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -273,18 +281,27 @@ export function GiveawayV6Studio({
   }, [surface]);
 
   useEffect(() => {
+    // Slots depend on the viewer's clock, so they are listed only in the
+    // browser and refreshed as slots pass their cutoff.
+    setSlotClock(Date.now());
+    const interval = window.setInterval(() => setSlotClock(Date.now()), SLOT_REFRESH_MS);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("mode") === "manage") setView("manage");
     const presetTitle = params.get("title")?.trim();
     const presetPrize = params.get("prize");
-    const presetDuration = Number(params.get("duration"));
+    const presetSlot = params.get("slot");
     const presetParticipantCap = Number(params.get("participants"));
     if (presetTitle) setTitle(presetTitle.slice(0, 80));
     if (presetPrize === "0.2" || presetPrize === "0.5" || presetPrize === "1") {
       setPrize(presetPrize);
     }
-    if (DURATIONS.some((duration) => duration.seconds === presetDuration)) {
-      setDurationSeconds(presetDuration);
+    if (presetSlot) {
+      const parsed = new Date(presetSlot);
+      if (Number.isFinite(parsed.getTime())) setPreferredSlot(parsed.toISOString());
     }
     if (GIVEAWAY_V6_PARTICIPANT_CAPS.some((cap) => cap === presetParticipantCap)) {
       setParticipantCap(presetParticipantCap as GiveawayV6ParticipantCap);
@@ -444,6 +461,22 @@ export function GiveawayV6Studio({
     event.preventDefault();
     setError("");
     setMessage("");
+    // Submit the slot the creator saw, never a silent substitute: if it passed
+    // its cutoff since the list was drawn, refresh the list and ask again.
+    const shown =
+      slotClock === null
+        ? ""
+        : chooseGiveawayV6Slot(listGiveawayV6Slots(new Date(slotClock)), preferredSlot);
+    const now = Date.now();
+    if (
+      !shown ||
+      !listGiveawayV6Slots(new Date(now)).some((slot) => slot.toISOString() === shown)
+    ) {
+      setSlotClock(now);
+      setError("That draw time just closed for new giveaways. Check the new choice and try again.");
+      return;
+    }
+    const slotStartsAt = shown;
     const address = validateRecipientAddress(returnAddress);
     if (address.state !== "valid") {
       setError(address.state === "invalid" ? address.reason : "Enter your return Kaspa address.");
@@ -455,9 +488,9 @@ export function GiveawayV6Studio({
         body: JSON.stringify({
           amountKas: prize,
           description: description.trim() || null,
-          durationSeconds,
           participantCap,
           returnAddress: returnAddress.trim(),
+          slotStartsAt,
           title: title.trim(),
         }),
         headers: { ...authHeaders(), "content-type": "application/json" },
@@ -561,6 +594,9 @@ export function GiveawayV6Studio({
   }
 
   const step = giveawayV6StudioStep(selected);
+  const slotNow = slotClock === null ? null : new Date(slotClock);
+  const slots = slotNow ? listGiveawayV6Slots(slotNow) : [];
+  const chosenSlot = chooseGiveawayV6Slot(slots, preferredSlot);
   const budget = buildGiveawayV6Budget(PRIZE_SOMPI[prize], participantCap);
   const selectedPrize = selected
     ? PRIZES.find((candidate) => candidate === selected.amountKas)
@@ -747,20 +783,27 @@ export function GiveawayV6Studio({
                     ))}
                   </fieldset>
                   <label className="field">
-                    Entry time
+                    Draw time
                     <select
-                      onChange={(event) => setDurationSeconds(Number(event.target.value))}
-                      value={durationSeconds}
+                      disabled={slots.length === 0}
+                      onChange={(event) => setPreferredSlot(event.target.value)}
+                      required
+                      value={chosenSlot}
                     >
-                      {DURATIONS.some((duration) => duration.seconds === durationSeconds) ? null : (
-                        <option value={durationSeconds}>{durationLabel(durationSeconds)}</option>
-                      )}
-                      {DURATIONS.map((duration) => (
-                        <option key={duration.seconds} value={duration.seconds}>
-                          {duration.label}
-                        </option>
-                      ))}
+                      {slotNow
+                        ? slots.map((slot) => (
+                            <option key={slot.toISOString()} value={slot.toISOString()}>
+                              {describeGiveawayV6SlotOption(slot, slotNow)}
+                            </option>
+                          ))
+                        : null}
                     </select>
+                    <small>
+                      Entries close at the time you pick. Kaspa then locks the participant list,
+                      Kaspa Links proves the random block, and the winner is paid automatically,
+                      usually within about {GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES} minutes. If nobody
+                      entered, the prize returns to you.
+                    </small>
                   </label>
                   <label className="field">
                     Return Kaspa address
@@ -784,7 +827,7 @@ export function GiveawayV6Studio({
                   />
                   <button
                     className="btn btn-primary studio-primary"
-                    disabled={loading || !title.trim()}
+                    disabled={loading || !title.trim() || !chosenSlot}
                     type="submit"
                   >
                     {loading ? "Preparing…" : "Review and create"}
@@ -800,7 +843,7 @@ export function GiveawayV6Studio({
                   <h2>How it works</h2>
                   <ol>
                     <li>
-                      Set the rules<span>Prize, duration and return wallet are committed.</span>
+                      Set the rules<span>Prize, draw time and return wallet are committed.</span>
                     </li>
                     <li>
                       Fund once<span>Scan one exact Mainnet payment.</span>
