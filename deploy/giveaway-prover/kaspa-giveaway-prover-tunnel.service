@@ -1,0 +1,26 @@
+[Unit]
+Description=Kaspa Links Giveaway V6 prover tunnel to the application host
+Documentation=file://%h/kaspa-giveaway-prover/app/deploy/giveaway-prover/README.md
+After=network-online.target kaspa-giveaway-prover.service
+
+[Service]
+Type=simple
+# PROVER_TUNNEL_TARGET=kaspa-prover@<application host>
+EnvironmentFile=%h/.config/kaspa-giveaway-prover/tunnel.env
+# Outbound only: the application host's worker reaches the prover through a
+# Unix socket that this connection publishes there. No port is opened here.
+ExecStart=/usr/bin/ssh -N \
+  -i %h/.ssh/id_ed25519_kaspa_prover \
+  -o IdentitiesOnly=yes \
+  -o BatchMode=yes \
+  -o StrictHostKeyChecking=yes \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=15 \
+  -o ServerAliveCountMax=2 \
+  -R /var/lib/kaspa-giveaway-prover/prover.sock:127.0.0.1:3020 \
+  ${PROVER_TUNNEL_TARGET}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

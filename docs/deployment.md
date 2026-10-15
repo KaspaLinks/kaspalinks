@@ -107,6 +107,10 @@ The current RISC Zero Groth16 proof took about 16 minutes and more than 8 GiB re
 3. From the Mac, keep a reverse tunnel running: `ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -R /var/lib/kaspa-giveaway-prover/prover.sock:127.0.0.1:3020 kaspa-prover@<app-server>`. A disconnected tunnel must be re-established before the target blue score. The per-user `StreamLocalBindUnlink yes` setting permits a restart even if the previous socket path remains.
 4. Set `GIVEAWAY_V6_PROVER_SOCKET=/var/lib/kaspa-giveaway-prover/prover.sock` on Hetzner and recreate only `agent-worker`. Check that the socket is visible and readable as UID `1001` inside the worker, and that a test proof job returns `pending` followed by `ready`. Leave settlement disabled until a full canary confirms the worker's Freeze, Draw and Return transitions against Mainnet.
 
+### Giveaway V6 home prover
+
+The always-on replacement for the Mac pilot is a Linux machine that also runs a pruned Kaspa node. It uses the same `kaspa-prover` account, socket and worker setting as above, with its own public key added to that account. Setup, user services and measurements are in [deploy/giveaway-prover/README.md](../deploy/giveaway-prover/README.md). Giveaways end only at fixed draw slots (00:00, 06:00, 12:00 and 18:00 UTC), and all Giveaways of a slot share one proof, so the prover runs at most four times a day.
+
 ### Giveaway Turnstile setup
 
 1. In Cloudflare Turnstile, create a **Managed** widget restricted to `kaspalinks.com`.

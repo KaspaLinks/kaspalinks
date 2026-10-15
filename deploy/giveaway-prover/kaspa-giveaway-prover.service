@@ -1,0 +1,25 @@
+[Unit]
+Description=Kaspa Links Giveaway V6 entropy prover (loopback only)
+Documentation=file://%h/kaspa-giveaway-prover/app/deploy/giveaway-prover/README.md
+# Groth16 wrapping runs in the RISC Zero Docker image.
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/kaspa-giveaway-prover/app
+# Node for the job server, r0vm for proving, Docker for Groth16.
+Environment=PATH=%h/.local/node/bin:%h/.risc0/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=GIVEAWAY_PROVER_PORT=3020
+Environment=RISC0_WORK_DIR=%h/kaspa-giveaway-prover/work
+ExecStartPre=/usr/bin/mkdir -p %h/kaspa-giveaway-prover/work
+ExecStart=%h/kaspa-giveaway-prover/app/node_modules/.bin/tsx apps/agent-worker/src/local-giveaway-prover.ts
+Restart=on-failure
+RestartSec=10
+
+# This machine also runs a Kaspa node. A proof peaks at about 8 GB and leans
+# on swap; if memory runs out, the kernel must kill the proof, never the node.
+Nice=10
+OOMScoreAdjust=1000
+
+[Install]
+WantedBy=default.target
