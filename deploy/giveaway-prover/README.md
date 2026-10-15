@@ -13,7 +13,9 @@ forged proof cannot move funds, because the covenant checks it on chain.
 Measured on an AMD Ryzen 5 5500U with 16 GB of memory and a pruned `kaspad`
 running alongside:
 
-- about 24 minutes per proof, of which about 20 seconds is Groth16 wrapping
+- 24 to 27 minutes per proof, of which about 20 seconds is Groth16 wrapping
+  (three runs; the last one was a live job through `prove_job`, from header
+  capture to a verified receipt)
 - about 8 GB peak resident memory; the proof leans on swap while the node keeps
   its memory, so give the machine at least 16 GB of swap
 - one proof per draw slot, never per Giveaway, and none for a slot without

@@ -103,8 +103,8 @@ export function deriveGiveawayV6SlotTerms(input: {
 
 /**
  * What creators and participants are told to expect between the close and the
- * payout: about 24 minutes of proving on the measured home prover, plus the
- * entropy delay, confirmation and the draw transaction.
+ * payout: 24 to 27 minutes of proving on the measured home prover, plus the
+ * entropy delay, the freeze, confirmation and the draw transaction.
  */
 export const GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES = 30;
 
