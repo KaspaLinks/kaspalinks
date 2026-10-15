@@ -105,16 +105,16 @@ describe("Giveaway V6 activation transaction", () => {
     const witness = decodeGiveawayV6Witness(result.signatureScriptHex);
 
     expect(result).toMatchObject({
-      computeMass: "64709",
+      computeMass: "64672",
       computeBudget: GIVEAWAY_V6_ACTIVATION_COMPUTE_BUDGET,
-      feeMass: "96318",
+      feeMass: "96244",
       feeSompi: "10000000",
       fundingAmountSompi: "514000000",
       fundingOutputIndex: 2,
       fundingTransactionId: "01".repeat(32),
-      minimumFeeSompi: "9631800",
+      minimumFeeSompi: "9624400",
       storageMass: "196467",
-      transientMass: "192636",
+      transientMass: "192488",
     });
     expect(BigInt(result.minimumFeeSompi)).toBeLessThanOrEqual(10_000_000n);
     expect(BigInt(result.mass)).toBeGreaterThan(0n);

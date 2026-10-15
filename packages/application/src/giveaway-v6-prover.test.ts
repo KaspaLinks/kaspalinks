@@ -13,6 +13,7 @@ import type {
 import {
   createGiveawayV6EntropyProverClient,
   createGiveawayV6EntropyProverSocketClient,
+  giveawayV6EntropyProofJob,
 } from "./giveaway-v6-prover";
 
 const config: GiveawayV6ReconstructionConfig = {
@@ -85,13 +86,31 @@ describe("Giveaway V6 entropy prover client", () => {
       entropy: { candidateBlueScore: 200n, parentBlueScore: 199n },
     });
     const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as Record<string, unknown>;
-    expect(body.jobKey).toMatch(/^[0-9a-f]{64}$/u);
-    expect(body).toMatchObject({
-      giveawayIdHex: config.giveawayIdHex,
-      entropyTargetBlueScore: "200",
-      frozenEntryCount: 1,
-    });
+    expect(body).toEqual(giveawayV6EntropyProofJob(200n));
     expect(JSON.stringify(body)).not.toMatch(/private|seed|signature|passkey/i);
+  });
+
+  it("asks for one proof per draw slot, not per Giveaway", () => {
+    // Two Giveaways of the same slot share the target and so the job; the
+    // receipt carries nothing that would tell them apart.
+    expect(giveawayV6EntropyProofJob(200n)).toEqual(giveawayV6EntropyProofJob(200n));
+    expect(giveawayV6EntropyProofJob(200n).jobKey).not.toBe(giveawayV6EntropyProofJob(201n).jobKey);
+    expect(Object.keys(giveawayV6EntropyProofJob(200n)).sort()).toEqual([
+      "entropyTargetBlueScore",
+      "jobKey",
+    ]);
+  });
+
+  it("never requests a proof for a Giveaway without entries", async () => {
+    const fetchMock = vi.fn();
+    const client = createGiveawayV6EntropyProverClient({
+      baseUrl: "http://127.0.0.1:3020/",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    await expect(
+      client.requestProof({ config, snapshot: { ...snapshot, frozenEntryCount: 0 } }),
+    ).rejects.toThrow(/non-empty frozen/u);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("sends the same public proof job over a private Unix socket", async () => {
@@ -115,11 +134,7 @@ describe("Giveaway V6 entropy prover client", () => {
         status: "pending",
         retryAfterSeconds: 60,
       });
-      expect(received).toMatchObject([{
-        giveawayIdHex: config.giveawayIdHex,
-        frozenRootHex: snapshot.frozenRootHex,
-        entropyTargetBlueScore: "200",
-      }]);
+      expect(received).toEqual([giveawayV6EntropyProofJob(200n)]);
       expect(JSON.stringify(received)).not.toMatch(/private|seed|signature|passkey/i);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -2,9 +2,15 @@
 
 This lab workspace contains the reproducible RISC Zero guest for Giveaway V6.
 It proves that two supplied post-Toccata Kaspa headers are a selected-parent
-pair and the first pair whose blue score crosses the Giveaway's committed
-target. The journal is byte-for-byte identical to the journal reconstructed by
+pair and the first pair whose blue score crosses a committed target. The
+journal is byte-for-byte identical to the journal reconstructed by
 `GiveawayPrizeShardsV6.draw`.
+
+The journal holds the target and both blocks, and nothing Giveaway-specific.
+Every Giveaway committed to the same draw slot shares the target, so one
+receipt serves all of them; each still derives its own winner because the
+draw digest mixes in its id and frozen participant root separately. Proof
+jobs are therefore keyed by the target alone.
 
 The prover is untrusted and holds no wallet keys or funds. Kaspa L1 accepts a
 draw only when the compact proof verifies against the constructor-pinned image
@@ -20,8 +26,21 @@ Pinned build tools:
 Pinned guest image ID:
 
 ```text
-a402f88f9b89afd2eb5e5f6cdc96f67af2ff4d4da70e1e6a4767a99c26b692b1
+8d405aec6ae72a8a2bba7ed56620c85973c555599b52403187f40c6891d44d3b
 ```
+
+The guest is always built inside RISC Zero's builder container
+(`risczero/risc0-guest-builder:r0.1.88.0`, set in `methods/build.rs`). A host
+build embeds the builder's absolute Cargo and source paths into the ELF, which
+made the earlier pinned ID reproducible only on the machine that produced it.
+Inside the container every path is fixed. This ID was rebuilt independently on
+an x86_64 Linux machine and in an x86_64 VM on Apple Silicon, with identical
+ELF bytes.
+
+Building therefore needs Docker with the `buildx` plugin, because `risc0-build`
+exports the ELF with `docker build --output`. Ubuntu's `docker.io` package does
+not ship `buildx`; install `docker-buildx` or the plugin from the upstream
+release.
 
 Run the deterministic core checks with:
 
@@ -81,7 +100,7 @@ Pinned public fixture hashes:
 ```text
 Mainnet header pair  837136a1a4d0a71953de19dede0fcef3ec13d85d522977948afc1bc9b152a1b9
 Participants         43ffa14e8e719019696b631a92a4a3e84b9144bbbf6cac57fca256a5cb8195c4
-Groth16 receipt      2c019444b1f73c905e77bfabebac73270b4d4999025e5d0e068264acabeb668a
+Groth16 receipt      12776db32c8e5fd8f7886a2b043e08900bcec9669609c06855ee777c2dd0b005
 ```
 
 The final SilverScript test independently verifies the receipt, converts it to

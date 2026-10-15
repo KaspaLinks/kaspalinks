@@ -14,8 +14,6 @@ fn fixture_job() -> ProofJobInput {
     ))
     .expect("header capture parses");
     serde_json::from_value(serde_json::json!({
-        "giveawayIdHex": hex(&fixture.entropy.giveaway_id),
-        "frozenRootHex": hex(&fixture.frozen.frozen_root),
         "entropyTargetBlueScore": fixture.entropy.target_blue_score.to_string(),
         "capturedPair": captured_pair,
     }))
@@ -47,16 +45,18 @@ fn existing_mainnet_receipt_becomes_a_worker_ready_response() {
 }
 
 #[test]
-fn another_frozen_root_cannot_reuse_the_receipt() {
-    let mut job = fixture_job();
-    job.frozen_root_hex.replace_range(0..2, "00");
-    assert!(response_from_receipt(
-        &job,
-        include_bytes!(
-            "../../../claimable-script/fixtures/giveaway_entropy_v6_mainnet_groth16.rcpt"
-        ),
-    )
-    .is_err());
+fn a_job_no_longer_accepts_giveaway_fields() {
+    // The old per-Giveaway job carried an id and frozen root. Rejecting them
+    // loudly catches a worker still built for that format.
+    let mut job: serde_json::Value = serde_json::json!({
+        "entropyTargetBlueScore": "559181995",
+        "capturedPair": serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../../claimable-script/fixtures/giveaway_v6_mainnet_pair.json"
+        ))
+        .unwrap(),
+    });
+    job["giveawayIdHex"] = serde_json::Value::String("42".repeat(32));
+    assert!(serde_json::from_value::<ProofJobInput>(job).is_err());
 }
 
 #[test]
@@ -64,13 +64,4 @@ fn a_different_target_is_rejected_before_proving() {
     let mut job = fixture_job();
     job.entropy_target_blue_score = "559181996".to_owned();
     assert!(job.entropy().is_err());
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use core::fmt::Write;
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        write!(&mut out, "{byte:02x}").unwrap();
-    }
-    out
 }

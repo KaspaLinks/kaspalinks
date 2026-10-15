@@ -21,19 +21,13 @@ const hashSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const scoreSchema = z.string().regex(/^(0|[1-9][0-9]*)$/u).refine((value) =>
   value.length <= 20 && BigInt(value) <= (1n << 64n) - 1n,
 );
-const shardSchema = z.object({
-  count: z.number().int().min(0).max(65_535),
-  entriesRootHex: hashSchema,
-  addressRootHex: hashSchema,
-}).strict();
+// One job per draw slot: the receipt attests the first selected-chain block
+// crossing the target and nothing Giveaway-specific, so every Giveaway of the
+// slot is served from the same cached result.
 const requestSchema = z.object({
   jobKey: hashSchema,
-  giveawayIdHex: hashSchema,
-  frozenRootHex: hashSchema,
-  frozenEntryCount: z.number().int().min(1).max(65_535),
   entropyTargetBlueScore: scoreSchema,
-  shards: z.array(shardSchema).min(1).max(64),
-}).strict().refine((value) => value.shards.reduce((sum, shard) => sum + shard.count, 0) === value.frozenEntryCount);
+}).strict();
 const readySchema = z.object({
   status: z.literal("ready"),
   compactProofHex: z.string().regex(/^[0-9a-f]{256}$/u),
@@ -52,12 +46,7 @@ type Runner = (request: LocalProofRequest) => Promise<LocalProofReady>;
 
 export function parseLocalProofRequest(value: unknown): LocalProofRequest {
   const request = requestSchema.parse(value);
-  const commitment = JSON.stringify({
-    giveawayIdHex: request.giveawayIdHex,
-    frozenRootHex: request.frozenRootHex,
-    entropyTargetBlueScore: request.entropyTargetBlueScore,
-    shards: request.shards,
-  });
+  const commitment = JSON.stringify({ entropyTargetBlueScore: request.entropyTargetBlueScore });
   const expected = createHash("sha256").update(commitment).digest("hex");
   if (request.jobKey !== expected) throw new Error("Invalid proof job key.");
   return request;
@@ -124,8 +113,6 @@ export async function runLocalProofJob(request: LocalProofRequest): Promise<Loca
     proverBin,
     [],
     JSON.stringify({
-      giveawayIdHex: request.giveawayIdHex,
-      frozenRootHex: request.frozenRootHex,
       entropyTargetBlueScore: request.entropyTargetBlueScore,
       capturedPair: captured,
     }),

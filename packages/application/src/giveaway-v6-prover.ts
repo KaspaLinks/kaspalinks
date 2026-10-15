@@ -178,24 +178,22 @@ function buildRequest(input: GiveawayV6EntropyProofRequest) {
   ) {
     throw new Error("Entropy proof requires a non-empty frozen Giveaway V6 state.");
   }
-  const shards = input.snapshot.shards.map((shard) => ({
-    count: shard.finalizedEntryCount,
-    entriesRootHex: shard.entriesRootHex,
-    addressRootHex: shard.addressRootHex,
-  }));
-  const publicCommitment = JSON.stringify({
-    giveawayIdHex: input.config.giveawayIdHex,
-    frozenRootHex: input.snapshot.frozenRootHex,
-    entropyTargetBlueScore: input.config.entropyTargetBlueScore.toString(),
-    shards,
-  });
+  return giveawayV6EntropyProofJob(input.config.entropyTargetBlueScore);
+}
+
+/**
+ * The proof attests only which selected-chain block first crosses the target,
+ * so the job is keyed by the target alone. Every Giveaway committed to the
+ * same draw slot shares the target, so the prover runs once per slot and hands
+ * the same receipt to each of them. Empty and unfrozen Giveaways never ask.
+ */
+export function giveawayV6EntropyProofJob(entropyTargetBlueScore: bigint) {
+  const target = entropyTargetBlueScore.toString();
   return {
-    jobKey: createHash("sha256").update(publicCommitment).digest("hex"),
-    giveawayIdHex: input.config.giveawayIdHex,
-    frozenRootHex: input.snapshot.frozenRootHex,
-    frozenEntryCount: input.snapshot.frozenEntryCount,
-    entropyTargetBlueScore: input.config.entropyTargetBlueScore.toString(),
-    shards,
+    jobKey: createHash("sha256")
+      .update(JSON.stringify({ entropyTargetBlueScore: target }))
+      .digest("hex"),
+    entropyTargetBlueScore: target,
   };
 }
 

@@ -76,11 +76,10 @@ pub struct CapturedHeader {
 }
 
 /// Converts a public wRPC capture into the exact guest input and verifies both
-/// declared header hashes before any proof work begins.
+/// declared header hashes before any proof work begins. The input carries no
+/// Giveaway data: one proof serves every Giveaway committed to the same target.
 pub fn entropy_input_from_capture(
     capture: &CapturedEntropyPair,
-    giveaway_id: [u8; 32],
-    frozen_root: [u8; 32],
 ) -> Result<EntropyInput, CaptureError> {
     if capture.network != "mainnet" {
         return Err(CaptureError::InvalidNetwork);
@@ -96,8 +95,6 @@ pub fn entropy_input_from_capture(
         return Err(CaptureError::HashMismatch("candidate.hash"));
     }
     let input = EntropyInput {
-        giveaway_id,
-        frozen_root,
         target_blue_score,
         parent,
         candidate,
@@ -120,8 +117,8 @@ pub fn reconstruct_giveaway_fixture(
             .map_err(ReconstructionError::ParticipantCapture)?;
     let frozen = participants::build_frozen_participant_set(&shards, tree_depth)
         .map_err(ReconstructionError::ParticipantTree)?;
-    let entropy = entropy_input_from_capture(&capture, giveaway_id, frozen.frozen_root)
-        .map_err(ReconstructionError::HeaderCapture)?;
+    let entropy =
+        entropy_input_from_capture(&capture).map_err(ReconstructionError::HeaderCapture)?;
     let validated = entropy
         .validate()
         .map_err(CaptureError::InvalidPair)

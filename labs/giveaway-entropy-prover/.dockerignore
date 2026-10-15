@@ -1,0 +1,5 @@
+# The guest build needs only `core` and `methods/guest`. Keeping host build
+# output out of the Docker context makes the upload small and keeps anything
+# machine-specific away from the reproducible guest build.
+target
+**/target

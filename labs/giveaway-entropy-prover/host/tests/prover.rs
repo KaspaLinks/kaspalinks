@@ -33,8 +33,6 @@ fn synthetic_input() -> EntropyInput {
     let parent = synthetic_header(11, 99, [9; 32]);
     let candidate = synthetic_header(21, 100, parent.hash());
     EntropyInput {
-        giveaway_id: [0x42; 32],
-        frozen_root: [0x24; 32],
         target_blue_score: 100,
         parent,
         candidate,
@@ -50,8 +48,8 @@ fn mainnet_capture() -> CapturedEntropyPair {
 
 #[test]
 fn imports_and_rehashes_the_pinned_mainnet_pair() {
-    let input = entropy_input_from_capture(&mainnet_capture(), [0x42; 32], [0x24; 32])
-        .expect("pinned Mainnet headers verify");
+    let input =
+        entropy_input_from_capture(&mainnet_capture()).expect("pinned Mainnet headers verify");
     assert_eq!(
         hex(&input.parent.hash()),
         "49c362907357ef61e3eeb4a0fcf7cae6b7dc05a04b566ec0a1fae917ab4be2d1"
@@ -68,7 +66,7 @@ fn rejects_a_mutated_mainnet_header_capture() {
     let mut capture = mainnet_capture();
     capture.candidate.nonce = (capture.candidate.nonce.parse::<u64>().unwrap() + 1).to_string();
     assert_eq!(
-        entropy_input_from_capture(&capture, [0x42; 32], [0x24; 32]),
+        entropy_input_from_capture(&capture),
         Err(CaptureError::HashMismatch("candidate.hash"))
     );
 }
@@ -77,7 +75,7 @@ fn rejects_a_mutated_mainnet_header_capture() {
 fn image_id_is_pinned() {
     assert_eq!(
         hex(&image_id()),
-        "a402f88f9b89afd2eb5e5f6cdc96f67af2ff4d4da70e1e6a4767a99c26b692b1"
+        "8d405aec6ae72a8a2bba7ed56620c85973c555599b52403187f40c6891d44d3b"
     );
 }
 
@@ -127,9 +125,17 @@ fn verifies_the_pinned_groth16_fixture() {
 }
 
 #[test]
-fn pinned_proof_cannot_be_rebound_to_another_frozen_root() {
+fn pinned_proof_is_bound_to_its_target_blue_score() {
+    // The pinned pair crosses every target in (parent score, candidate score],
+    // so a neighbouring target is still a valid first crossing for the same
+    // headers. The receipt must nevertheless verify only for its own target:
+    // that binding is what keeps one draw slot's proof out of another slot.
     let mut input = reconstructed().entropy;
-    input.frozen_root[0] ^= 1;
+    assert!(input.parent.blue_score < input.target_blue_score - 1);
+    input.target_blue_score -= 1;
+    input
+        .validate()
+        .expect("the same pair also crosses the neighbouring target");
     assert!(matches!(
         groth16_receipt_from_bytes(
             &input,

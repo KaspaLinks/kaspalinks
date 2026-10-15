@@ -16,16 +16,10 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
 });
 
-function request(): LocalProofRequest {
-  const publicCommitment = {
-    giveawayIdHex: "11".repeat(32),
-    frozenRootHex: "22".repeat(32),
-    entropyTargetBlueScore: "123456",
-    shards: [{ count: 1, entriesRootHex: "33".repeat(32), addressRootHex: "44".repeat(32) }],
-  };
+function request(target = "123456"): LocalProofRequest {
+  const publicCommitment = { entropyTargetBlueScore: target };
   return {
     ...publicCommitment,
-    frozenEntryCount: 1,
     jobKey: createHash("sha256").update(JSON.stringify(publicCommitment)).digest("hex"),
   };
 }
@@ -51,7 +45,18 @@ describe("local Giveaway V6 prover", () => {
   it("rejects a changed public job commitment", () => {
     const input = request();
     expect(parseLocalProofRequest(input)).toEqual(input);
-    expect(() => parseLocalProofRequest({ ...input, frozenRootHex: "00".repeat(32) })).toThrow();
+    expect(() => parseLocalProofRequest({ ...input, entropyTargetBlueScore: "123457" })).toThrow();
+  });
+
+  it("refuses the old per-Giveaway job fields", () => {
+    expect(() =>
+      parseLocalProofRequest({ ...request(), giveawayIdHex: "11".repeat(32) }),
+    ).toThrow();
+  });
+
+  it("gives every target its own job and one job to a whole slot", () => {
+    expect(request("123456").jobKey).toBe(request("123456").jobKey);
+    expect(request("123456").jobKey).not.toBe(request("123457").jobKey);
   });
 
   it("starts one proof job, returns pending, then reuses the verified result", async () => {

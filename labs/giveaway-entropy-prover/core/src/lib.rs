@@ -12,8 +12,16 @@ pub const MAX_PARENT_LEVELS: usize = u8::MAX as usize;
 pub const MAX_PARENTS_PER_LEVEL: usize = 64;
 pub const MAX_TOTAL_PARENTS: usize = 4096;
 pub const MAX_BLUE_WORK_BYTES: usize = 24;
-pub const JOURNAL_DOMAIN: u8 = 0x60;
-pub const JOURNAL_LENGTH: usize = 217;
+/// The journal attests one fact about the selected chain: which block first
+/// crosses `target_blue_score`. It carries nothing Giveaway-specific, so every
+/// Giveaway committed to the same draw slot can verify the same receipt. Each
+/// Giveaway still derives its own winner, because the covenant's draw digest
+/// mixes in its id and frozen participant root separately.
+///
+/// 0x60 was the earlier per-Giveaway layout, which also wrote the Giveaway id
+/// and frozen root. A distinct domain keeps the two layouts from being confused.
+pub const JOURNAL_DOMAIN: u8 = 0x62;
+pub const JOURNAL_LENGTH: usize = 153;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeaderInput {
@@ -34,8 +42,6 @@ pub struct HeaderInput {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntropyInput {
-    pub giveaway_id: [u8; 32],
-    pub frozen_root: [u8; 32],
     pub target_blue_score: u64,
     pub parent: HeaderInput,
     pub candidate: HeaderInput,
@@ -43,8 +49,6 @@ pub struct EntropyInput {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValidationError {
-    ZeroGiveawayId,
-    ZeroFrozenRoot,
     ZeroTarget,
     PreToccataHeader,
     MissingParentLevels,
@@ -126,12 +130,6 @@ impl HeaderInput {
 
 impl EntropyInput {
     pub fn validate(&self) -> Result<ValidatedEntropy, ValidationError> {
-        if self.giveaway_id == [0u8; 32] {
-            return Err(ValidationError::ZeroGiveawayId);
-        }
-        if self.frozen_root == [0u8; 32] {
-            return Err(ValidationError::ZeroFrozenRoot);
-        }
         if self.target_blue_score == 0 {
             return Err(ValidationError::ZeroTarget);
         }
@@ -166,8 +164,6 @@ impl EntropyInput {
         let mut cursor = 0usize;
 
         put(&mut journal, &mut cursor, &[JOURNAL_DOMAIN]);
-        put(&mut journal, &mut cursor, &self.giveaway_id);
-        put(&mut journal, &mut cursor, &self.frozen_root);
         put(
             &mut journal,
             &mut cursor,
@@ -238,8 +234,6 @@ mod tests {
         let parent_hash = parent.hash();
         let candidate = header(21, 100, parent_hash);
         EntropyInput {
-            giveaway_id: [1; 32],
-            frozen_root: [2; 32],
             target_blue_score: 100,
             parent,
             candidate,
@@ -282,18 +276,37 @@ mod tests {
         let validated = input.validate().unwrap();
         assert_eq!(journal.len(), JOURNAL_LENGTH);
         assert_eq!(journal[0], JOURNAL_DOMAIN);
-        assert_eq!(&journal[1..33], &input.giveaway_id);
-        assert_eq!(&journal[33..65], &input.frozen_root);
-        assert_eq!(&journal[65..73], &input.target_blue_score.to_le_bytes());
-        assert_eq!(&journal[73..105], &validated.parent_hash);
-        assert_eq!(&journal[105..113], &input.parent.blue_score.to_le_bytes());
-        assert_eq!(&journal[113..145], &input.parent.accepted_id_merkle_root);
-        assert_eq!(&journal[145..177], &validated.candidate_hash);
+        assert_eq!(&journal[1..9], &input.target_blue_score.to_le_bytes());
+        assert_eq!(&journal[9..41], &validated.parent_hash);
+        assert_eq!(&journal[41..49], &input.parent.blue_score.to_le_bytes());
+        assert_eq!(&journal[49..81], &input.parent.accepted_id_merkle_root);
+        assert_eq!(&journal[81..113], &validated.candidate_hash);
         assert_eq!(
-            &journal[177..185],
+            &journal[113..121],
             &input.candidate.blue_score.to_le_bytes()
         );
-        assert_eq!(&journal[185..217], &input.candidate.accepted_id_merkle_root);
+        assert_eq!(&journal[121..153], &input.candidate.accepted_id_merkle_root);
+    }
+
+    #[test]
+    fn journal_depends_only_on_the_slot_and_the_chain() {
+        // Two Giveaways committed to the same draw slot must be able to share
+        // one receipt, so nothing Giveaway-specific may reach the journal.
+        let input = valid_input();
+        assert_eq!(input.journal().unwrap(), valid_input().journal().unwrap());
+
+        // A different slot is a different fact: rebuild a pair that crosses 99.
+        let parent = header(11, 98, [9; 32]);
+        let candidate = header(21, 100, parent.hash());
+        let other_target = EntropyInput {
+            target_blue_score: 99,
+            parent,
+            candidate,
+        };
+        assert_ne!(
+            other_target.journal().unwrap()[1..9],
+            input.journal().unwrap()[1..9]
+        );
     }
 
     #[test]

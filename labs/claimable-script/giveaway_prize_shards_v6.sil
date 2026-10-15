@@ -199,8 +199,13 @@ contract GiveawayPrizeShardsV6(
     // The proof guest recomputes both supplied post-Toccata header hashes,
     // verifies that the parent is the candidate's first direct parent (the
     // consensus selected-parent position), and enforces the first-crossing
-    // blue-score condition. The journal is reconstructed here and bound to
-    // this exact Giveaway, frozen participant state, target, and both blocks.
+    // blue-score condition. The journal is reconstructed here and bound to the
+    // committed target and both blocks.
+    //
+    // The journal deliberately carries nothing Giveaway-specific: every
+    // Giveaway committed to the same draw slot shares the target, and so one
+    // receipt serves all of them. Each still gets its own winner, because
+    // drawDigest below mixes in giveawayId and frozenRoot separately.
     entry draw(
         byte[] proof,
         byte[32] parentBlockHash,
@@ -258,9 +263,7 @@ contract GiveawayPrizeShardsV6(
         byte[8] parentScoreBytes = parentBlueScore as byte[8];
         byte[8] candidateScoreBytes = candidateBlueScore as byte[8];
         byte[32] journalHash = sha256(
-            byte[1](0x60)
-            + byte[](giveawayId)
-            + byte[](frozenRoot)
+            byte[1](0x62)
             + byte[](targetBytes)
             + byte[](parentBlockHash)
             + byte[](parentScoreBytes)

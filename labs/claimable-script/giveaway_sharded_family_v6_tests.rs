@@ -45,8 +45,8 @@ const RETURN_FEE: u64 = 100;
 const RETURN_AT_DAA: u64 = 200;
 const ENTROPY_TARGET_BLUE_SCORE: u64 = 559_181_995;
 const ENTROPY_IMAGE_ID: [u8; 32] = [
-    0xa4, 0x02, 0xf8, 0x8f, 0x9b, 0x89, 0xaf, 0xd2, 0xeb, 0x5e, 0x5f, 0x6c, 0xdc, 0x96, 0xf6, 0x7a, 0xf2, 0xff, 0x4d, 0x4d, 0xa7,
-    0x0e, 0x1e, 0x6a, 0x47, 0x67, 0xa9, 0x9c, 0x26, 0xb6, 0x92, 0xb1,
+    0x8d, 0x40, 0x5a, 0xec, 0x6a, 0xe7, 0x2a, 0x8a, 0x2b, 0xba, 0x7e, 0xd5, 0x66, 0x20, 0xc8, 0x59, 0x73, 0xc5, 0x55, 0x59, 0x9b,
+    0x52, 0x40, 0x31, 0x87, 0xf4, 0x0c, 0x68, 0x91, 0xd4, 0x4d, 0x3b,
 ];
 const PARENT_BLOCK_HASH: [u8; 32] = [
     0x49, 0xc3, 0x62, 0x90, 0x73, 0x57, 0xef, 0x61, 0xe3, 0xee, 0xb4, 0xa0, 0xfc, 0xf7, 0xca, 0xe6, 0xb7, 0xdc, 0x05, 0xa0, 0x4b,
@@ -217,13 +217,17 @@ fn shard_template() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
 }
 
 fn compile_prize(phase: i64, frozen_root: [u8; 32], count: i64) -> SilAbiArtifact {
+    compile_prize_for([0x42; 32], ENTROPY_TARGET_BLUE_SCORE, phase, frozen_root, count)
+}
+
+fn compile_prize_for(giveaway_id: [u8; 32], target: u64, phase: i64, frozen_root: [u8; 32], count: i64) -> SilAbiArtifact {
     let entries_root = empty_levels(TREE_DEPTH, 0x00, 0x02)[TREE_DEPTH];
     let address_root = empty_levels(256, 0x10, 0x12)[256];
     let (prefix, suffix, template) = shard_template();
     compile_to_sil_abi_artifact_with_options(
         PRIZE_SOURCE,
         &[
-            ArtifactValue::Bytes([0x42; 32].to_vec()),
+            ArtifactValue::Bytes(giveaway_id.to_vec()),
             ArtifactValue::Int(CLOSES_AT_DAA as i64),
             ArtifactValue::Int(FAMILY_SIZE as i64),
             ArtifactValue::Int(SHARD_COUNT as i64),
@@ -237,7 +241,7 @@ fn compile_prize(phase: i64, frozen_root: [u8; 32], count: i64) -> SilAbiArtifac
             ArtifactValue::Int(DRAW_FEE as i64),
             ArtifactValue::Int(RETURN_FEE as i64),
             ArtifactValue::Int(RETURN_AT_DAA as i64),
-            ArtifactValue::Int(ENTROPY_TARGET_BLUE_SCORE as i64),
+            ArtifactValue::Int(target as i64),
             ArtifactValue::Bytes(ENTROPY_IMAGE_ID.to_vec()),
             ArtifactValue::Bytes(spk_bytes(&return_spk())),
             ArtifactValue::Bytes(entries_root.to_vec()),
@@ -571,8 +575,86 @@ fn non_empty_frozen_giveaway_uses_the_fallback_deadline() {
 
 #[test]
 fn proof_bound_draw_pays_the_on_chain_winner() {
-    let (giveaway_id, shards) = participant_fixture();
-    assert_eq!(giveaway_id, [0x42; 32]);
+    let case = draw_case([0x42; 32], ENTROPY_TARGET_BLUE_SCORE);
+    assert_eq!(case.global_index, 5);
+    execute_input_with_seqcommit(case.tx.clone(), case.entries.clone(), 0, &case.chain).expect("proof-bound draw passes");
+
+    let mut redirected_tx = case.tx.clone();
+    redirected_tx.outputs[0].script_public_key = ScriptPublicKey::from_vec(0, vec![0x52]);
+    execute_input_with_seqcommit(redirected_tx, case.entries.clone(), 0, &case.chain)
+        .expect_err("the proof cannot redirect the prize to another script");
+
+    let wrong_chain =
+        MockChain { parent_commitment: Hash::from_bytes(PARENT_SEQ_COMMIT), candidate_commitment: Hash::from_bytes([25; 32]) };
+    execute_input_with_seqcommit(case.tx, case.entries, 0, &wrong_chain)
+        .expect_err("the same proof cannot authorize a different on-chain sequence commitment");
+}
+
+#[test]
+fn one_receipt_draws_every_giveaway_of_its_slot() {
+    // The receipt attests only the first block crossing the slot's target, so
+    // a second Giveaway committed to the same target verifies the very same
+    // receipt. It must still draw its own winner from its own id.
+    let first = draw_case([0x42; 32], ENTROPY_TARGET_BLUE_SCORE);
+    let second = draw_case([0x43; 32], ENTROPY_TARGET_BLUE_SCORE);
+    assert_eq!(first.proof, second.proof, "both Giveaways use one receipt");
+    assert_ne!(first.global_index, second.global_index, "each Giveaway draws its own winner");
+
+    execute_input_with_seqcommit(first.tx.clone(), first.entries.clone(), 0, &first.chain)
+        .expect("the receipt pays the first Giveaway's winner");
+    execute_input_with_seqcommit(second.tx.clone(), second.entries.clone(), 0, &second.chain)
+        .expect("the same receipt pays the second Giveaway's winner");
+
+    let mut wrong_winner = second.tx.clone();
+    wrong_winner.outputs[0].script_public_key = first.tx.outputs[0].script_public_key.clone();
+    execute_input_with_seqcommit(wrong_winner, second.entries, 0, &second.chain)
+        .expect_err("sharing a receipt does not let one Giveaway pay another's winner");
+}
+
+#[test]
+fn a_receipt_cannot_serve_another_draw_slot() {
+    // The pinned header pair also crosses this neighbouring target, so only the
+    // journal's target binding stops the receipt from being reused there.
+    let neighbouring_target = ENTROPY_TARGET_BLUE_SCORE - 5;
+    assert!(559_181_983 < neighbouring_target && neighbouring_target <= 559_181_995);
+
+    // Measuring a budget needs a passing run, so both cases borrow the budget
+    // of the valid draw. The control proves that budget suffices, which leaves
+    // the target as the only reason the second case can fail.
+    let budget = draw_case([0x42; 32], ENTROPY_TARGET_BLUE_SCORE).tx.inputs[0].compute_commit;
+    let mut control = draw_case_unmeasured([0x42; 32], ENTROPY_TARGET_BLUE_SCORE);
+    control.tx.inputs[0].compute_commit = budget;
+    execute_input_with_seqcommit(control.tx, control.entries, 0, &control.chain)
+        .expect("the borrowed budget covers a valid draw");
+
+    let mut other_slot = draw_case_unmeasured([0x42; 32], neighbouring_target);
+    other_slot.tx.inputs[0].compute_commit = budget;
+    execute_input_with_seqcommit(other_slot.tx, other_slot.entries, 0, &other_slot.chain)
+        .expect_err("a receipt for one draw slot must not verify for another");
+}
+
+struct DrawCase {
+    tx: Transaction,
+    entries: Vec<UtxoEntry>,
+    chain: MockChain,
+    proof: Vec<u8>,
+    global_index: usize,
+}
+
+/// A complete draw of the shared twelve-participant fixture for the given
+/// Giveaway id and target, using the pinned Mainnet receipt, with exact
+/// compute budgets measured from a passing run.
+fn draw_case(giveaway_id: [u8; 32], target: u64) -> DrawCase {
+    let mut case = draw_case_unmeasured(giveaway_id, target);
+    case.tx = with_exact_compute_budgets_and_seqcommit(case.tx, &case.entries, &case.chain);
+    assert_post_toccata_non_contextual_mass("proof-bound draw", &case.tx);
+    case
+}
+
+/// The same draw without budgets, for cases that are expected to fail.
+fn draw_case_unmeasured(giveaway_id: [u8; 32], target: u64) -> DrawCase {
+    let (fixture_id, shards) = participant_fixture();
+    assert_eq!(fixture_id, [0x42; 32]);
     assert_eq!(shards.len(), SHARD_COUNT);
     let commitments: Vec<Vec<[u8; 32]>> = shards
         .iter()
@@ -610,9 +692,15 @@ fn proof_bound_draw_pays_the_on_chain_winner() {
     draw_preimage.extend_from_slice(&CANDIDATE_SEQ_COMMIT);
     let draw_digest = sha256(&draw_preimage);
     let global_index = u32::from_le_bytes(draw_digest[..4].try_into().unwrap()) as usize % 12;
-    assert_eq!(global_index, 5);
-    let winner_shard = 1;
-    let winner_local_index = 2;
+    let (winner_shard, winner_local_index) = {
+        let mut remaining = global_index;
+        let mut shard = 0;
+        while remaining >= shards[shard].len() {
+            remaining -= shards[shard].len();
+            shard += 1;
+        }
+        (shard, remaining)
+    };
     let winner_spk_bytes = shards[winner_shard][winner_local_index].clone();
     let winner_spk =
         ScriptPublicKey::from_vec(u16::from_be_bytes(winner_spk_bytes[..2].try_into().unwrap()), winner_spk_bytes[2..].to_vec());
@@ -624,10 +712,10 @@ fn proof_bound_draw_pays_the_on_chain_winner() {
     receipt.verify_integrity().expect("Groth16 fixture verifies");
     let proof = kaspa_txscript_zk_sdk::prepare_r0_groth16_proof(&receipt).expect("compact TxScript proof encodes");
 
-    let frozen = compile_prize(2, frozen_root, 12);
+    let frozen = compile_prize_for(giveaway_id, target, 2, frozen_root, 12);
     let input_value = PRIZE_VALUE + SHARD_COUNT as u64 * SHARD_VALUE - FREEZE_FEE;
     let args = [
-        ArtifactValue::Bytes(proof),
+        ArtifactValue::Bytes(proof.clone()),
         ArtifactValue::Bytes(PARENT_BLOCK_HASH.to_vec()),
         ArtifactValue::Int(559_181_983),
         ArtifactValue::Bytes(CANDIDATE_BLOCK_HASH.to_vec()),
@@ -655,19 +743,7 @@ fn proof_bound_draw_pays_the_on_chain_winner() {
         parent_commitment: Hash::from_bytes(PARENT_SEQ_COMMIT),
         candidate_commitment: Hash::from_bytes(CANDIDATE_SEQ_COMMIT),
     };
-    let tx = with_exact_compute_budgets_and_seqcommit(tx, &entries, &chain);
-    assert_post_toccata_non_contextual_mass("proof-bound draw", &tx);
-    execute_input_with_seqcommit(tx.clone(), entries.clone(), 0, &chain).expect("proof-bound draw passes");
-
-    let mut redirected_tx = tx.clone();
-    redirected_tx.outputs[0].script_public_key = ScriptPublicKey::from_vec(0, vec![0x52]);
-    execute_input_with_seqcommit(redirected_tx, entries.clone(), 0, &chain)
-        .expect_err("the proof cannot redirect the prize to another script");
-
-    let wrong_chain =
-        MockChain { parent_commitment: Hash::from_bytes(PARENT_SEQ_COMMIT), candidate_commitment: Hash::from_bytes([25; 32]) };
-    execute_input_with_seqcommit(tx, entries, 0, &wrong_chain)
-        .expect_err("the same proof cannot authorize a different on-chain sequence commitment");
+    DrawCase { tx, entries, chain, proof, global_index }
 }
 
 #[test]

@@ -24,7 +24,7 @@ const SILVERSCRIPT_ABI_VERSION = "0.1.0";
 const ZERO_HASH = "00".repeat(32);
 
 export const GIVEAWAY_V6_ENTROPY_IMAGE_ID_HEX =
-  "a402f88f9b89afd2eb5e5f6cdc96f67af2ff4d4da70e1e6a4767a99c26b692b1";
+  "8d405aec6ae72a8a2bba7ed56620c85973c555599b52403187f40c6891d44d3b";
 
 type ArtifactValue = { kind: "bytes"; value: number[] } | { kind: "int"; value: number };
 

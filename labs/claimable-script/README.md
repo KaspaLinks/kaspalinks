@@ -221,7 +221,7 @@ public-only per-giveaway artifacts. Mainnet funding remains gated separately.
   ordering, reuse, and late-entry changes.
 - `giveaway_prize_shards_v6.args.json` and the ABI vector bind the reviewed
   entropy guest image
-  `a402f88f9b89afd2eb5e5f6cdc96f67af2ff4d4da70e1e6a4767a99c26b692b1`;
+  `8d405aec6ae72a8a2bba7ed56620c85973c555599b52403187f40c6891d44d3b`;
   no placeholder verifier ID is used in the production-direction fixture.
 
 Run from a checkout at the exact commit:

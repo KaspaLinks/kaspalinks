@@ -7,11 +7,12 @@ use crate::{
 };
 
 /// Public data only. The header capture is independently rehashed before proving.
+///
+/// A job is keyed by its target blue score alone. Every Giveaway committed to
+/// the same draw slot shares the target, and therefore the job and its receipt.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProofJobInput {
-    pub giveaway_id_hex: String,
-    pub frozen_root_hex: String,
     pub entropy_target_blue_score: String,
     pub captured_pair: CapturedEntropyPair,
 }
@@ -39,14 +40,12 @@ pub enum JobError {
 
 impl ProofJobInput {
     pub fn entropy(&self) -> Result<EntropyInput, JobError> {
-        let giveaway_id = parse_hash(&self.giveaway_id_hex)?;
-        let frozen_root = parse_hash(&self.frozen_root_hex)?;
         let target = parse_u64(&self.entropy_target_blue_score)?;
         if self.captured_pair.target_blue_score != self.entropy_target_blue_score {
             return Err(JobError::InvalidInput);
         }
-        let input = entropy_input_from_capture(&self.captured_pair, giveaway_id, frozen_root)
-            .map_err(JobError::InvalidCapture)?;
+        let input =
+            entropy_input_from_capture(&self.captured_pair).map_err(JobError::InvalidCapture)?;
         if input.target_blue_score != target {
             return Err(JobError::InvalidInput);
         }
@@ -67,7 +66,7 @@ pub fn prove_job(job: &ProofJobInput) -> Result<ProofReadyResponse, JobError> {
 }
 
 /// Allows a fixture or a freshly generated receipt through the same checked
-/// response boundary. A receipt for another image, Giveaway, or header fails.
+/// response boundary. A receipt for another image, target, or header fails.
 pub fn response_from_receipt(
     job: &ProofJobInput,
     receipt_bytes: &[u8],
@@ -94,18 +93,6 @@ fn parse_u64(value: &str) -> Result<u64, JobError> {
         return Err(JobError::InvalidInput);
     }
     value.parse().map_err(|_| JobError::InvalidInput)
-}
-
-fn parse_hash(value: &str) -> Result<[u8; 32], JobError> {
-    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(JobError::InvalidInput);
-    }
-    let mut hash = [0; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
-        let text = core::str::from_utf8(pair).map_err(|_| JobError::InvalidInput)?;
-        hash[index] = u8::from_str_radix(text, 16).map_err(|_| JobError::InvalidInput)?;
-    }
-    Ok(hash)
 }
 
 fn hex(bytes: &[u8]) -> String {

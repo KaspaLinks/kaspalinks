@@ -21,8 +21,7 @@ fn main() {
         let shards = generate_shards(salt);
         let frozen = build_frozen_participant_set(&shards, TREE_DEPTH)
             .expect("generated participants match their shards");
-        let entropy = entropy_input_from_capture(&capture, GIVEAWAY_ID, frozen.frozen_root)
-            .expect("captured headers verify");
+        let entropy = entropy_input_from_capture(&capture).expect("captured headers verify");
         let validated = entropy.validate().expect("entropy input validates");
         let winner = select_winner(
             &shards,

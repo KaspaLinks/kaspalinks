@@ -58,7 +58,7 @@ const participantFixture = JSON.parse(
 
 const ZERO = "00".repeat(32);
 // Cross-language KIP-20 vector verified against the vendored rusty-kaspa WASM SDK.
-const COVENANT_ID = "3a362f5e0d717f27cd02e5aa030e8efbd8cff8b9894e61c4fea9457f5f973b18";
+const COVENANT_ID = "615986e3445a0ace4551ee5b9b3a3299007e62b14129d54780af0cd4e5edf332";
 const GENESIS_TX = "01".repeat(32);
 const ACTIVATE_TX = "10".repeat(32);
 const REGISTER_TX = "11".repeat(32);

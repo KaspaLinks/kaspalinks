@@ -90,7 +90,7 @@ describe("Giveaway V6 settlement transactions", () => {
     expect(freeze).toMatchObject({
       entryCount: 0,
       frozenAmountSompi: "471000000",
-      minimumFeeSompi: "32185800",
+      minimumFeeSompi: "32178400",
     });
     expect(freeze.inputs).toHaveLength(5);
     expect(JSON.parse(freeze.transactionSafeJson)).toMatchObject({

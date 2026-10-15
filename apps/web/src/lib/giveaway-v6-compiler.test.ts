@@ -83,7 +83,7 @@ describe("Giveaway V6 compiler adapter", () => {
     expect(result).toMatchObject({
       expectedFundingSompi: 514_000_000n,
       fundingScriptPublicKeyHex:
-        "0000aa20d5653bf4d8d35eeb9eea58c532ee010377ea2a242e70931a387e3e0837394fcb87",
+        "0000aa204a8e2b7b51b77e83cf3a2d057cee6eace51ebc2dc4f9c9600c705d048a4456dd87",
     });
   });
 
