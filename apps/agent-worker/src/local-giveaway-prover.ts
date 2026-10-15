@@ -63,12 +63,6 @@ export function createLocalGiveawayProverServer(runJob: Runner): Server {
       return;
     }
     const now = Date.now();
-    while (recentRequests.length && recentRequests[0]! <= now - RATE_LIMIT_WINDOW_MS) recentRequests.shift();
-    if (recentRequests.length >= RATE_LIMIT_COUNT) {
-      sendError(response, 429, "RATE_LIMITED", "Too many proof requests.");
-      return;
-    }
-    recentRequests.push(now);
     let input: LocalProofRequest;
     try {
       const bytes = await readBody(request);
@@ -78,12 +72,25 @@ export function createLocalGiveawayProverServer(runJob: Runner): Server {
       return;
     }
     for (const [key, job] of jobs) if (job.createdAt < now - 24 * 60 * 60_000) jobs.delete(key);
+    // Every Giveaway of a slot asks for the same job, about once a minute
+    // each, and all of them at once when it finishes. Answering a known job
+    // costs nothing, so only requests that could start a new one count.
     const existing = jobs.get(input.jobKey);
     if (existing?.status === "ready") {
       sendJson(response, 200, existing.result);
       return;
     }
-    if (existing?.status === "pending" || activeJobKey !== null) {
+    if (existing?.status === "pending") {
+      sendJson(response, 202, { status: "pending", retryAfterSeconds: 60 });
+      return;
+    }
+    while (recentRequests.length && recentRequests[0]! <= now - RATE_LIMIT_WINDOW_MS) recentRequests.shift();
+    if (recentRequests.length >= RATE_LIMIT_COUNT) {
+      sendError(response, 429, "RATE_LIMITED", "Too many proof requests.");
+      return;
+    }
+    recentRequests.push(now);
+    if (activeJobKey !== null) {
       sendJson(response, 202, { status: "pending", retryAfterSeconds: 60 });
       return;
     }

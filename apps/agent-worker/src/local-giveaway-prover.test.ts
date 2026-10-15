@@ -80,6 +80,32 @@ describe("local Giveaway V6 prover", () => {
     expect(runner).toHaveBeenCalledTimes(1);
   });
 
+  it("serves one slot's receipt to more Giveaways than the start limit allows", async () => {
+    const runner = vi.fn(async () => ready);
+    const url = await listen(createLocalGiveawayProverServer(runner));
+    const body = JSON.stringify(request());
+
+    expect((await fetch(url, { method: "POST", body })).status).toBe(202);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const statuses = await Promise.all(
+      Array.from({ length: 40 }, async () => (await fetch(url, { method: "POST", body })).status),
+    );
+
+    expect(statuses.every((status) => status === 200)).toBe(true);
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  it("still limits requests that would start new jobs", async () => {
+    const url = await listen(createLocalGiveawayProverServer(vi.fn(() => new Promise<LocalProofReady>(() => {}))));
+    const statuses: number[] = [];
+    for (let target = 1; target <= 31; target += 1) {
+      statuses.push((await fetch(url, { method: "POST", body: JSON.stringify(request(String(target))) })).status);
+    }
+
+    expect(statuses.slice(0, 30).every((status) => status === 202)).toBe(true);
+    expect(statuses[30]).toBe(429);
+  });
+
   it("returns the shared error shape for invalid requests", async () => {
     const runner = vi.fn();
     const url = await listen(createLocalGiveawayProverServer(runner));
