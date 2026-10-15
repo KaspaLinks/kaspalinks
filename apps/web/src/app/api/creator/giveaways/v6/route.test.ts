@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   compile: vi.fn(),
   giveawayCreate: vi.fn(),
   giveawayFindMany: vi.fn(),
+  slotCreate: vi.fn(),
+  slotFindUnique: vi.fn(),
   guard: vi.fn(),
   limit: vi.fn(),
   transaction: vi.fn(),
@@ -20,6 +22,7 @@ vi.mock("@kaspa-actions/db", () => ({
   prisma: {
     $transaction: mocks.transaction,
     giveaway: { findMany: mocks.giveawayFindMany },
+    giveawayDrawSlot: { create: mocks.slotCreate, findUnique: mocks.slotFindUnique },
   },
 }));
 vi.mock("@/lib/audit", () => ({ writeAuditLog: mocks.audit }));
@@ -67,15 +70,19 @@ function validBody() {
   return {
     amountKas: "1",
     description: "Mainnet community draw",
-    durationSeconds: 3_600,
     participantCap: 32,
     returnAddress,
+    slotStartsAt: "2026-10-15T12:00:00.000Z",
     title: "Community KAS",
   };
 }
 
+const now = new Date("2026-10-15T11:00:00.000Z");
+
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now);
   vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
   vi.stubEnv("GIVEAWAY_LAB_ENABLED", "true");
   vi.stubEnv("GIVEAWAY_V6_CREATION_ENABLED", "true");
@@ -88,6 +95,8 @@ beforeEach(() => {
   mocks.chain.mockResolvedValue({ daa: 536_000_000n, blueScore: 535_000_000n });
   mocks.compile.mockResolvedValue(bootstrap);
   mocks.giveawayFindMany.mockResolvedValue([]);
+  mocks.slotFindUnique.mockResolvedValue(null);
+  mocks.slotCreate.mockImplementation(async ({ data }) => data);
   mocks.giveawayCreate.mockResolvedValue({
     createdAt: new Date("2026-10-11T12:00:00.000Z"),
     publicId: "cmi12345678901234567890123",
@@ -98,6 +107,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
 });
 
@@ -226,6 +236,8 @@ describe("Giveaway V6 creator route", () => {
       amountSompi: 100_000_000n,
       creatorId: "creator-id",
       drawProtocolVersion: 6,
+      closesAt: new Date("2026-10-15T12:00:00.000Z"),
+      entropyTargetBlueScore: 535_036_600n,
       entryWindowSeconds: 3_600,
       openedAt: null,
       status: "OPEN",
@@ -236,8 +248,17 @@ describe("Giveaway V6 creator route", () => {
       expect.objectContaining({ giveaway: expect.anything() }),
       expect.objectContaining({ event: "giveaway.v6_created" }),
     );
+    expect(mocks.slotCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        anchorDaa: 536_000_000n,
+        closesAtDaa: 536_036_000n,
+        network: "MAINNET",
+        startsAt: new Date("2026-10-15T12:00:00.000Z"),
+      }),
+    });
     expect(body).toMatchObject({
       giveaway: {
+        closesAt: "2026-10-15T12:00:00.000Z",
         participantCap: 32,
         publicUrl: "/giveaways/cmi12345678901234567890123",
         shareReady: false,
@@ -259,9 +280,100 @@ describe("Giveaway V6 creator route", () => {
         network: "mainnet",
         unusedReserveReturnAddress: returnAddress,
       },
-      review: { shardCount: 4 },
+      review: {
+        closesAtDaa: "536036000",
+        entropyTargetBlueScore: "535036600",
+        returnAtDaa: "536900000",
+        shardCount: 4,
+      },
     });
     expect(body.funding.paymentUri).toContain(`${fundingAddress}?amount=5.14`);
+  });
+
+  it("commits the terms already fixed for the slot instead of its own projection", async () => {
+    // Blocks ran ahead since the first Giveaway of this slot: a fresh
+    // projection would give another entropy target and need its own proof.
+    mocks.chain.mockResolvedValue({ daa: 536_000_900n, blueScore: 535_000_900n });
+    mocks.slotFindUnique.mockResolvedValue({
+      closesAtDaa: 536_036_000n,
+      entropyTargetBlueScore: 535_036_600n,
+      returnAtDaa: 536_900_000n,
+    });
+
+    const response = await POST(request(validBody()));
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(mocks.slotFindUnique).toHaveBeenCalledWith({
+      where: {
+        network_startsAt: {
+          network: "MAINNET",
+          startsAt: new Date("2026-10-15T12:00:00.000Z"),
+        },
+      },
+    });
+    expect(mocks.slotCreate).not.toHaveBeenCalled();
+    expect(mocks.compile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          closesAtDaa: 536_036_000n,
+          entropyTargetBlueScore: 535_036_600n,
+          returnAtDaa: 536_900_000n,
+        }),
+      }),
+    );
+    expect(body.review.entropyTargetBlueScore).toBe("535036600");
+  });
+
+  it("reads the winning terms when another creation fixed the slot first", async () => {
+    mocks.slotFindUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      closesAtDaa: 536_035_000n,
+      entropyTargetBlueScore: 535_035_600n,
+      returnAtDaa: 536_899_000n,
+    });
+    mocks.slotCreate.mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" }));
+
+    const response = await POST(request(validBody()));
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.review).toMatchObject({
+      closesAtDaa: "536035000",
+      entropyTargetBlueScore: "535035600",
+    });
+  });
+
+  it.each([
+    ["2026-10-15T13:00:00.000Z", "only at 00:00, 06:00, 12:00 or 18:00 UTC"],
+    ["2026-10-15T06:00:00.000Z", "closed 30 minutes before it"],
+    ["2026-10-16T18:00:00.000Z", "at most 24 hours ahead"],
+  ])("refuses %s before reading the chain", async (slotStartsAt, message) => {
+    const response = await POST(request({ ...validBody(), slotStartsAt }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.message).toContain(message);
+    expect(mocks.chain).not.toHaveBeenCalled();
+    expect(mocks.slotCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a slot the chain has already brought within the cutoff", async () => {
+    vi.setSystemTime(new Date("2026-10-15T11:29:00.000Z"));
+    mocks.slotFindUnique.mockResolvedValue({
+      closesAtDaa: 536_010_000n,
+      entropyTargetBlueScore: 535_010_600n,
+      returnAtDaa: 536_874_000n,
+    });
+
+    const response = await POST(
+      request({ ...validBody(), slotStartsAt: "2026-10-15T12:00:00.000Z" }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.message).toContain("On the chain");
+    expect(mocks.compile).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
   it("returns the smaller reviewed funding intent for an eight-person giveaway", async () => {

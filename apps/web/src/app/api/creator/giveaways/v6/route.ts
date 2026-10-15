@@ -20,6 +20,8 @@ import {
   isGiveawayV6CreationEnabled,
 } from "@/lib/giveaway-v6-creation";
 import { compileGiveawayV6Bootstrap, GiveawayV6CompilerError } from "@/lib/giveaway-v6-compiler";
+import { GiveawayV6SlotClosedError, resolveGiveawayV6DrawSlot } from "@/lib/giveaway-v6-slot-store";
+import { checkGiveawayV6Slot, describeGiveawayV6SlotCheck } from "@/lib/giveaway-v6-slots";
 import { readCurrentMainnetChainPosition } from "@/lib/mainnet-chain-position";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 
@@ -170,6 +172,12 @@ export async function POST(request: Request) {
     );
   }
 
+  const closesAt = parsed.data.slotStartsAt;
+  const slotCheck = checkGiveawayV6Slot(closesAt, new Date());
+  if (slotCheck !== "ok") {
+    return apiError(ErrorCodes.INVALID_BODY, describeGiveawayV6SlotCheck(slotCheck), 400);
+  }
+
   let chain: Awaited<ReturnType<typeof readCurrentMainnetChainPosition>>;
   try {
     chain = await readCurrentMainnetChainPosition();
@@ -182,9 +190,24 @@ export async function POST(request: Request) {
   }
   const chainReadAt = new Date();
 
+  let slot: Awaited<ReturnType<typeof resolveGiveawayV6DrawSlot>>;
+  try {
+    slot = await resolveGiveawayV6DrawSlot(prisma, {
+      network: Network.MAINNET,
+      startsAt: closesAt,
+      chain,
+      now: chainReadAt,
+    });
+  } catch (error) {
+    if (error instanceof GiveawayV6SlotClosedError) {
+      return apiError(ErrorCodes.INVALID_BODY, error.message, 400);
+    }
+    return apiError(ErrorCodes.SERVER_ERROR, "The draw time could not be reserved.", 503);
+  }
+
   let terms: ReturnType<typeof buildGiveawayV6CreationTerms>;
   try {
-    terms = buildGiveawayV6CreationTerms({ chain, request: parsed.data });
+    terms = buildGiveawayV6CreationTerms({ slot, request: parsed.data });
   } catch (error) {
     return apiError(
       ErrorCodes.INVALID_BODY,
@@ -213,7 +236,6 @@ export async function POST(request: Request) {
     return apiError(ErrorCodes.SERVER_ERROR, "Giveaway V6 funding review did not match.", 503);
   }
 
-  const closesAt = new Date(chainReadAt.getTime() + parsed.data.durationSeconds * 1_000);
   const compatibilityCommitment = createHash("sha256")
     .update(`kaspa-links-giveaway-v6\n${terms.config.giveawayIdHex}`, "utf8")
     .digest("hex");
@@ -233,7 +255,7 @@ export async function POST(request: Request) {
           drawProtocolVersion: 6,
           drawSeedHex: terms.config.giveawayIdHex,
           entropyTargetBlueScore: terms.config.entropyTargetBlueScore,
-          entryWindowSeconds: parsed.data.durationSeconds,
+          entryWindowSeconds: Math.round((closesAt.getTime() - chainReadAt.getTime()) / 1_000),
           openedAt: null,
           status: GiveawayStatus.OPEN,
           title: terms.title,

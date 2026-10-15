@@ -656,6 +656,27 @@ model Giveaway {
 // Public, reviewed V6 setup persisted before the Kaspium funding outpoint
 // exists. Binding records only confirmed chain facts and atomically creates the
 // restart-safe projection. No signing or recovery material belongs here.
+// A fixed Giveaway V6 draw slot (00:00, 06:00, 12:00 or 18:00 UTC). Every
+// Giveaway ending at the same slot commits these exact terms, so all of them
+// can verify one shared entropy proof. The terms are fixed the first time the
+// slot is used and never recomputed: a funded covenant has them compiled in,
+// and a later recomputation would split the slot into two proofs.
+model GiveawayDrawSlot {
+  id                     String   @id @default(cuid())
+  network                Network
+  startsAt               DateTime
+  closesAtDaa            BigInt
+  entropyTargetBlueScore BigInt
+  returnAtDaa            BigInt
+  // The chain position the terms were projected from, kept for audit.
+  anchorDaa              BigInt
+  anchorBlueScore        BigInt
+  anchoredAt             DateTime
+  createdAt              DateTime @default(now())
+
+  @@unique([network, startsAt])
+}
+
 model GiveawayV6Bootstrap {
   id                           String                    @id @default(cuid())
   giveawayId                   String                    @unique

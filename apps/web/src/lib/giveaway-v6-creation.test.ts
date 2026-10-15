@@ -10,17 +10,24 @@ const returnAddress = returnKey.toPublicKey().toAddress("mainnet").toString();
 
 afterAll(() => returnKey.free());
 
+const slotStartsAt = new Date("2026-10-15T12:00:00.000Z");
+const slot = {
+  closesAtDaa: 536_036_000n,
+  entropyTargetBlueScore: 535_036_600n,
+  returnAtDaa: 536_900_000n,
+};
+
 describe("Giveaway V6 creator terms", () => {
-  it("derives the reviewed four-shard budget and absolute chain deadlines", () => {
+  it("derives the reviewed four-shard budget and commits the slot's chain deadlines", () => {
     const terms = buildGiveawayV6CreationTerms({
-      chain: { daa: 536_000_000n, blueScore: 535_000_000n },
+      slot,
       giveawayIdHex: "42".repeat(32),
       request: {
         amountKas: "1",
         description: "  Mainnet draw  ",
-        durationSeconds: 3_600,
         participantCap: 32,
         returnAddress,
+        slotStartsAt,
         title: "  Community KAS  ",
       },
     });
@@ -80,13 +87,13 @@ describe("Giveaway V6 creator terms", () => {
     "sizes the execution reserve for a $cap-person 0.5 KAS giveaway",
     ({ cap, expectedFundingSompi, shardCount, shardValueSompi }) => {
       const terms = buildGiveawayV6CreationTerms({
-        chain: { daa: 536_000_000n, blueScore: 535_000_000n },
+        slot,
         giveawayIdHex: "24".repeat(32),
         request: {
           amountKas: "0.5",
-          durationSeconds: 3_600,
           participantCap: cap,
           returnAddress,
+          slotStartsAt,
           title: "Sized draw",
         },
       });
@@ -101,12 +108,19 @@ describe("Giveaway V6 creator terms", () => {
   it("accepts only the reviewed prize choices and rejects extra recovery material", () => {
     const base = {
       amountKas: "1",
-      durationSeconds: 3_600,
       participantCap: 8,
       returnAddress,
+      slotStartsAt: "2026-10-15T12:00:00.000Z",
       title: "Community KAS",
     };
     expect(createGiveawayV6InputSchema.safeParse(base).success).toBe(true);
+    expect(createGiveawayV6InputSchema.safeParse({ ...base, slotStartsAt: "noon" }).success).toBe(
+      false,
+    );
+    // A free duration is no longer a term a creator can choose.
+    expect(createGiveawayV6InputSchema.safeParse({ ...base, durationSeconds: 3_600 }).success).toBe(
+      false,
+    );
     expect(createGiveawayV6InputSchema.safeParse({ ...base, amountKas: "2" }).success).toBe(false);
     expect(createGiveawayV6InputSchema.safeParse({ ...base, participantCap: 12 }).success).toBe(
       false,

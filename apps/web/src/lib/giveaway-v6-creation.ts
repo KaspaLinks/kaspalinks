@@ -14,31 +14,28 @@ import {
   GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD,
   GIVEAWAY_V6_PARTICIPANT_CAPS,
 } from "./giveaway-v6-budget";
+import type { GiveawayV6SlotTerms } from "./giveaway-v6-slots";
 
 export const GIVEAWAY_V6_TREE_DEPTH = 10;
-export const GIVEAWAY_V6_MIN_DURATION_SECONDS = 30;
-export const GIVEAWAY_V6_MAX_DURATION_SECONDS = 24 * 60 * 60;
-export const GIVEAWAY_V6_RETURN_DELAY_SECONDS = 24 * 60 * 60;
-export const GIVEAWAY_V6_ENTROPY_DELAY_SECONDS = 60;
 
-const DAA_PER_SECOND = 10n;
 const SUPPORTED_PRIZES_KAS = ["0.2", "0.5", "1"] as const;
 
 export const createGiveawayV6InputSchema = z
   .object({
     amountKas: z.enum(SUPPORTED_PRIZES_KAS),
     description: z.string().trim().max(280).optional().nullable(),
-    durationSeconds: z
-      .number()
-      .int()
-      .min(GIVEAWAY_V6_MIN_DURATION_SECONDS)
-      .max(GIVEAWAY_V6_MAX_DURATION_SECONDS),
     participantCap: z.union([
       z.literal(GIVEAWAY_V6_PARTICIPANT_CAPS[0]),
       z.literal(GIVEAWAY_V6_PARTICIPANT_CAPS[1]),
       z.literal(GIVEAWAY_V6_PARTICIPANT_CAPS[2]),
     ]),
     returnAddress: z.string().trim().min(1).max(200),
+    // Which of the fixed draw slots ends this Giveaway; the route checks that
+    // it is one and that it is still open for new Giveaways.
+    slotStartsAt: z
+      .string()
+      .datetime({ offset: true })
+      .transform((value) => new Date(value)),
     title: z.string().trim().min(1).max(80),
   })
   .strict();
@@ -53,20 +50,18 @@ export function isGiveawayV6CreationEnabled(): boolean {
   );
 }
 
+/**
+ * The chain terms come from the draw slot, never from this request alone: every
+ * Giveaway of a slot must commit the same entropy target to share its proof.
+ */
 export function buildGiveawayV6CreationTerms(input: {
-  chain: { blueScore: bigint; daa: bigint };
+  slot: GiveawayV6SlotTerms;
   request: CreateGiveawayV6Input;
   giveawayIdHex?: string;
 }) {
   const prizeValueSompi = parseKaspaAmountToSompi(input.request.amountKas);
   const budget = buildGiveawayV6Budget(prizeValueSompi, input.request.participantCap);
-  const durationDaa = BigInt(input.request.durationSeconds) * DAA_PER_SECOND;
-  const closesAtDaa = input.chain.daa + durationDaa;
-  const entropyTargetBlueScore =
-    input.chain.blueScore +
-    durationDaa +
-    BigInt(GIVEAWAY_V6_ENTROPY_DELAY_SECONDS) * DAA_PER_SECOND;
-  const returnAtDaa = closesAtDaa + BigInt(GIVEAWAY_V6_RETURN_DELAY_SECONDS) * DAA_PER_SECOND;
+  const { closesAtDaa, entropyTargetBlueScore, returnAtDaa } = input.slot;
   const returnScriptPublicKeyHex = buildKaspaAddressScriptPublicKeyHex(input.request.returnAddress);
   const giveawayIdHex = (input.giveawayIdHex ?? randomBytes(32).toString("hex")).toLowerCase();
   if (!/^[0-9a-f]{64}$/u.test(giveawayIdHex)) {
