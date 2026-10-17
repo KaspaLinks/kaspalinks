@@ -13,6 +13,9 @@ type Submission = {
   transactionId: string;
 };
 
+const VERIFICATION_RETRYING =
+  "Human verification did not finish yet. It retries on its own; the button unlocks when it passes.";
+
 export default function V6EntryClient({
   available,
   network,
@@ -170,8 +173,12 @@ export default function V6EntryClient({
         siteKey={siteKey}
         action={GIVEAWAY_TURNSTILE_ACTION}
         resetKey={reset}
-        onToken={setToken}
-        onError={() => setMessage("Human verification failed. Please retry.")}
+        onToken={(value) => {
+          setToken(value);
+          // Turnstile retries on its own; once it passes, the earlier notice is stale.
+          if (value) setMessage((current) => (current === VERIFICATION_RETRYING ? "" : current));
+        }}
+        onError={() => setMessage(VERIFICATION_RETRYING)}
       />
       {message ? (
         <p className="form-error" role="alert">
