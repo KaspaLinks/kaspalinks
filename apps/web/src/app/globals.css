@@ -12003,6 +12003,45 @@ main.giveaway-guided-page {
   gap: 10px;
   flex-wrap: wrap;
 }
+.studio-watch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-muted);
+}
+.studio-watch > div {
+  display: grid;
+  gap: 2px;
+  /* Narrow screens push the button onto its own row instead of squeezing. */
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.studio-watch span:not(.studio-watch-dot) {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.studio-watch .btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.studio-watch-dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-watch-dot {
+    animation: none;
+  }
+}
 .studio-toolbar {
   display: flex;
   justify-content: space-between;

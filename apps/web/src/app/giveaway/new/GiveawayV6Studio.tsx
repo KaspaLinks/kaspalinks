@@ -95,6 +95,18 @@ type ActivationResponse = {
 
 const PRIZES: Prize[] = ["0.2", "0.5", "1"];
 const SLOT_REFRESH_MS = 30_000;
+// Funding and activation checks share a 12-per-minute budget with creation,
+// so automatic checks stay at one request every eight seconds.
+const AUTO_CHECK_MS = 8_000;
+
+class StudioRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 const PRIZE_SOMPI: Record<Prize, bigint> = {
   "0.2": 20_000_000n,
   "0.5": 50_000_000n,
@@ -271,6 +283,7 @@ export function GiveawayV6Studio({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const activationInFlight = useRef(false);
+  const checkInFlight = useRef(false);
 
   useEffect(() => {
     if (surface !== "telegram") return;
@@ -380,7 +393,10 @@ export function GiveawayV6Studio({
         const response = await fetch(activateUrl, { headers: authHeaders(), method: "POST" });
         const body: unknown = await response.json().catch(() => null);
         if (!response.ok) {
-          throw new Error(errorMessage(body, "Activation failed. Retrying is safe."));
+          throw new StudioRequestError(
+            errorMessage(body, "Activation failed. Retrying is safe."),
+            response.status,
+          );
         }
         const activation = body as ActivationResponse;
         const updated: StudioGiveaway = {
@@ -397,11 +413,7 @@ export function GiveawayV6Studio({
           shareReady: activation.giveaway.shareReady,
         };
         storeGiveaway(updated);
-        setMessage(
-          activation.giveaway.shareReady
-            ? "Giveaway is live and ready to share."
-            : "Activation sent. Waiting for on-chain confirmation…",
-        );
+        if (activation.giveaway.shareReady) setMessage("Giveaway is live and ready to share.");
         return updated;
       } finally {
         activationInFlight.current = false;
@@ -410,51 +422,76 @@ export function GiveawayV6Studio({
     [authHeaders, storeGiveaway],
   );
 
+  /**
+   * One step of the automatic funding and activation watch. Until the payment
+   * is bound it asks the funding endpoint; afterwards only the activation
+   * endpoint, which reports confirmation without sending anything twice.
+   */
   const checkFunding = useCallback(
     async (giveaway: StudioGiveaway) => {
-      if (checking) return;
+      if (checkInFlight.current) return;
+      checkInFlight.current = true;
       setChecking(true);
-      setError("");
       try {
-        const response = await fetch(`/api/creator/giveaways/v6/${giveaway.publicId}/funding`, {
-          headers: authHeaders(),
-          method: "POST",
-        });
-        const body: unknown = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(errorMessage(body, "Funding could not be checked."));
+        let updated = giveaway;
+        if (giveaway.funding.status !== "BOUND" || !giveaway.activation.activateUrl) {
+          const response = await fetch(`/api/creator/giveaways/v6/${giveaway.publicId}/funding`, {
+            headers: authHeaders(),
+            method: "POST",
+          });
+          const body: unknown = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw new StudioRequestError(
+              errorMessage(body, "Funding could not be checked."),
+              response.status,
+            );
+          }
+          const funding = body as FundingResponse;
+          updated = {
+            ...giveaway,
+            activation: {
+              ...giveaway.activation,
+              activateUrl: funding.activation.activateUrl ?? giveaway.activation.activateUrl,
+            },
+            funding: { ...giveaway.funding, status: funding.funding.status },
+            phase: funding.activation.status,
+            shareReady: funding.giveaway.shareReady,
+          };
+          storeGiveaway(updated);
         }
-        const funding = body as FundingResponse;
-        let updated: StudioGiveaway = {
-          ...giveaway,
-          activation: {
-            ...giveaway.activation,
-            activateUrl: funding.activation.activateUrl ?? giveaway.activation.activateUrl,
-          },
-          funding: { ...giveaway.funding, status: funding.funding.status },
-          phase: funding.activation.status,
-          shareReady: funding.giveaway.shareReady,
-        };
-        storeGiveaway(updated);
-        if (funding.funding.status === "BOUND" && funding.activation.activateUrl) {
-          updated = await activate(updated, funding.activation.activateUrl);
-        } else {
-          setMessage("Waiting for the exact Mainnet funding output…");
+        if (updated.funding.status === "BOUND" && updated.activation.activateUrl) {
+          updated = await activate(updated, updated.activation.activateUrl);
         }
+        setError("");
         if (updated.shareReady) await loadGiveaways(updated.publicId);
       } catch (caught) {
+        // A rate-limited check is simply skipped; the next one follows soon.
+        if (caught instanceof StudioRequestError && caught.status === 429) return;
         setError(caught instanceof Error ? caught.message : "Funding could not be checked.");
       } finally {
+        checkInFlight.current = false;
         setChecking(false);
       }
     },
-    [activate, authHeaders, checking, loadGiveaways, storeGiveaway],
+    [activate, authHeaders, loadGiveaways, storeGiveaway],
   );
 
   useEffect(() => {
     if (!selected || selected.shareReady) return;
-    const interval = window.setInterval(() => void checkFunding(selected), 12_000);
-    return () => window.clearInterval(interval);
+    const check = () => void checkFunding(selected);
+    // Coming back from the wallet app is the moment a payment is most likely
+    // to have landed, so check right away instead of waiting for the timer.
+    const checkWhenVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    const interval = window.setInterval(check, AUTO_CHECK_MS);
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    window.addEventListener("focus", checkWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+      window.removeEventListener("focus", checkWhenVisible);
+    };
   }, [checkFunding, selected]);
 
   async function createGiveaway(event: FormEvent<HTMLFormElement>) {
@@ -910,19 +947,26 @@ export function GiveawayV6Studio({
               ) : null}
               <div className="studio-hint">
                 <strong>Exact amount only</strong>
-                <p>
-                  The app detects the confirmed output, then activates the reviewed SilverScript
-                  contract automatically.
-                </p>
+                <p>Send the amount above in one payment. A different amount is not detected.</p>
               </div>
-              <button
-                className="btn studio-primary"
-                disabled={checking}
-                onClick={() => void checkFunding(selected)}
-                type="button"
-              >
-                {checking ? "Checking Mainnet…" : "I paid — check funding"}
-              </button>
+              <div className="studio-watch" role="status">
+                <span aria-hidden="true" className="studio-watch-dot" />
+                <div>
+                  <strong>Watching Kaspa for your payment</strong>
+                  <span>
+                    This page continues by itself once the payment confirms, usually within seconds.
+                    You can leave and come back.
+                  </span>
+                </div>
+                <button
+                  className="btn btn-sm"
+                  disabled={checking}
+                  onClick={() => void checkFunding(selected)}
+                  type="button"
+                >
+                  {checking ? "Checking…" : "Check now"}
+                </button>
+              </div>
             </section>
           ) : step === 3 ? (
             <section className="card studio-panel studio-detail">
@@ -939,13 +983,23 @@ export function GiveawayV6Studio({
                     Transaction {compactTransactionId(selected.activation.transactionId)}
                   </p>
                 ) : null}
+              </div>
+              <div className="studio-watch" role="status">
+                <span aria-hidden="true" className="studio-watch-dot" />
+                <div>
+                  <strong>Payment received · confirming on Kaspa</strong>
+                  <span>
+                    Activation is sent automatically. This page moves on to sharing once Kaspa
+                    confirms it, usually within seconds.
+                  </span>
+                </div>
                 <button
-                  className="btn btn-primary"
+                  className="btn btn-sm"
                   disabled={checking}
                   onClick={() => void checkFunding(selected)}
                   type="button"
                 >
-                  {checking ? "Checking…" : "Check confirmation"}
+                  {checking ? "Checking…" : "Check now"}
                 </button>
               </div>
             </section>
