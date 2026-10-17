@@ -29,6 +29,10 @@ import {
 } from "./toccata-lab-constants";
 import { planToccataCanarySpend, TOCCATA_CANARY_MIN_OUTPUT_SOMPI } from "./toccata-lab-fee";
 import { assertReliableMainnetOutputAmount } from "./mainnet-amount-policy";
+import {
+  GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD,
+  GIVEAWAY_V6_PARTICIPANT_CAPS,
+} from "./giveaway-v6-budget";
 
 export {
   TOCCATA_LAB_DEFAULT_AMOUNT_KAS,
@@ -990,7 +994,12 @@ export function validateBatchActivationBroadcastSafeJson(transactionSafeJson: st
   return readBatchActivationBroadcastSafeJsonSummary(transactionSafeJson).transactionId;
 }
 
-/** Structural guard for the internal, already intent-checked five-output V6 genesis. */
+// One prize output plus one shard per eight participants: 2, 3 or 5 outputs.
+const GIVEAWAY_V6_ACTIVATION_OUTPUT_COUNTS: ReadonlySet<number> = new Set(
+  GIVEAWAY_V6_PARTICIPANT_CAPS.map((cap) => 1 + cap / GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD),
+);
+
+/** Structural guard for the internal, already intent-checked V6 genesis. */
 export function validateGiveawayV6ActivationBroadcastSafeJson(transactionSafeJson: string): string {
   let parsed: SafeJsonClaimableTransaction;
   try {
@@ -1004,8 +1013,11 @@ export function validateGiveawayV6ActivationBroadcastSafeJson(transactionSafeJso
   if (!Array.isArray(parsed.inputs) || parsed.inputs.length !== 1) {
     throw new Error("Giveaway V6 activation requires exactly one keyless input.");
   }
-  if (!Array.isArray(parsed.outputs) || parsed.outputs.length !== 5) {
-    throw new Error("Giveaway V6 activation must create one prize and four shard outputs.");
+  if (
+    !Array.isArray(parsed.outputs) ||
+    !GIVEAWAY_V6_ACTIVATION_OUTPUT_COUNTS.has(parsed.outputs.length)
+  ) {
+    throw new Error("Giveaway V6 activation must create one prize and one, two or four shards.");
   }
   if (!isHexString(parsed.subnetworkId, 40) || parseLockTimeBigInt(parsed.lockTime) !== 0n) {
     throw new Error("Giveaway V6 activation has invalid transaction metadata.");

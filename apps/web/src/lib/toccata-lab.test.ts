@@ -132,6 +132,28 @@ describe("Claimable link helpers", () => {
     );
   });
 
+  it.each([
+    [8, 2],
+    [16, 3],
+    [32, 5],
+  ])("accepts the activation of a %i-person giveaway with %i outputs", (_cap, outputs) => {
+    const activation = giveawayV6ActivationSafeJson();
+    activation.outputs = activation.outputs.slice(0, outputs);
+
+    expect(validateGiveawayV6ActivationBroadcastSafeJson(JSON.stringify(activation))).toBe(
+      "aa".repeat(32),
+    );
+  });
+
+  it.each([1, 4, 6])("rejects an activation with %i outputs", (outputs) => {
+    const activation = giveawayV6ActivationSafeJson();
+    activation.outputs = Array.from({ length: outputs }, () => activation.outputs[1]!);
+
+    expect(() => validateGiveawayV6ActivationBroadcastSafeJson(JSON.stringify(activation))).toThrow(
+      /one prize and one, two or four shards/iu,
+    );
+  });
+
   it("accepts only a one-output V6 register witness for public registration", () => {
     const registration = giveawayV6RegistrationSafeJson();
 
