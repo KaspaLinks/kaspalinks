@@ -31,7 +31,7 @@ import {
 } from "@/lib/share-text";
 
 import { SESSION_EVENT } from "../BrandNav";
-import { giveawayDisplayState } from "./giveaway-status";
+import { giveawayDisplayState, giveawayV6DisplayState } from "./giveaway-status";
 import { groupRegularLinks } from "./grouping";
 
 const TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
@@ -84,6 +84,19 @@ type CreatorGiveaway = {
     preparedTransactionId: null | string;
   };
   winnerAddress: null | string;
+};
+
+type CreatorV6Giveaway = {
+  amountKas: string;
+  closesAt: string;
+  frozenEntryCount: null | number;
+  funding: { status: "AWAITING_FUNDING" | "BOUND" };
+  participantCap: number;
+  phase: "AWAITING_ACTIVATION" | "DRAWN" | "FROZEN" | "OPEN" | "RETURNED";
+  publicId: string;
+  publicUrl: string;
+  registrationCount: number;
+  title: string;
 };
 
 type GiveawayAnalytics = {
@@ -798,6 +811,7 @@ export function MyLinksClient() {
   const [links, setLinks] = useState<CreatorLink[]>([]);
   const [loadingList, setLoadingList] = useState(false);
   const [giveaways, setGiveaways] = useState<CreatorGiveaway[]>([]);
+  const [v6Giveaways, setV6Giveaways] = useState<CreatorV6Giveaway[]>([]);
   const [giveawayAnalytics, setGiveawayAnalytics] = useState<Record<string, GiveawayAnalytics>>({});
   const [loadingGiveaways, setLoadingGiveaways] = useState(false);
   const [giveawayDeleteTarget, setGiveawayDeleteTarget] = useState<CreatorGiveaway | null>(null);
@@ -962,7 +976,7 @@ export function MyLinksClient() {
       if (giveawayLoadInFlightRef.current) return giveawayLoadInFlightRef.current;
 
       if (showLoading) setLoadingGiveaways(true);
-      const request = fetch("/api/toccata-lab/giveaways", {
+      const legacyRequest = fetch("/api/toccata-lab/giveaways", {
         cache: "no-store",
         headers: authHeaders,
       })
@@ -1034,7 +1048,22 @@ export function MyLinksClient() {
             );
           }
         })
-        .catch(() => {})
+        .catch(() => {});
+      // SilverScript V6 Giveaways have their own endpoint; the lab list above
+      // only knows prize-link Giveaways and would show them as unfunded.
+      const v6Request = fetch("/api/creator/giveaways/v6", {
+        cache: "no-store",
+        headers: authHeaders,
+      })
+        .then(async (response) => {
+          const body = await response.json().catch(() => null);
+          if (response.ok && body && Array.isArray(body.giveaways)) {
+            setV6Giveaways(body.giveaways as CreatorV6Giveaway[]);
+          }
+        })
+        .catch(() => {});
+      const request: Promise<void> = Promise.all([legacyRequest, v6Request])
+        .then(() => undefined)
         .finally(() => {
           if (giveawayLoadInFlightRef.current === request) {
             giveawayLoadInFlightRef.current = null;
@@ -3243,12 +3272,80 @@ export function MyLinksClient() {
             })}
           </ul>
         </section>
-      ) : typeFilter === "kaspa.giveaway" ? (
+      ) : typeFilter === "kaspa.giveaway" && v6Giveaways.length === 0 ? (
         <section className="card">
           <p className="muted" style={{ margin: 0 }}>
             You don&apos;t have any giveaways yet.{" "}
-            <Link href="/toccata-lab/giveaway">Create your first giveaway</Link>.
+            <Link href="/giveaway/new">Create your first giveaway</Link>.
           </p>
+        </section>
+      ) : null}
+
+      {v6Giveaways.length > 0 && (typeFilter === "all" || typeFilter === "kaspa.giveaway") ? (
+        <section className="card giveaway-mylinks">
+          <div className="my-links-category-heading">
+            <div>
+              <span className="label">SilverScript giveaways</span>
+              <h2>Your on-chain giveaways</h2>
+            </div>
+            <Link className="btn" href="/giveaway/new?mode=manage">
+              Open Giveaway Studio
+            </Link>
+          </div>
+          <ul className="giveaway-mylinks-list">
+            {v6Giveaways.map((giveaway) => {
+              const state = giveawayV6DisplayState({
+                fundingStatus: giveaway.funding.status,
+                frozenEntryCount: giveaway.frozenEntryCount,
+                phase: giveaway.phase,
+              });
+              const absoluteUrl =
+                typeof window !== "undefined"
+                  ? `${window.location.origin}${giveaway.publicUrl}`
+                  : giveaway.publicUrl;
+              return (
+                <li className="giveaway-mylinks-item" key={giveaway.publicId}>
+                  <div className="giveaway-mylinks-copy">
+                    <div className="giveaway-mylinks-title-row">
+                      <strong>{giveaway.title}</strong>
+                      <span className={`status-pill ${state.toneClass}`}>{state.label}</span>
+                    </div>
+                    <p className="muted giveaway-mylinks-meta">
+                      <strong>{giveaway.amountKas} KAS prize</strong>
+                      <span>
+                        {giveaway.frozenEntryCount ?? giveaway.registrationCount} of{" "}
+                        {giveaway.participantCap} participants
+                      </span>
+                      <span>
+                        {giveaway.phase === "OPEN" || giveaway.phase === "AWAITING_ACTIVATION"
+                          ? "Closes"
+                          : "Closed"}{" "}
+                        {new Date(giveaway.closesAt).toLocaleString()}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="giveaway-mylinks-actions">
+                    <Link className="btn btn-primary" href={giveaway.publicUrl}>
+                      Open
+                    </Link>
+                    <Link
+                      className="btn"
+                      href={`/giveaway/new?id=${encodeURIComponent(giveaway.publicId)}`}
+                    >
+                      Manage
+                    </Link>
+                    <button
+                      className="btn"
+                      onClick={() => void copy(`giveaway-${giveaway.publicId}`, absoluteUrl)}
+                      type="button"
+                    >
+                      {copied === `giveaway-${giveaway.publicId}` ? "Copied!" : "Copy link"}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </section>
       ) : null}
 

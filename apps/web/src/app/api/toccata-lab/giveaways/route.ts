@@ -48,7 +48,8 @@ export async function GET(request: Request) {
     },
     orderBy: { createdAt: "desc" },
     take: 50,
-    where: { creatorId: guard.creator.id },
+    // V6 Giveaways have no prize link and are listed by their own endpoint.
+    where: { creatorId: guard.creator.id, drawProtocolVersion: { not: 6 } },
   });
 
   const reconciledGiveaways = await Promise.all(

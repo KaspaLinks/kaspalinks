@@ -69,6 +69,15 @@ describe("giveaway setup timing metadata", () => {
       fundingExpiresAt: "2026-09-07T12:50:00.000Z",
     });
   });
+  it("leaves SilverScript V6 Giveaways to their own listing", async () => {
+    mocks.db.giveaway.findMany.mockResolvedValue([]);
+    await GET(new Request("https://example.com/api/toccata-lab/giveaways"));
+    expect(mocks.db.giveaway.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ drawProtocolVersion: { not: 6 } }),
+      }),
+    );
+  });
   it("returns timing immediately on creation so funding needs no preliminary poll", async () => {
     mocks.db.claimableLink.findUnique.mockResolvedValue(prize);
     mocks.db.giveaway.create.mockResolvedValue(giveaway);

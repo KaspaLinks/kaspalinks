@@ -88,3 +88,32 @@ export function giveawayDisplayState(
       return { detail: null, label: "Cancelled", toneClass: "status-failed" };
   }
 }
+
+export type GiveawayV6DisplayInput = {
+  fundingStatus: "AWAITING_FUNDING" | "BOUND";
+  phase: "AWAITING_ACTIVATION" | "DRAWN" | "FROZEN" | "OPEN" | "RETURNED";
+  frozenEntryCount: null | number;
+};
+
+/** Status of a SilverScript V6 Giveaway, read from its on-chain projection. */
+export function giveawayV6DisplayState(
+  giveaway: GiveawayV6DisplayInput,
+): Pick<GiveawayDisplayState, "label" | "toneClass"> {
+  if (giveaway.fundingStatus === "AWAITING_FUNDING") {
+    return { label: "Waiting for funding", toneClass: "status-pending" };
+  }
+  switch (giveaway.phase) {
+    case "AWAITING_ACTIVATION":
+      return { label: "Activating", toneClass: "status-pending" };
+    case "OPEN":
+      return { label: "Entries open", toneClass: "status-confirmed" };
+    case "FROZEN":
+      return giveaway.frozenEntryCount === 0
+        ? { label: "Returning prize", toneClass: "status-pending" }
+        : { label: "Drawing winner", toneClass: "status-pending" };
+    case "DRAWN":
+      return { label: "Winner paid", toneClass: "status-confirmed" };
+    case "RETURNED":
+      return { label: "Prize returned", toneClass: "status-profile-hidden" };
+  }
+}

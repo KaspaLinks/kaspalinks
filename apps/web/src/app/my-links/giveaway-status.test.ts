@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { giveawayDisplayState, type GiveawayDisplayInput } from "./giveaway-status";
+import {
+  giveawayDisplayState,
+  giveawayV6DisplayState,
+  type GiveawayDisplayInput,
+} from "./giveaway-status";
 
 const drawnGiveaway: GiveawayDisplayInput = {
   prize: { claimTxId: null, funded: true, status: "funded" },
@@ -51,5 +55,23 @@ describe("giveaway display status", () => {
         prize: { claimTxId: "other-spend", funded: true, status: "spent_unknown" },
       }),
     ).toMatchObject({ label: "Spent on-chain", toneClass: "status-failed" });
+  });
+});
+
+describe("giveawayV6DisplayState", () => {
+  it("follows a SilverScript Giveaway from funding to its result", () => {
+    const state = (
+      fundingStatus: "AWAITING_FUNDING" | "BOUND",
+      phase: "AWAITING_ACTIVATION" | "DRAWN" | "FROZEN" | "OPEN" | "RETURNED",
+      frozenEntryCount: null | number = null,
+    ) => giveawayV6DisplayState({ fundingStatus, frozenEntryCount, phase }).label;
+
+    expect(state("AWAITING_FUNDING", "AWAITING_ACTIVATION")).toBe("Waiting for funding");
+    expect(state("BOUND", "AWAITING_ACTIVATION")).toBe("Activating");
+    expect(state("BOUND", "OPEN")).toBe("Entries open");
+    expect(state("BOUND", "FROZEN", 3)).toBe("Drawing winner");
+    expect(state("BOUND", "FROZEN", 0)).toBe("Returning prize");
+    expect(state("BOUND", "DRAWN", 3)).toBe("Winner paid");
+    expect(state("BOUND", "RETURNED", 0)).toBe("Prize returned");
   });
 });

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import { prisma } from "@kaspa-actions/db";
 import { formatSompiToKaspa } from "@kaspa-actions/kaspa";
@@ -71,6 +72,18 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function GiveawayEntryPage({ params }: PageProps) {
   const { publicId } = await params;
+  const normalizedId = publicId.trim();
+  // SilverScript V6 Giveaways have their own public page; this lab page only
+  // understands the older prize-link draw and would report them as unfunded.
+  if (normalizedId && normalizedId.length <= 128) {
+    const giveaway = await prisma.giveaway.findUnique({
+      select: { drawProtocolVersion: true },
+      where: { publicId: normalizedId },
+    });
+    if (giveaway?.drawProtocolVersion === 6) {
+      redirect(`/giveaways/${encodeURIComponent(normalizedId)}`);
+    }
+  }
   return (
     <GiveawayEntryClient
       publicId={publicId}
