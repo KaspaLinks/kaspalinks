@@ -53,5 +53,18 @@ export function normalizeBlockHeadersRequest(value) {
 }
 
 export function stringifyRelayJson(value) {
-  return JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
+  return JSON.stringify(value, function (key, item) {
+    // Kaspa WASM returns block parents as a CompressedParents object whose own
+    // JSON form is empty. The replacer only sees that form, so the original
+    // value is read from the holder and expanded to the parent hash levels.
+    const original = this[key];
+    if (
+      original !== null &&
+      typeof original === "object" &&
+      typeof original.toExpanded === "function"
+    ) {
+      return original.toExpanded();
+    }
+    return typeof item === "bigint" ? item.toString() : item;
+  });
 }

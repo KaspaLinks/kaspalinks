@@ -341,6 +341,7 @@ function retryable(code: string): boolean {
     "PROVER_UNAVAILABLE",
     "PROOF_PENDING",
     "SETTLEMENT_RELAY_REJECTED",
+    "VSPC_PARSE_ERROR",
     "VSPC_RPC_ERROR",
   ].includes(code);
 }

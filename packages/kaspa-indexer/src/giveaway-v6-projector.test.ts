@@ -13,6 +13,7 @@ import {
   projectGiveawayV6Chain,
   type GiveawayV6FamilyDescriptor,
 } from "./giveaway-v6-projector";
+import { advanceGiveawayV6Projection } from "./giveaway-v6-journal";
 import {
   buildGiveawayV6InitialShardRedeemScriptHex,
   buildGiveawayV6PrizeRedeemScriptHex,
@@ -581,3 +582,52 @@ function unrelatedTransaction(): KaspaVspcAcceptedTransaction {
     outputs: [{ outputIndex: 0, amountSompi: 1n, scriptPublicKeyHex: "000051", covenant: null }],
   };
 }
+
+describe("Giveaway V6 journal on a Mainnet-shaped page", () => {
+  it("picks up the activation although its funding input has no covenant yet", () => {
+    const { transactions } = buildScenario("empty-return");
+    const activation = transactions[0]!;
+    expect(activation.inputs[0]!.utxo.covenantIdHex).toBeNull();
+    const start = "a0".repeat(32);
+    const block = "a1".repeat(32);
+    // Every Mainnet chain block accepts its coinbase first, without inputs.
+    const coinbase: KaspaVspcAcceptedTransaction = {
+      transactionId: "c0".repeat(32),
+      version: 0,
+      acceptingBlockHash: block,
+      acceptingDaaScore: activation.acceptingDaaScore,
+      inputs: [],
+      outputs: [{ outputIndex: 0, amountSompi: 1n, scriptPublicKeyHex: "000051", covenant: null }],
+    };
+
+    const result = advanceGiveawayV6Projection({
+      checkpoint: null,
+      startHash: start,
+      page: {
+        network: "mainnet",
+        removedChainBlockHashes: [],
+        addedChainBlockHashes: [block],
+        blocks: [
+          {
+            header: {
+              hash: block,
+              directParentHashes: [start],
+              selectedParentHash: start,
+              acceptedIdMerkleRoot: "77".repeat(32),
+              daaScore: activation.acceptingDaaScore,
+              blueScore: activation.acceptingDaaScore,
+            },
+            acceptedTransactions: [coinbase, { ...activation, acceptingBlockHash: block }],
+          },
+        ],
+      },
+      config,
+      family,
+    });
+
+    expect(result).toMatchObject({
+      status: "applied",
+      projection: { snapshot: { phase: "open" } },
+    });
+  });
+});

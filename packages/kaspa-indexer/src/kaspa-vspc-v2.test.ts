@@ -9,6 +9,7 @@ const TRANSACTION_ID = "bb".repeat(32);
 const PREVIOUS_TRANSACTION_ID = "cc".repeat(32);
 const COVENANT_ID = "dd".repeat(32);
 const SEQUENCE_COMMITMENT = "ee".repeat(32);
+const COINBASE_TRANSACTION_ID = "c0".repeat(32);
 
 function fullResponse(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -26,6 +27,13 @@ function fullResponse(overrides: Record<string, unknown> = {}): Record<string, u
           blueScore: 5678n,
         },
         acceptedTransactions: [
+          {
+            // Mainnet chain blocks accept their coinbase first; it has no inputs.
+            version: 0,
+            inputs: [],
+            outputs: [{ value: 1n, scriptPublicKey: "000051" }],
+            verboseData: { transactionId: COINBASE_TRANSACTION_ID },
+          },
           {
             version: 1,
             inputs: [
@@ -95,6 +103,7 @@ describe("readKaspaVspcV2Page", () => {
             blueScore: 5678n,
           },
           acceptedTransactions: [
+            { transactionId: COINBASE_TRANSACTION_ID, inputs: [] },
             {
               transactionId: TRANSACTION_ID,
               acceptingBlockHash: BLOCK_HASH,
@@ -139,7 +148,7 @@ describe("readKaspaVspcV2Page", () => {
   it("requires Full input UTXO context", async () => {
     const response = fullResponse();
     const block = (response.chainBlockAcceptedTransactions as Array<Record<string, unknown>>)[0]!;
-    const transaction = (block.acceptedTransactions as Array<Record<string, unknown>>)[0]!;
+    const transaction = (block.acceptedTransactions as Array<Record<string, unknown>>)[1]!;
     const input = (transaction.inputs as Array<Record<string, unknown>>)[0]!;
     delete input.verboseData;
 

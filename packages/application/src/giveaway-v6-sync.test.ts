@@ -161,4 +161,32 @@ describe("Giveaway V6 projection worker", () => {
     );
     expect(JSON.stringify(updateMany.mock.calls[1])).not.toContain("private relay detail");
   });
+
+  it("retries a malformed relay answer instead of abandoning the Giveaway", async () => {
+    const updateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    const prisma = {
+      giveawayV6Projection: {
+        findMany: vi.fn().mockResolvedValue([record()]),
+        updateMany,
+      },
+    } as unknown as PrismaClient;
+    const rpc = relay({ getCurrentNetwork: vi.fn().mockResolvedValue({ network: "unknown" }) });
+    const now = new Date("2026-10-10T12:00:00.000Z");
+
+    await expect(syncDueGiveawayV6Projections(prisma, rpc, now)).resolves.toMatchObject({
+      failed: 1,
+    });
+    expect(updateMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          lastErrorCode: "VSPC_PARSE_ERROR",
+          nextSyncAt: new Date("2026-10-10T12:01:00.000Z"),
+        }),
+      }),
+    );
+  });
 });

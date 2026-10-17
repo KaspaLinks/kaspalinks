@@ -41,6 +41,20 @@ describe("wRPC relay read protocol", () => {
     expect(stringifyRelayJson({ daaScore: 500_000_000n })).toBe('{"daaScore":"500000000"}');
   });
 
+  it("expands compressed block parents that would otherwise serialize as {}", () => {
+    // Shaped like kaspa-wasm's CompressedParents: its own toJSON is empty.
+    const parentsByLevel = {
+      toJSON: () => ({}),
+      toExpanded: () => [["aa".repeat(32), "bb".repeat(32)], ["cc".repeat(32)]],
+    };
+    expect(JSON.parse(stringifyRelayJson({ header: { parentsByLevel, daaScore: 7n } }))).toEqual({
+      header: {
+        parentsByLevel: [["aa".repeat(32), "bb".repeat(32)], ["cc".repeat(32)]],
+        daaScore: "7",
+      },
+    });
+  });
+
   it("accepts only a small unique set of block hashes", () => {
     expect(normalizeBlockHeadersRequest({ hashes: ["AB".repeat(32)] })).toEqual({
       hashes: ["ab".repeat(32)],

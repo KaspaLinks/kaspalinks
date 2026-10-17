@@ -161,7 +161,8 @@ const outputSchema = z.object({
 
 const transactionSchema = z.object({
   version: z.number().int().min(0).max(0xffff),
-  inputs: z.array(inputSchema).min(1),
+  // Every chain block accepts its coinbase first, and a coinbase has no inputs.
+  inputs: z.array(inputSchema),
   outputs: z.array(outputSchema).min(1),
   verboseData: z.object({ transactionId: hashSchema }),
 });

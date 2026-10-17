@@ -143,11 +143,19 @@ export function advanceGiveawayV6Projection(
   const existingTransactionIds = new Set(
     retainedTransitions.map((transition) => transition.event.transactionId),
   );
+  const genesisTransactionId = input.family.genesisOutpoint.transactionId.toLowerCase();
+  const genesisOutputIndex = input.family.genesisOutpoint.outputIndex;
   const familyTransactions = orderedBlocks.flatMap((block) =>
     block.acceptedTransactions.filter((transaction) => {
-      if (!transaction.inputs.some((value) => value.utxo.covenantIdHex === covenantIdHex)) {
-        return false;
-      }
+      // The activation spends the plain funding output, which belongs to no
+      // covenant yet; it is recognized by the genesis outpoint instead.
+      const touchesFamily = transaction.inputs.some(
+        (value) =>
+          value.utxo.covenantIdHex === covenantIdHex ||
+          (value.previousOutpoint.transactionId === genesisTransactionId &&
+            value.previousOutpoint.outputIndex === genesisOutputIndex),
+      );
+      if (!touchesFamily) return false;
       if (existingTransactionIds.has(transaction.transactionId)) return false;
       existingTransactionIds.add(transaction.transactionId);
       return true;

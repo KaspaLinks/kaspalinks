@@ -15,6 +15,9 @@ import {
 const DEFAULT_BATCH_SIZE = 3;
 const LEASE_MS = 120_000;
 const RETRY_MS = 15_000;
+// A malformed relay answer is retried too, more slowly: stopping for good would
+// leave a funded Giveaway unattended over a fault outside its own lineage.
+const PARSE_RETRY_MS = 60_000;
 
 const projectionSelect = {
   id: true,
@@ -121,12 +124,13 @@ async function recordFailure(
   now: Date,
 ): Promise<void> {
   const code = publicErrorCode(error);
-  const retry = code === "VSPC_RPC_ERROR";
+  const retryMs =
+    code === "VSPC_RPC_ERROR" ? RETRY_MS : code === "VSPC_PARSE_ERROR" ? PARSE_RETRY_MS : null;
   await prisma.giveawayV6Projection.updateMany({
     data: {
       lastErrorCode: code,
       lastErrorAt: now,
-      nextSyncAt: retry ? new Date(now.getTime() + RETRY_MS) : null,
+      nextSyncAt: retryMs === null ? null : new Date(now.getTime() + retryMs),
       syncRevision: { increment: 1 },
     },
     where: { id: record.id, syncRevision: record.syncRevision },
