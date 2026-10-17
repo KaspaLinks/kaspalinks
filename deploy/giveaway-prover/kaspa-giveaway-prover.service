@@ -12,7 +12,10 @@ Environment=PATH=%h/.local/node/bin:%h/.risc0/bin:%h/.cargo/bin:/usr/local/bin:/
 Environment=GIVEAWAY_PROVER_PORT=3020
 Environment=RISC0_WORK_DIR=%h/kaspa-giveaway-prover/work
 ExecStartPre=/usr/bin/mkdir -p %h/kaspa-giveaway-prover/work
-ExecStart=%h/kaspa-giveaway-prover/app/node_modules/.bin/tsx apps/agent-worker/src/local-giveaway-prover.ts
+# The user manager keeps the groups it started with. Joining the docker group
+# later does not reach it, so the job server takes the group explicitly;
+# without it every proof fails at the Groth16 step after about 20 minutes.
+ExecStart=/usr/bin/sg docker -c "exec %h/kaspa-giveaway-prover/app/node_modules/.bin/tsx apps/agent-worker/src/local-giveaway-prover.ts"
 Restart=on-failure
 RestartSec=10
 

@@ -31,6 +31,9 @@ running alongside:
   `SHASUMS256.txt`)
 - lingering enabled for the service user, once, as root:
   `loginctl enable-linger <user>`, so the user services run without a login
+- the service user in the `docker` group. The unit starts the job server
+  through `sg docker`, because a user manager that was already running when
+  the user joined the group never picks the group up
 
 ## Install a release
 
@@ -85,6 +88,12 @@ agent worker reads `GIVEAWAY_V6_PROVER_SOCKET`.
 - On the application host, the socket exists and is owned by `kaspa-prover`.
 - `journalctl --user -u kaspa-giveaway-prover` shows
   `Giveaway prover listening on 127.0.0.1:3020.`
+- `systemd-run --user --wait --pipe sg docker -c "docker version"` answers;
+  without Docker every proof fails at its last step.
+- The worker asks for a proof right after the slot. Header capture walks back
+  at most 10,000 selected-chain blocks, about two hours, so a prover that is
+  unreachable for longer than that misses the slot and its Giveaways take the
+  return path.
 
 A disconnected tunnel restarts after ten seconds. It must be up when a slot's
 entropy target is reached; until then the worker keeps waiting, and after 24
