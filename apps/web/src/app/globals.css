@@ -12585,3 +12585,26 @@ main.giveaway-guided-page {
 .claim-receive-panel .growth-prompt {
   margin: 0;
 }
+
+/* Claim links inside the Telegram Mini App */
+.telegram-claim-page {
+  display: grid;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.telegram-claim-head {
+  display: grid;
+  gap: 4px;
+  max-width: 640px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.telegram-claim-head p {
+  margin: 0;
+}
+
+.telegram-claim-page:has(.claimable-lab-layout.has-link) > .telegram-claim-head {
+  display: none;
+}

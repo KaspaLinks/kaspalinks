@@ -6,6 +6,9 @@ export type TelegramCommand =
   | { kind: "connect"; code: string }
   | { kind: "disconnect" | "giveaways" | "help" | "links" | "payments" | "start" | "stats" }
   | { amountKas: string; kind: "prepare_giveaway"; title: string }
+  | { amountKas: string; kind: "prepare_claim"; title: string }
+  | { kind: "show_wallet" }
+  | { address: string; kind: "set_wallet" }
   | {
       amountKas?: string;
       kind: "create_action";
@@ -90,6 +93,21 @@ export function parseTelegramCommand(text: string): TelegramCommand | null {
     if (title.length > 80)
       throw new TelegramCommandError("Title must be 80 characters or shorter.");
     return { amountKas, kind: "prepare_giveaway", title };
+  }
+
+  if (command === "wallet") {
+    // Phones capitalize the first letter; Kaspa addresses are lowercase.
+    return rest ? { address: rest.toLowerCase(), kind: "set_wallet" } : { kind: "show_wallet" };
+  }
+
+  if (command === "claim") {
+    const [rawAmount = "", ...titleParts] = rest.split(/\s+/);
+    const amountKas = normalizedAmount(rawAmount);
+    if (!amountKas) throw new TelegramCommandError("Use /claim <KAS> [title].");
+    const title = titleParts.join(" ").trim();
+    if (title.length > 80)
+      throw new TelegramCommandError("Title must be 80 characters or shorter.");
+    return { amountKas, kind: "prepare_claim", title };
   }
 
   const types = {

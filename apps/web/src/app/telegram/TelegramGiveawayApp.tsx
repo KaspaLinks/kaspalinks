@@ -2,13 +2,16 @@
 import { useEffect, useState } from "react";
 import { GiveawayV6Studio } from "../giveaway/new/GiveawayV6Studio";
 import { GiveawayEntryClient } from "../toccata-lab/giveaway/[publicId]/GiveawayEntryClient";
+import { TelegramClaimApp, type TelegramClaimSettings } from "./TelegramClaimApp";
 
 export function TelegramGiveawayApp({
+  claim,
   entryEnabled,
   studioEnabled,
   turnstile,
   botUsername,
 }: {
+  claim: TelegramClaimSettings;
   entryEnabled: boolean;
   studioEnabled: boolean;
   turnstile: { required: boolean; siteKey: string };
@@ -32,6 +35,9 @@ export function TelegramGiveawayApp({
         <p role="status">Loading giveaway…</p>
       </main>
     );
+  if (new URLSearchParams(window.location.search).get("mode") === "claim") {
+    return <TelegramClaimApp settings={claim} />;
+  }
   const match = /^g_([a-zA-Z0-9_-]{1,48})$/.exec(start);
   if (match && entryEnabled)
     return (

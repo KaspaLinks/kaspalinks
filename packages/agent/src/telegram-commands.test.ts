@@ -70,6 +70,29 @@ describe("parseTelegramCommand", () => {
     expect(() => parseTelegramCommand(text)).toThrow(TelegramCommandError);
   });
 
+  it("parses a claim link handoff with an optional title", () => {
+    expect(parseTelegramCommand("/claim 2,5 Coffee for Ada")).toEqual({
+      amountKas: "2.5",
+      kind: "prepare_claim",
+      title: "Coffee for Ada",
+    });
+    expect(parseTelegramCommand("/claim 1")).toEqual({
+      amountKas: "1",
+      kind: "prepare_claim",
+      title: "",
+    });
+    expect(() => parseTelegramCommand("/claim")).toThrow("Use /claim <KAS> [title].");
+    expect(() => parseTelegramCommand("/claim lots")).toThrow(TelegramCommandError);
+  });
+
+  it("reads or sets the wallet for payment links", () => {
+    expect(parseTelegramCommand("/wallet")).toEqual({ kind: "show_wallet" });
+    expect(parseTelegramCommand("/wallet Kaspa:QQABC")).toEqual({
+      address: "kaspa:qqabc",
+      kind: "set_wallet",
+    });
+  });
+
   it("points an old-style duration to the fixed draw times", () => {
     expect(() => parseTelegramCommand("/giveaway 0.5 24h Weekend KAS")).toThrow(
       "Giveaways now end at fixed draw times",

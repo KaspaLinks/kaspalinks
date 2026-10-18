@@ -23,6 +23,12 @@ export const GROWTH_PROMPTS: Record<SignupSource, GrowthPromptCopy> = {
     // The chooser itself offers the account-free path when it is switched on.
     href: "/claim/create?utm_source=giveaway-entry",
   },
+  // Labels links made from the bot (/claim); the bot itself shows no prompt.
+  "telegram-bot": {
+    body: "Create claim links and payment links right from Telegram.",
+    cta: "Create a claim link",
+    href: "/claim/create?utm_source=telegram-bot",
+  },
   "pay-success": {
     accountFreeHref: "/new-link?utm_source=pay-success",
     body: "Create your own page in seconds. No email, no custody.",

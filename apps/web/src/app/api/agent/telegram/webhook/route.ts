@@ -45,6 +45,8 @@ import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { getTelegramGiveawayCard } from "@/lib/telegram-giveaway";
 import { giveawayV6AccessFor, isGiveawayV6CreationEnabled } from "@/lib/giveaway-v6-creation";
 import { isGiveawayLabEnabled } from "@/lib/giveaway-lab";
+import { isClaimableAnonymousEnabled } from "@/lib/claimable-flags";
+import { isToccataLabEnabled } from "@/lib/toccata-lab";
 
 export const runtime = "nodejs";
 
@@ -115,6 +117,16 @@ function usesCovenantStudio(creator: {
 function covenantStudioUrl(mode: "create" | "manage" = "create") {
   return `${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/telegram?mode=${mode}`;
 }
+// Claim links need no account: the Mini App creates them like the account-free web
+// page does, with the claim code generated in Telegram's browser.
+function claimSetupUrl(input: { amountKas: string; title: string }) {
+  const url = new URL(`${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/telegram`);
+  url.searchParams.set("mode", "claim");
+  url.searchParams.set("amount", input.amountKas);
+  if (input.title) url.searchParams.set("title", input.title);
+  url.searchParams.set("utm_source", "telegram-bot");
+  return url.toString();
+}
 function covenantSetupUrl(input: { amountKas: string; title: string }) {
   const url = new URL(covenantStudioUrl("create"));
   url.searchParams.set("prize", input.amountKas);
@@ -164,6 +176,7 @@ const helpText = [
   "/tip [KAS] <title> — optional fixed amount",
   "/donation [KAS] <title> — optional fixed amount",
   "/goal <KAS target> <title> — fundraising target",
+  "/claim <KAS> [title] — send KAS with a claim link, no account needed",
   "/giveaway <KAS prize> <title> — open setup; choose the draw time in the Mini App",
   "",
   "SilverScript Mini App: set up → choose return wallet → fund → share.",
@@ -181,30 +194,54 @@ const helpText = [
 ].join("\n");
 
 const telegramOnlyHelpText = [
-  "SilverScript giveaways",
+  "Kaspa Links in Telegram",
   "",
-  "Create and manage giveaways with your Telegram account. No KaspaLinks account is required.",
+  "No KaspaLinks account needed. Amounts are in KAS; 10.5 and 10,5 both work.",
   "",
+  "Send KAS",
+  "/claim <KAS> [title] — claim link for one person; unclaimed KAS comes back",
+  "",
+  "Get paid (set your wallet once with /wallet kaspa:…)",
+  "/tip [KAS] <title> · /donation [KAS] <title>",
+  "/goal <KAS target> <title> · /invoice <KAS> <title> · /link <KAS> <title>",
+  "/links · /payments · /stats",
+  "",
+  "Giveaways",
   "/giveaway <KAS prize> <title> — open setup",
   "/giveaways — manage your giveaways",
   "/stop — turn off giveaway result reminders",
   "",
-  "Example: /giveaway 0.5 Weekend KAS",
-  "Giveaways end at 00:00, 06:00, 12:00 or 18:00 UTC, up to 24h ahead. Pick the draw time in the Mini App; the winner is paid about 30 minutes later.",
-  "Choose the return wallet before funding. SilverScript can return unspent KAS only to that address; no private key or recovery file is sent to KaspaLinks or Telegram.",
+  "Giveaways end at 00:00, 06:00, 12:00 or 18:00 UTC, up to 24h ahead. Choose the return wallet before funding; no private key or recovery file is sent to KaspaLinks or Telegram.",
 ].join("\n");
 
 function isTelegramOnlyCreator(creator: { accountKind?: string }) {
   return creator.accountKind === "TELEGRAM_ONLY";
 }
 
-function canCreateAccountFreeGiveaway(command: ReturnType<typeof parseTelegramCommand>) {
+// Commands that open (or reuse) an account-free Telegram workspace.
+function opensTelegramWorkspace(command: ReturnType<typeof parseTelegramCommand>) {
   return (
     command?.kind === "start" ||
     command?.kind === "help" ||
     command?.kind === "prepare_giveaway" ||
-    command?.kind === "giveaways"
+    command?.kind === "giveaways" ||
+    command?.kind === "create_action" ||
+    command?.kind === "set_wallet" ||
+    command?.kind === "show_wallet" ||
+    command?.kind === "links" ||
+    command?.kind === "payments" ||
+    command?.kind === "stats"
   );
+}
+
+// Telegram-only workspaces have no public profile, so their links use /a/<id>.
+function actionSharePath(
+  creator: { accountKind?: string; username: string },
+  action: { publicId: string; slug: null | string },
+) {
+  return action.slug && !isTelegramOnlyCreator(creator)
+    ? `/u/${creator.username}/${action.slug}`
+    : `/a/${action.publicId}`;
 }
 
 function isUniqueUpdateError(error: unknown): boolean {
@@ -225,7 +262,7 @@ async function renderLinks(creatorId: string): Promise<string> {
   const creator = await prisma.creator.findUniqueOrThrow({ where: { id: creatorId } });
   return links
     .map((action) => {
-      const path = action.slug ? `/u/${creator.username}/${action.slug}` : `/a/${action.publicId}`;
+      const path = actionSharePath(creator, action);
       return `${action.disabledAt ? "Disabled" : "Active"}: ${action.title}\n${appUrl}${path}`;
     })
     .join("\n\n");
@@ -392,10 +429,13 @@ async function createFromCommand(
   if (!connection.creator.defaultRecipientAddress) {
     throw new ApplicationError(
       "DEFAULT_ADDRESS_REQUIRED",
-      `Set a default recipient address first: ${agentSettingsUrl()}`,
+      isTelegramOnlyCreator(connection.creator)
+        ? "Set the wallet that receives payments first: /wallet kaspa:…"
+        : `Set a default recipient address first with /wallet kaspa:… or in ${agentSettingsUrl()}`,
       409,
     );
   }
+  const telegramOnly = isTelegramOnlyCreator(connection.creator);
   const action = await createActionTool(
     prisma,
     actorContext(connection.creatorId, "telegram"),
@@ -405,16 +445,18 @@ async function createFromCommand(
         : command.amountKas
           ? { amountKas: command.amountKas }
           : {}),
+      ...(telegramOnly ? { hiddenFromProfile: true } : {}),
       recipientAddress: connection.creator.defaultRecipientAddress,
       slug: slugifyAgentTitle(command.title),
       title: command.title,
       type: command.type,
     },
-    { idempotencyKey: `telegram-update:${updateId}` },
+    {
+      ...(telegramOnly ? { accountFree: { source: "telegram-bot" } } : {}),
+      idempotencyKey: `telegram-update:${updateId}`,
+    },
   );
-  const path = action.slug
-    ? `/u/${connection.creator.username}/${action.slug}`
-    : `/a/${action.publicId}`;
+  const path = actionSharePath(connection.creator, action);
   return `Created: ${action.title}\n${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}${path}`;
 }
 
@@ -649,6 +691,24 @@ async function handleMessage(
     });
     return;
   }
+  if (command?.kind === "prepare_claim") {
+    if (!isToccataLabEnabled() || !isClaimableAnonymousEnabled()) {
+      await client.sendMessage({
+        chatId,
+        text: "Claim links are temporarily unavailable. Please try again later.",
+      });
+      return;
+    }
+    await client.sendMessage({
+      buttons: [[{ text: "Create claim link", web_app: { url: claimSetupUrl(command) } }]],
+      chatId,
+      text:
+        `Claim link for ${command.amountKas} KAS${command.title ? ` · ${command.title}` : ""}\n\n` +
+        "You pay it once from your wallet, then send the link to one person. " +
+        "If nobody claims it in time, the KAS returns to your wallet automatically. No account needed.",
+    });
+    return;
+  }
   if (command?.kind === "connect") {
     const existing = await connectedCreator(telegramUserId);
     if (existing?.telegramChatId === chatId && !existing.blockedAt) {
@@ -679,29 +739,27 @@ async function handleMessage(
   }
 
   let connection = await connectedCreator(telegramUserId);
-  if (!connection && canCreateAccountFreeGiveaway(command)) {
-    if (!isGiveawayV6CreationEnabled()) {
-      if (command?.kind === "prepare_giveaway" || command?.kind === "giveaways") {
-        await client.sendMessage({
-          chatId,
-          text: "SilverScript giveaways are temporarily unavailable. Please try again later.",
-        });
-        return;
-      }
-    } else {
-      const workspace = await ensureTelegramGiveawayWorkspaceTool(prisma, {
-        telegramChatId: chatId,
-        telegramUserId,
+  if (!connection && opensTelegramWorkspace(command)) {
+    const giveawayCommand = command?.kind === "prepare_giveaway" || command?.kind === "giveaways";
+    if (giveawayCommand && !isGiveawayV6CreationEnabled()) {
+      await client.sendMessage({
+        chatId,
+        text: "SilverScript giveaways are temporarily unavailable. Please try again later.",
       });
-      connection = { ...workspace.connection, creator: workspace.creator };
+      return;
     }
+    const workspace = await ensureTelegramGiveawayWorkspaceTool(prisma, {
+      telegramChatId: chatId,
+      telegramUserId,
+    });
+    connection = { ...workspace.connection, creator: workspace.creator };
   }
   if (!connection || connection.telegramChatId !== chatId) {
     await client.sendMessage({
       buttons: [[{ text: "Open Agent settings", url: agentSettingsUrl() }]],
       chatId,
       text:
-        "Use /giveaway to create a SilverScript giveaway without a KaspaLinks account. " +
+        "Use /giveaway or /claim without a KaspaLinks account. " +
         "Payment-link, payment and stats commands still require a connected Creator account. " +
         "Open KaspaLinks Agent settings and send /connect followed by its connection code to use those features.",
     });
@@ -740,13 +798,6 @@ async function handleMessage(
     command.kind === "payments" ||
     command.kind === "stats"
   ) {
-    if (isTelegramOnlyCreator(connection.creator) && command.kind !== "giveaways") {
-      await client.sendMessage({
-        chatId,
-        text: "That command needs a connected KaspaLinks Creator account. Account-free Telegram access currently covers SilverScript giveaways.",
-      });
-      return;
-    }
     await client.sendMessage({
       ...(command.kind === "giveaways"
         ? { buttons: giveawayAppButtons(usesCovenantStudio(connection.creator)) }
@@ -775,10 +826,42 @@ async function handleMessage(
     });
     return;
   }
-  if (command.kind === "create_action") {
+  if (command.kind === "show_wallet") {
+    const address = connection.creator.defaultRecipientAddress;
     await client.sendMessage({
       chatId,
-      text: await createFromCommand(connection, command, updateId),
+      text: address
+        ? `Payments go to ${address}\nChange it with /wallet kaspa:…`
+        : "No wallet set yet. Send /wallet followed by your Kaspa address.",
+    });
+    return;
+  }
+  if (command.kind === "set_wallet") {
+    await updateAgentSettingsTool(prisma, actorContext(connection.creatorId, "telegram"), {
+      defaultRecipientAddress: command.address,
+    });
+    await client.sendMessage({
+      chatId,
+      text: `Wallet saved. New payment links pay to ${command.address}`,
+    });
+    return;
+  }
+  if (command.kind === "create_action") {
+    const text = await createFromCommand(connection, command, updateId);
+    await client.sendMessage({
+      // Payment alerts are off until the creator turns them on.
+      ...(connection.notificationsEnabled
+        ? {}
+        : {
+            buttons: [
+              [
+                { callback_data: "notify:on", text: "Enable payment alerts" },
+                { callback_data: "notify:off", text: "Not now" },
+              ],
+            ],
+          }),
+      chatId,
+      text,
     });
     return;
   }

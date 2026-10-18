@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
   subscribe: vi.fn(),
   stopSubscriptions: vi.fn(),
   answerCallbackQuery: vi.fn(),
+  createAction: vi.fn(),
   createGiveawaySetupDraft: vi.fn(),
+  updateSettings: vi.fn(),
   ensureWorkspace: vi.fn(),
   createUpdate: vi.fn(),
   consumeTelegramConnectCode: vi.fn(),
@@ -30,8 +32,18 @@ vi.mock("@kaspa-actions/agent", async () => {
 
 vi.mock("@kaspa-actions/application", () => ({
   actorContext: (creatorId: string, channel: string) => ({ channel, creatorId }),
-  ApplicationError: class extends Error {},
+  ApplicationError: class extends Error {
+    constructor(
+      public code: string,
+      message: string,
+      public status = 400,
+    ) {
+      super(message);
+    }
+  },
   consumeTelegramConnectCodeTool: mocks.consumeTelegramConnectCode,
+  createActionTool: mocks.createAction,
+  updateAgentSettingsTool: mocks.updateSettings,
   createGiveawaySetupDraftTool: mocks.createGiveawaySetupDraft,
   ensureTelegramGiveawayWorkspaceTool: mocks.ensureWorkspace,
   setGiveawayResultSubscription: mocks.subscribe,
@@ -121,8 +133,17 @@ describe("Telegram Agent webhook", () => {
     );
   });
 
-  it("explains account-free giveaways and optional account connection to an unconnected chat", async () => {
+  it("opens an account-free Telegram workspace for a new chat's /help", async () => {
     mocks.findConnection.mockResolvedValue(null);
+    mocks.ensureWorkspace.mockResolvedValue({
+      connection: { creatorId: "creator-tg", telegramChatId: "123", telegramUserId: "123" },
+      created: true,
+      creator: {
+        accountKind: "TELEGRAM_ONLY",
+        prizeCovenantEnabled: true,
+        telegramBetaEnabled: true,
+      },
+    });
 
     const response = await POST(
       webhookRequest({
@@ -137,11 +158,66 @@ describe("Telegram Agent webhook", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(mocks.ensureWorkspace).toHaveBeenCalledTimes(1);
     expect(mocks.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringContaining("Use /giveaway"),
+        text: expect.stringContaining("/claim <KAS> [title]"),
       }),
     );
+  });
+
+  it("opens the claim link Mini App for anyone, without creating a workspace", async () => {
+    mocks.findConnection.mockResolvedValue(null);
+
+    const response = await POST(
+      webhookRequest({
+        message: {
+          chat: { id: 123, type: "private" },
+          from: { id: 123 },
+          message_id: 2,
+          text: "/claim 5 Coffee for Ada",
+        },
+        update_id: 21,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const sent = mocks.sendMessage.mock.calls[0]![0] as {
+      buttons: Array<Array<{ text: string; web_app?: { url: string } }>>;
+      text: string;
+    };
+    expect(sent.text).toContain("5 KAS · Coffee for Ada");
+    const url = new URL(sent.buttons[0]![0]!.web_app!.url);
+    expect(url.pathname).toBe("/telegram");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      amount: "5",
+      mode: "claim",
+      title: "Coffee for Ada",
+      utm_source: "telegram-bot",
+    });
+    expect(mocks.ensureWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("says when claim links are switched off", async () => {
+    vi.stubEnv("CLAIMABLE_ANONYMOUS_ENABLED", "false");
+    try {
+      await POST(
+        webhookRequest({
+          message: {
+            chat: { id: 123, type: "private" },
+            from: { id: 123 },
+            message_id: 2,
+            text: "/claim 5",
+          },
+          update_id: 22,
+        }),
+      );
+      expect(mocks.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining("temporarily unavailable") }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("does not reuse a connection code when the private chat is already connected", async () => {
@@ -523,7 +599,80 @@ describe("SilverScript bot handoff", () => {
       }),
     );
   });
-  it("shows giveaway-only help for a Telegram-only workspace", async () => {
+  function telegramOnly(defaultRecipientAddress: null | string = null) {
+    mocks.findConnection.mockResolvedValue({
+      creatorId: "creator-tg",
+      notificationsEnabled: false,
+      telegramUserId: "123",
+      telegramChatId: "123",
+      creator: {
+        accountKind: "TELEGRAM_ONLY",
+        defaultRecipientAddress,
+        prizeCovenantEnabled: true,
+        telegramBetaEnabled: true,
+        username: "tg_0123456789abcdef01234567",
+      },
+    });
+  }
+
+  it("asks a Telegram-only workspace for its wallet before a payment link", async () => {
+    telegramOnly();
+
+    expect((await POST(request("/tip Coffee"))).status).toBe(200);
+
+    expect(mocks.createAction).not.toHaveBeenCalled();
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Set the wallet that receives payments first: /wallet kaspa:…",
+      }),
+    );
+  });
+
+  it("saves the wallet from /wallet", async () => {
+    telegramOnly();
+    mocks.updateSettings.mockResolvedValue({});
+    const address = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
+
+    expect((await POST(request(`/wallet ${address}`))).status).toBe(200);
+
+    expect(mocks.updateSettings).toHaveBeenCalledWith(
+      expect.anything(),
+      { channel: "telegram", creatorId: "creator-tg" },
+      { defaultRecipientAddress: address },
+    );
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining("Wallet saved") }),
+    );
+  });
+
+  it("creates an account-free payment link with a /a/ address for a Telegram-only workspace", async () => {
+    const address = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
+    telegramOnly(address);
+    mocks.createAction.mockResolvedValue({
+      publicId: "pub123",
+      slug: "coffee",
+      title: "Coffee",
+    });
+
+    expect((await POST(request("/tip 2 Coffee"))).status).toBe(200);
+
+    expect(mocks.createAction).toHaveBeenCalledWith(
+      expect.anything(),
+      { channel: "telegram", creatorId: "creator-tg" },
+      expect.objectContaining({
+        amountKas: "2",
+        hiddenFromProfile: true,
+        recipientAddress: address,
+        type: "kaspa.tip",
+      }),
+      expect.objectContaining({ accountFree: { source: "telegram-bot" } }),
+    );
+    const sent = mocks.sendMessage.mock.calls[0]![0];
+    expect(sent.text).toBe("Created: Coffee\nhttps://kaspalinks.com/a/pub123");
+    expect(JSON.stringify(sent.buttons)).toContain("Enable payment alerts");
+  });
+
+  it("shows the account-free command set for a Telegram-only workspace", async () => {
     mocks.findConnection.mockResolvedValue({
       creatorId: "creator-tg",
       telegramUserId: "123",
@@ -537,8 +686,10 @@ describe("SilverScript bot handoff", () => {
 
     expect((await POST(request("/help"))).status).toBe(200);
     const sent = mocks.sendMessage.mock.calls[0][0];
-    expect(sent.text).toContain("No KaspaLinks account is required");
-    expect(sent.text).not.toContain("/payments");
+    expect(sent.text).toContain("No KaspaLinks account needed");
+    expect(sent.text).toContain("/claim <KAS> [title]");
+    expect(sent.text).toContain("/wallet kaspa:");
+    expect(sent.text).not.toContain("/disconnect");
     expect(JSON.stringify(sent.buttons)).toContain("Create giveaway");
   });
   it("lists only the connected creator covenant giveaways and opens management", async () => {

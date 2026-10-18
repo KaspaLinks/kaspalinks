@@ -29,7 +29,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const action = await prisma.action.findUnique({
     select: {
       amountSompi: true,
-      creator: { select: { displayName: true, username: true } },
+      creator: { select: { accountKind: true, displayName: true, username: true } },
       deletedAt: true,
       description: true,
       disabledAt: true,
@@ -50,10 +50,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     };
   }
 
+  // Telegram-only workspaces have an internal tg_… name that is never shown.
+  const publicCreator = action.creator?.accountKind === "REGISTERED" ? action.creator : null;
   const preview = buildActionSocialPreview({
     amountKas: action.amountSompi !== null ? formatSompiToKaspa(action.amountSompi) : null,
-    creatorDisplayName: action.creator?.displayName,
-    creatorUsername: action.creator?.username,
+    creatorDisplayName: publicCreator?.displayName,
+    creatorUsername: publicCreator?.username,
     description: action.description,
     goalKas: action.goalSompi !== null ? formatSompiToKaspa(action.goalSompi) : null,
     title: action.title,
@@ -85,7 +87,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function ActionPage({ params }: PageProps) {
   const { publicId } = await params;
 
-  const action = await prisma.action.findUnique({ where: { publicId } });
+  const action = await prisma.action.findUnique({
+    include: { creator: { select: { accountKind: true } } },
+    where: { publicId },
+  });
 
   if (!action || isActionDeleted(action)) {
     notFound();
@@ -131,7 +136,10 @@ export default async function ActionPage({ params }: PageProps) {
   return (
     <ActionPaymentFlow
       action={metadata}
-      createdWithoutAccount={action.createdWithoutAccount && action.creatorId === null}
+      // Still account-free unless a registered account adopted the link.
+      createdWithoutAccount={
+        action.createdWithoutAccount && action.creator?.accountKind !== "REGISTERED"
+      }
       goalProgress={goalProgress}
       paymentLinksAccountFree={isAccountFreePaymentLinksEnabled()}
       paymentUri={paymentUri}

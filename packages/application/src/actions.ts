@@ -205,6 +205,8 @@ export async function createActionTool(
   actor: ActorContext,
   rawInput: CreateActionInput,
   options: {
+    /** Created without a KaspaLinks account, e.g. from a Telegram-only workspace. */
+    accountFree?: { source: null | string };
     dailyLimit?: number;
     idempotencyKey?: string;
     ipHash?: null | string;
@@ -295,6 +297,9 @@ export async function createActionTool(
       data: {
         agentCommandKey: options.idempotencyKey ?? null,
         amountSompi,
+        ...(options.accountFree
+          ? { createdWithoutAccount: true, source: options.accountFree.source }
+          : {}),
         creatorId: actor.creatorId,
         description: normalizeOptional(input.description),
         expiresAt: input.expiresAt ?? null,

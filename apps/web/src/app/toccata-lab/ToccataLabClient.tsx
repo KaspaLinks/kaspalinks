@@ -81,16 +81,21 @@ type LabCapabilities = {
   version: string;
 };
 
-type ToccataLabClientProps = {
+export type ToccataLabClientProps = {
   /** Single links can be created without a KaspaLinks account (requires autoReturnEnabled). */
   anonymousEnabled?: boolean;
   /** New single links use the keyless auto-return script (docs/adr/0007). */
   autoReturnEnabled?: boolean;
   capabilities: LabCapabilities;
   enabled: boolean;
+  /** Prefill from a bot command such as /claim 5 Coffee. */
+  initialAmountKas?: string;
   initialMode?: ClaimableLinksInitialMode;
   initialPublicLink?: PublicClaimableLinkMetadata | null;
+  initialTitle?: string;
   requiredCapabilities: readonly string[];
+  /** Inside the Telegram Mini App: share through Telegram, no web sign-in hints. */
+  surface?: "telegram" | "web";
 };
 
 export type ClaimableLinksInitialMode = "claim" | "create" | "manage";
@@ -467,11 +472,14 @@ export function ToccataLabClient({
   autoReturnEnabled = false,
   capabilities,
   enabled,
+  initialAmountKas,
   initialMode = "create",
   initialPublicLink = null,
+  initialTitle = "",
+  surface = "web",
 }: ToccataLabClientProps) {
   const accountFree = autoReturnEnabled && anonymousEnabled;
-  const [amountKas, setAmountKas] = useState(TOCCATA_LAB_DEFAULT_AMOUNT_KAS);
+  const [amountKas, setAmountKas] = useState(initialAmountKas ?? TOCCATA_LAB_DEFAULT_AMOUNT_KAS);
   const [returnAddress, setReturnAddress] = useState("");
   const [returnAddressLoading, setReturnAddressLoading] = useState(false);
   const [returnSending, setReturnSending] = useState(false);
@@ -484,7 +492,7 @@ export function ToccataLabClient({
   const [expiryUnit, setExpiryUnit] = useState<ToccataCanaryExpiryUnit>("hours");
   const [feeKas, setFeeKas] = useState(formatSompiForToccataLab(TOCCATA_CANARY_DEFAULT_FEE_SOMPI));
   // Empty means the defaults; normalizeLabTitle/Description fill them in on create.
-  const [linkTitle, setLinkTitle] = useState("");
+  const [linkTitle, setLinkTitle] = useState(initialTitle);
   const [linkDescription, setLinkDescription] = useState("");
   const [labLink, setLabLink] = useState<ClaimableLabLink | null>(null);
   const [claimOnlyView, setClaimOnlyView] = useState(initialMode === "claim");
@@ -1177,6 +1185,19 @@ export function ToccataLabClient({
       }
     }
     await copyClaimLink();
+  }
+
+  // Telegram's own share sheet: the creator picks one contact and confirms there.
+  function shareClaimLinkInTelegram() {
+    if (!claimUrl || !shareReady || !labLink) return;
+    const text = `${labLink.netClaimKas} KAS for you. Claim it with this link:`;
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(claimUrl)}&text=${encodeURIComponent(text)}`;
+    const app = window.Telegram?.WebApp;
+    if (app?.openTelegramLink) app.openTelegramLink(shareUrl);
+    else window.open(shareUrl, "_blank", "noopener,noreferrer");
+    setLabLink((current) =>
+      current?.status === "funded" ? { ...current, status: "shared" } : current,
+    );
   }
 
   async function fillAddressFromKasware(setAddress: (address: string) => void) {
@@ -2405,7 +2426,7 @@ export function ToccataLabClient({
                   >
                     Create link
                   </button>
-                  {!creatorSignedIn && accountFree ? (
+                  {!creatorSignedIn && accountFree && surface !== "telegram" ? (
                     <p className="muted">
                       No account needed. Optional:{" "}
                       <Link href="/sign-in?next=%2Fclaim%2Fcreate" prefetch={false}>
@@ -2416,7 +2437,7 @@ export function ToccataLabClient({
                   ) : null}
                 </form>
               </section>
-              {!autoReturnEnabled ? (
+              {!autoReturnEnabled && surface !== "telegram" ? (
                 <button
                   className="batch-drop-text-link"
                   onClick={() => recoveryInputRef.current?.click()}
@@ -2726,16 +2747,31 @@ export function ToccataLabClient({
                     {claimUrlPreview}
                   </p>
                   <div className="claimable-action-row">
-                    <button className="btn btn-primary" onClick={copyClaimLink} type="button">
-                      {claimLinkCopied ? "Copied!" : "Copy claim link"}
-                    </button>
+                    {surface === "telegram" ? (
+                      <button
+                        className="btn btn-primary"
+                        onClick={shareClaimLinkInTelegram}
+                        type="button"
+                      >
+                        Send in Telegram
+                      </button>
+                    ) : null}
                     <button
-                      className="btn"
-                      onClick={() => void shareClaimLinkPrivately()}
+                      className={surface === "telegram" ? "btn" : "btn btn-primary"}
+                      onClick={copyClaimLink}
                       type="button"
                     >
-                      Send privately
+                      {claimLinkCopied ? "Copied!" : "Copy claim link"}
                     </button>
+                    {surface === "telegram" ? null : (
+                      <button
+                        className="btn"
+                        onClick={() => void shareClaimLinkPrivately()}
+                        type="button"
+                      >
+                        Send privately
+                      </button>
+                    )}
                     <button
                       className="btn"
                       onClick={() => window.open(claimUrl, "_blank", "noopener,noreferrer")}

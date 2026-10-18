@@ -156,6 +156,14 @@ describe("buildActivationFunnel", () => {
         pending: 0,
         signups: 0,
       },
+      {
+        accountFreeLinks: 0,
+        activated: 0,
+        clicks: 0,
+        key: "telegram-bot",
+        pending: 0,
+        signups: 0,
+      },
       { accountFreeLinks: 0, activated: 0, clicks: 0, key: "other", pending: 0, signups: 1 },
     ]);
     expect(result.headline.promptClicks).toBe(3);

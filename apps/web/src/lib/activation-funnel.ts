@@ -349,6 +349,7 @@ export async function loadActivationFunnel(
             },
           },
           createdAt: true,
+          creator: { select: { accountKind: true } },
           creatorId: true,
           source: true,
           type: true,
@@ -361,7 +362,8 @@ export async function loadActivationFunnel(
     accountFreeLinks,
     accountFreePaymentLinks: accountFreeActions.map((row) => ({
       createdAt: row.createdAt,
-      creatorId: row.creatorId,
+      // A Telegram-only workspace owns its links without being an account.
+      creatorId: row.creator?.accountKind === "REGISTERED" ? row.creatorId : null,
       paid: row._count.paymentRequests > 0,
       source: row.source,
       type: row.type,
