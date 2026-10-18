@@ -32,7 +32,11 @@ import { WalletConnectCard } from "./WalletConnectCard";
 
 type ActionPaymentFlowProps = {
   action: PublicActionMetadata;
+  /** Created without a KaspaLinks account: nobody behind it is known to us. */
+  createdWithoutAccount?: boolean;
   goalProgress?: GoalProgress | null;
+  /** Visitors can create their own payment link without an account. */
+  paymentLinksAccountFree?: boolean;
   paymentUri: string;
 };
 
@@ -360,7 +364,9 @@ function useIsTouchOnly(): boolean {
 
 export function ActionPaymentFlow({
   action,
+  createdWithoutAccount = false,
   goalProgress = null,
+  paymentLinksAccountFree = false,
   paymentUri,
 }: ActionPaymentFlowProps) {
   const [paymentRequest, setPaymentRequest] = useState<null | SerializedPaymentRequest>(null);
@@ -938,6 +944,12 @@ export function ActionPaymentFlow({
         <h1>{action.title}</h1>
         {action.description ? <p>{action.description}</p> : null}
         {action.message ? <p className="muted">&ldquo;{action.message}&rdquo;</p> : null}
+        {createdWithoutAccount ? (
+          <p className="account-free-pay-notice">
+            Created without a Kaspa Links account. Kaspa Links does not know who is behind this
+            link, so only pay if you trust the person who sent it to you.
+          </p>
+        ) : null}
       </section>
 
       {invoicePaid ? (
@@ -1025,7 +1037,9 @@ export function ActionPaymentFlow({
             ) : null}
             {action.network === "mainnet" ? <PayShareActions title={action.title} /> : null}
           </section>
-          {action.network === "mainnet" ? <GrowthPrompt source="pay-success" /> : null}
+          {action.network === "mainnet" ? (
+            <GrowthPrompt accountFree={paymentLinksAccountFree} source="pay-success" />
+          ) : null}
         </Fragment>
       ) : showWaitingHero ? (
         /* Waiting hero — replaces the pay surface from the moment the user
@@ -1260,44 +1274,47 @@ export function ActionPaymentFlow({
                 rows={3}
                 value={supporterMessage}
               />
-              <div className="supporter-wall-opt-in">
-                <label className="supporter-wall-checkbox">
-                  <input
-                    checked={supporterPublic}
-                    onChange={(event) => {
-                      setSupporterPublic(event.target.checked);
-                      setSupporterMessageSaveState("idle");
-                    }}
-                    type="checkbox"
-                  />
-                  <span>
-                    Show this on the creator&apos;s public supporter wall after confirmation
-                  </span>
-                </label>
-                <p className="muted">
-                  Public wall entries show your display name, amount, and note. Wallet addresses are
-                  never shown.
-                </p>
-                {supporterPublic ? (
-                  <div className="supporter-wall-name-field">
-                    <label className="label" htmlFor="supporter-name">
-                      Display name
-                    </label>
+              {/* Account-free links have no profile, so there is no supporter wall to join. */}
+              {createdWithoutAccount ? null : (
+                <div className="supporter-wall-opt-in">
+                  <label className="supporter-wall-checkbox">
                     <input
-                      id="supporter-name"
-                      maxLength={40}
-                      onBlur={() => void syncSupporterMessage()}
+                      checked={supporterPublic}
                       onChange={(event) => {
-                        setSupporterName(event.target.value);
+                        setSupporterPublic(event.target.checked);
                         setSupporterMessageSaveState("idle");
                       }}
-                      placeholder="Anonymous"
-                      type="text"
-                      value={supporterName}
+                      type="checkbox"
                     />
-                  </div>
-                ) : null}
-              </div>
+                    <span>
+                      Show this on the creator&apos;s public supporter wall after confirmation
+                    </span>
+                  </label>
+                  <p className="muted">
+                    Public wall entries show your display name, amount, and note. Wallet addresses
+                    are never shown.
+                  </p>
+                  {supporterPublic ? (
+                    <div className="supporter-wall-name-field">
+                      <label className="label" htmlFor="supporter-name">
+                        Display name
+                      </label>
+                      <input
+                        id="supporter-name"
+                        maxLength={40}
+                        onBlur={() => void syncSupporterMessage()}
+                        onChange={(event) => {
+                          setSupporterName(event.target.value);
+                          setSupporterMessageSaveState("idle");
+                        }}
+                        placeholder="Anonymous"
+                        type="text"
+                        value={supporterName}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              )}
               {noteRequired ? (
                 <p
                   aria-live="polite"

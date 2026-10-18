@@ -83,3 +83,13 @@ export function isActionDeleted(action: Pick<Action, "deletedAt">): boolean {
 export function isActionExpired(action: Pick<Action, "expiresAt">, now = new Date()): boolean {
   return action.expiresAt !== null && action.expiresAt.getTime() <= now.getTime();
 }
+
+/** What the private manage link of an account-free payment link may see. */
+export function serializeAccountFreeAction(action: Action) {
+  return {
+    ...serializePublicAction(action),
+    createdAt: action.createdAt.toISOString(),
+    disabled: action.disabledAt !== null,
+    sharePath: `/a/${encodeURIComponent(action.publicId)}`,
+  };
+}

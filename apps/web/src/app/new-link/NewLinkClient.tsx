@@ -7,10 +7,20 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { SESSION_EVENT } from "../BrandNav";
 import { CreatorSignInGate } from "../CreatorSignInGate";
 import { useEscrowAccess } from "../escrow/_lib/use-escrow-access";
+import { TurnstileWidget } from "../toccata-lab/giveaway/[publicId]/TurnstileWidget";
+import {
+  addAccountFreeEntry,
+  buildManageUrl,
+  createManageToken,
+  hashManageTokenInBrowser,
+} from "@/lib/account-free-store";
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import { MIN_RELIABLE_MAINNET_OUTPUT_KAS } from "@/lib/mainnet-amount-policy";
 import { formatApproxUsdMeta, formatApproxUsdValue } from "@/lib/price-display";
+import { parseSignupSource } from "@/lib/signup-source";
+import { ACCOUNT_FREE_LINK_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
 import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
+import { AccountFreeLinkCreated, type AccountFreeCreatedLink } from "./AccountFreeLinkCreated";
 import { canShowGiveawayTemplate, slugify, validateRecipientAddress } from "./helpers";
 
 type ActionTypeValue =
@@ -351,7 +361,14 @@ async function writeClipboardText(value: string): Promise<boolean> {
   }
 }
 
-export function NewLinkClient() {
+export function NewLinkClient({
+  accountFreeEnabled = false,
+  turnstile = { required: false, siteKey: "" },
+}: {
+  /** Payment links can be created without a KaspaLinks account. */
+  accountFreeEnabled?: boolean;
+  turnstile?: { required: boolean; siteKey: string };
+} = {}) {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [token, setToken] = useState("");
@@ -383,11 +400,16 @@ export function NewLinkClient() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<null | string>(null);
+  const [turnstileToken, setTurnstileToken] = useState<null | string>(null);
+  const [turnstileReset, setTurnstileReset] = useState(0);
+  const [accountFreeCreated, setAccountFreeCreated] = useState<AccountFreeCreatedLink | null>(null);
   const [copiedPreview, setCopiedPreview] = useState(false);
   const kasUsdPrice = useKasUsdPrice();
   const escrowAccess = useEscrowAccess();
 
   const signedIn = username.length > 0 && token.length > 0;
+  // Without an account the link has no slug and no profile; a private manage link replaces both.
+  const accountFreeMode = !signedIn && accountFreeEnabled;
   const selectedType = ACTION_TYPES.find((option) => option.value === type) ?? ACTION_TYPES[0]!;
   const blankTemplateActive =
     activeTemplateId === null &&
@@ -536,10 +558,72 @@ export function NewLinkClient() {
     setActiveTemplateId(null);
   }, []);
 
+  const createAccountFreeLink = useCallback(
+    async (trimmedAmount: string) => {
+      const manageToken = createManageToken();
+      const response = await fetch("/api/actions", {
+        body: JSON.stringify({
+          ...(isGoalType
+            ? { goalAutoClose, goalKas: trimmedAmount.length > 0 ? trimmedAmount : undefined }
+            : { amountKas: trimmedAmount.length > 0 ? trimmedAmount : undefined }),
+          description: description || undefined,
+          manageTokenHash: await hashManageTokenInBrowser(manageToken),
+          message: walletNote || undefined,
+          network: "mainnet",
+          noteRequired,
+          recipientAddress,
+          // Fixed Growth Prompt label only (allowlisted), never personal data.
+          source:
+            parseSignupSource(new URLSearchParams(window.location.search).get("utm_source")) ??
+            undefined,
+          title,
+          turnstileToken: turnstileToken ?? undefined,
+          type,
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        // A Turnstile token is single-use; get a fresh one for the next attempt.
+        setTurnstileReset((value) => value + 1);
+        setError(body?.error?.message ?? "Could not create link.");
+        return;
+      }
+      const publicId = String(body.action.publicId);
+      const savedInBrowser = addAccountFreeEntry({
+        createdAt: String(body.action.createdAt),
+        kind: "payment",
+        manageToken,
+        publicId,
+        title: String(body.action.title),
+        type,
+      });
+      setAccountFreeCreated({
+        manageUrl: buildManageUrl(window.location.origin, publicId, manageToken),
+        savedInBrowser,
+        shareUrl: `${window.location.origin}${String(body.action.sharePath)}`,
+        title: String(body.action.title),
+      });
+      window.scrollTo({ top: 0 });
+    },
+    [
+      description,
+      goalAutoClose,
+      isGoalType,
+      noteRequired,
+      recipientAddress,
+      title,
+      turnstileToken,
+      type,
+      walletNote,
+    ],
+  );
+
   const createLink = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!signedIn) return;
+      if (!signedIn && !accountFreeMode) return;
       if (amountMissingForRequiredType) {
         setError(`${selectedType.label}s require a fixed amount.`);
         return;
@@ -554,6 +638,10 @@ export function NewLinkClient() {
 
       try {
         const trimmedAmount = normalizeLocalizedKasAmountInput(amountKas.trim());
+        if (accountFreeMode) {
+          await createAccountFreeLink(trimmedAmount);
+          return;
+        }
         const response = await fetch("/api/creator/actions", {
           body: JSON.stringify({
             // Goal links send the field as goalKas (the fundraising target)
@@ -601,9 +689,11 @@ export function NewLinkClient() {
       }
     },
     [
+      accountFreeMode,
       amountKas,
       amountMissingForRequiredType,
       authHeaders,
+      createAccountFreeLink,
       description,
       goalMissing,
       goalAutoClose,
@@ -647,7 +737,7 @@ export function NewLinkClient() {
     );
   }
 
-  if (!signedIn) {
+  if (!signedIn && !accountFreeMode) {
     return (
       <main className="main-wide new-link-layout">
         <CreatorSignInGate
@@ -660,6 +750,23 @@ export function NewLinkClient() {
     );
   }
 
+  if (accountFreeCreated) {
+    return (
+      <main className="main-wide new-link-layout">
+        <AccountFreeLinkCreated
+          link={accountFreeCreated}
+          onCreateAnother={() => {
+            setAccountFreeCreated(null);
+            setTurnstileReset((value) => value + 1);
+            startBlank();
+          }}
+        />
+      </main>
+    );
+  }
+
+  const turnstileMissing = accountFreeMode && turnstile.required && !turnstileToken;
+
   return (
     <main className="main-wide new-link-layout">
       <section className="card card-accent">
@@ -668,7 +775,15 @@ export function NewLinkClient() {
         <p className="muted" style={{ margin: 0 }}>
           Bundle a recipient address, an optional amount, and a short message into one shareable
           URL.
+          {accountFreeMode ? " No account needed — payments go straight to your wallet." : null}
         </p>
+        {accountFreeMode ? (
+          <p className="muted account-free-signin-hint">
+            Have an account?{" "}
+            <Link href={`/sign-in?next=${encodeURIComponent("/new-link")}`}>Sign in</Link> to keep
+            this link with your others.
+          </p>
+        ) : null}
       </section>
 
       <section className="card quick-template-section">
@@ -1005,59 +1120,61 @@ export function NewLinkClient() {
             </div>
           </section>
 
-          {/* Section 3: Public URL */}
-          <section className="card">
-            <h2 className="form-section-heading">Public URL</h2>
+          {/* Section 3: Public URL — account-free links are served by their public id */}
+          {accountFreeMode ? null : (
+            <section className="card">
+              <h2 className="form-section-heading">Public URL</h2>
 
-            <div className="form-field">
-              <label className="label" htmlFor="action-slug">
-                Slug
-                {!slugTouched && slug.length > 0 ? (
-                  <span className="form-field-meta"> — auto-suggested, edit to override</span>
-                ) : null}
-              </label>
-              <input
-                autoComplete="off"
-                id="action-slug"
-                onChange={(event) => handleSlugChange(event.target.value)}
-                placeholder="my-link"
-                required
-                type="text"
-                value={slug}
-              />
-              <div className="link-preview" aria-live="polite">
-                <span className="label">Preview</span>
-                <p className="value-mono link-preview-value">{slugPreviewUrl || "—"}</p>
-                {normalizedSlug && normalizedSlug !== slug.trim() ? (
-                  <p className="muted" style={{ margin: 0 }}>
-                    Saved as <code>{normalizedSlug}</code>.
-                  </p>
-                ) : null}
-                {slugPreviewError ? (
-                  <p className="error-text" style={{ margin: 0 }}>
-                    {slugPreviewError}
-                  </p>
-                ) : null}
-                {slugServerError ? (
-                  <p className="error-text" style={{ margin: 0 }}>
-                    {slugServerError}
-                  </p>
-                ) : null}
-                <button
-                  className="btn"
-                  disabled={
-                    normalizedSlug.length === 0 ||
-                    slugPreviewError !== null ||
-                    slugServerError !== null
-                  }
-                  onClick={() => void copyPreview()}
-                  type="button"
-                >
-                  {copiedPreview ? "Preview copied" : "Copy preview URL"}
-                </button>
+              <div className="form-field">
+                <label className="label" htmlFor="action-slug">
+                  Slug
+                  {!slugTouched && slug.length > 0 ? (
+                    <span className="form-field-meta"> — auto-suggested, edit to override</span>
+                  ) : null}
+                </label>
+                <input
+                  autoComplete="off"
+                  id="action-slug"
+                  onChange={(event) => handleSlugChange(event.target.value)}
+                  placeholder="my-link"
+                  required
+                  type="text"
+                  value={slug}
+                />
+                <div className="link-preview" aria-live="polite">
+                  <span className="label">Preview</span>
+                  <p className="value-mono link-preview-value">{slugPreviewUrl || "—"}</p>
+                  {normalizedSlug && normalizedSlug !== slug.trim() ? (
+                    <p className="muted" style={{ margin: 0 }}>
+                      Saved as <code>{normalizedSlug}</code>.
+                    </p>
+                  ) : null}
+                  {slugPreviewError ? (
+                    <p className="error-text" style={{ margin: 0 }}>
+                      {slugPreviewError}
+                    </p>
+                  ) : null}
+                  {slugServerError ? (
+                    <p className="error-text" style={{ margin: 0 }}>
+                      {slugServerError}
+                    </p>
+                  ) : null}
+                  <button
+                    className="btn"
+                    disabled={
+                      normalizedSlug.length === 0 ||
+                      slugPreviewError !== null ||
+                      slugServerError !== null
+                    }
+                    onClick={() => void copyPreview()}
+                    type="button"
+                  >
+                    {copiedPreview ? "Preview copied" : "Copy preview URL"}
+                  </button>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          )}
 
           {/* Section 4: Wallet note (optional) */}
           <section className="card">
@@ -1120,29 +1237,31 @@ export function NewLinkClient() {
               </div>
             ) : null}
 
-            <div className="form-field form-toggle-field">
-              <label className="form-toggle" htmlFor="action-show-on-profile">
-                <input
-                  checked={
-                    showOnProfile === undefined
-                      ? type === "kaspa.tip" || type === "kaspa.donation" || type === "kaspa.goal"
-                      : showOnProfile
-                  }
-                  id="action-show-on-profile"
-                  onChange={(event) => setShowOnProfile(event.target.checked)}
-                  type="checkbox"
-                />
-                <span className="form-toggle-body">
-                  <span className="form-toggle-title">Show on my public profile</span>
-                  <span className="form-toggle-help">
-                    When on, this link appears in the list at{" "}
-                    <code>/u/{username || "your-username"}</code>. Tips and donations are on by
-                    default; invoices and transfers are off by default since they often contain
-                    customer-specific details.
+            {accountFreeMode ? null : (
+              <div className="form-field form-toggle-field">
+                <label className="form-toggle" htmlFor="action-show-on-profile">
+                  <input
+                    checked={
+                      showOnProfile === undefined
+                        ? type === "kaspa.tip" || type === "kaspa.donation" || type === "kaspa.goal"
+                        : showOnProfile
+                    }
+                    id="action-show-on-profile"
+                    onChange={(event) => setShowOnProfile(event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span className="form-toggle-body">
+                    <span className="form-toggle-title">Show on my public profile</span>
+                    <span className="form-toggle-help">
+                      When on, this link appears in the list at{" "}
+                      <code>/u/{username || "your-username"}</code>. Tips and donations are on by
+                      default; invoices and transfers are off by default since they often contain
+                      customer-specific details.
+                    </span>
                   </span>
-                </span>
-              </label>
-            </div>
+                </label>
+              </div>
+            )}
           </section>
         </form>
 
@@ -1152,6 +1271,20 @@ export function NewLinkClient() {
             `form="new-link-form"` keeps the button tied to the form so it
             still triggers onSubmit. */}
         <div className="new-link-actions">
+          {accountFreeMode && turnstile.required ? (
+            <TurnstileWidget
+              action={ACCOUNT_FREE_LINK_TURNSTILE_ACTION}
+              onError={() =>
+                setError("Human verification did not finish yet. It retries on its own.")
+              }
+              onToken={(value) => {
+                setTurnstileToken(value);
+                if (value) setError(null);
+              }}
+              resetKey={turnstileReset}
+              siteKey={turnstile.siteKey}
+            />
+          ) : null}
           <button
             className="btn btn-primary btn-block btn-pay"
             disabled={
@@ -1159,9 +1292,11 @@ export function NewLinkClient() {
               amountMissingForRequiredType ||
               goalMissing ||
               addressValidation.state !== "valid" ||
-              normalizedSlug.length === 0 ||
-              slugPreviewError !== null ||
-              slugServerError !== null
+              turnstileMissing ||
+              (!accountFreeMode &&
+                (normalizedSlug.length === 0 ||
+                  slugPreviewError !== null ||
+                  slugServerError !== null))
             }
             form="new-link-form"
             type="submit"
@@ -1178,7 +1313,9 @@ export function NewLinkClient() {
 
       <section className="card card-muted">
         <p className="muted" style={{ margin: 0 }}>
-          <Link href="/my-links">← Back to my links</Link>
+          <Link href="/my-links">
+            {accountFreeMode ? "Links created in this browser →" : "← Back to my links"}
+          </Link>
         </p>
       </section>
     </main>

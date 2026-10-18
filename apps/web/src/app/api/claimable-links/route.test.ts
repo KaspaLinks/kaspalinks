@@ -107,8 +107,10 @@ describe("POST /api/claimable-links (account-free)", () => {
     expect(response.status).toBe(201);
     expect(mockPrisma.claimableLink.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
+        createdWithoutAccount: true,
         creatorId: null,
         linkKey: "lab-abc123",
+        manageTokenHash: null,
         refundPublicKey: null,
         returnAddress: RETURN_ADDRESS,
         scriptVersion: 2,
@@ -116,7 +118,10 @@ describe("POST /api/claimable-links (account-free)", () => {
         status: "awaiting_funding",
       }),
     });
-    const stored = mockPrisma.claimableLink.create.mock.calls[0]![0].data as Record<string, unknown>;
+    const stored = mockPrisma.claimableLink.create.mock.calls[0]![0].data as Record<
+      string,
+      unknown
+    >;
     expect(stored).not.toHaveProperty("ipHash");
     expect(stored).not.toHaveProperty("createdIpHash");
     expect(json.claimableLink).toMatchObject({ linkKey: "lab-abc123", scriptVersion: 2 });
@@ -124,6 +129,20 @@ describe("POST /api/claimable-links (account-free)", () => {
       mockPrisma,
       expect.objectContaining({ event: "claimable_link.created_anonymous" }),
     );
+  });
+
+  it("stores the hash of a private manage token for a later move into an account", async () => {
+    const response = await POST(request({ ...body, manageTokenHash: "b".repeat(64) }));
+    expect(response.status).toBe(201);
+    expect(mockPrisma.claimableLink.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ manageTokenHash: "b".repeat(64) }),
+    });
+
+    mockPrisma.claimableLink.create.mockClear();
+    await POST(request({ ...body, linkKey: "lab-def456", manageTokenHash: "not-a-hash" }));
+    expect(mockPrisma.claimableLink.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ manageTokenHash: null }),
+    });
   });
 
   it("drops unknown labels and refuses classic links without an account", async () => {

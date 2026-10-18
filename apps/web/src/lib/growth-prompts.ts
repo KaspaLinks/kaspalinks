@@ -17,7 +17,14 @@ export const GROWTH_PROMPTS: Record<SignupSource, GrowthPromptCopy> = {
     cta: "Send KAS to a friend the same way",
     href: buildCreateProfileHref({ next: "/claim/create", signupSource: "claim-success" }),
   },
+  "giveaway-entry": {
+    body: "Send KAS to your community with claim links. No account, no custody.",
+    cta: "Create your own",
+    // The chooser itself offers the account-free path when it is switched on.
+    href: "/claim/create?utm_source=giveaway-entry",
+  },
   "pay-success": {
+    accountFreeHref: "/new-link?utm_source=pay-success",
     body: "Create your own page in seconds. No email, no custody.",
     cta: "Get paid in KAS yourself",
     href: buildCreateProfileHref({ next: "/new-link", signupSource: "pay-success" }),

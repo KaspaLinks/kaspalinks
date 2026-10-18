@@ -17,6 +17,11 @@ import {
   updateClaimableStatus,
   type ClaimableStoreRecord,
 } from "@/lib/claimable-store";
+import {
+  addAccountFreeEntry,
+  createManageToken,
+  hashManageTokenInBrowser,
+} from "@/lib/account-free-store";
 import { isSingleClaimableFundingUnlocked } from "@/lib/claimable-recovery-choice";
 import {
   assertClaimableMatchesRecoveryTarget,
@@ -220,6 +225,8 @@ type ClaimableLabLink = {
   };
   fundingAddress: null | string;
   id: string;
+  /** Account-free only: private token that lets an account adopt the link later. */
+  manageToken?: string;
   netClaimKas: string;
   redeemScriptHex: null | string;
   refundCode: string;
@@ -313,6 +320,8 @@ async function registerClaimableLinkInDb(link: ClaimableLabLink): Promise<void> 
   if (!headers && !autoReturn) {
     throw new Error("Creator session is required to register this claimable link.");
   }
+  const manageTokenHash =
+    !headers && link.manageToken ? await hashManageTokenInBrowser(link.manageToken) : undefined;
   const response = await fetch(headers ? "/api/creator/claimable-links" : "/api/claimable-links", {
     body: JSON.stringify({
       claimPublicKey: link.claimPublicKey,
@@ -330,6 +339,7 @@ async function registerClaimableLinkInDb(link: ClaimableLabLink): Promise<void> 
       ...(headers
         ? {}
         : {
+            manageTokenHash,
             source:
               parseSignupSource(new URLSearchParams(window.location.search).get("utm_source")) ??
               undefined,
@@ -555,7 +565,22 @@ export function ToccataLabClient({
     // opened via a claim or manage link — those are not "mine" to list.
     if (claimOnlyView || manageOnlyView || !labLink) return;
     if (!readCreatorAuthHeaders()) {
-      if (labLink.scriptVersion === 2) writeAnonymousDraft(labLink);
+      if (labLink.scriptVersion !== 2) return;
+      writeAnonymousDraft(labLink);
+      // Once funded, list it under "Created in this browser" so it survives closing
+      // the tab and can move into an account later.
+      if (claimUrl && labLink.manageToken) {
+        addAccountFreeEntry({
+          amountKas: labLink.netClaimKas,
+          claimUrl,
+          createdAt: labLink.createdAt,
+          kind: "claim",
+          linkKey: labLink.id,
+          manageToken: labLink.manageToken,
+          title: labLink.title,
+          vaultRecord: toClaimableStoreRecord(labLink, claimUrl, ""),
+        });
+      }
       return;
     }
     void saveClaimableRecord(toClaimableStoreRecord(labLink, claimUrl, manageUrl)).catch(() => {
@@ -579,7 +604,8 @@ export function ToccataLabClient({
   }, []);
   const fundingWalletUri = useMemo(() => buildFundingWalletUri(labLink), [labLink]);
   const linkFunded = labLink?.status === "funded" || labLink?.status === "shared";
-  const isAutoReturn = labLink?.scriptVersion === 2;
+  // Before a link exists, describe the script new links will use.
+  const isAutoReturn = labLink ? labLink.scriptVersion === 2 : autoReturnEnabled;
   // v2 links have no refund key to protect: nothing to back up before funding.
   const recoveryReadyForFunding =
     isAutoReturn || isSingleClaimableFundingUnlocked(recoveryExportedAt, recoveryBackupSkippedAt);
@@ -1002,6 +1028,7 @@ export function ToccataLabClient({
     const claimKey = createToccataLabKeyPair();
     // v2 has no refund key at all: the script itself returns unclaimed KAS.
     const refundKey = useAutoReturn ? null : createToccataLabKeyPair();
+    const manageToken = signedIn ? null : createManageToken();
     const title = normalizeLabTitle(linkTitle);
     const scriptResponse = await fetch("/api/toccata-lab/claimable-script", {
       body: JSON.stringify(
@@ -1049,6 +1076,7 @@ export function ToccataLabClient({
       fundingMatch: null,
       feeSompi: nextSpendPlan.feeSompi.toString(),
       id,
+      ...(manageToken ? { manageToken } : {}),
       netClaimKas: nextSpendPlan.netOutputKas,
       redeemScriptHex: scriptBody.script.redeemScriptHex,
       refundCode: refundKey?.privateKey ?? "",

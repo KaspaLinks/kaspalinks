@@ -31,6 +31,7 @@ import {
 } from "@/lib/share-text";
 
 import { SESSION_EVENT } from "../BrandNav";
+import { AccountFreeLinksPanel } from "./AccountFreeLinksPanel";
 import { giveawayDisplayState, giveawayV6DisplayState } from "./giveaway-status";
 import { groupRegularLinks } from "./grouping";
 
@@ -1959,11 +1960,12 @@ export function MyLinksClient() {
             <Link className="btn btn-primary" href="/sign-in">
               Sign in
             </Link>
-            <Link className="btn" href="/create-profile">
+            <Link className="btn" href="/create-profile?next=%2Fmy-links">
               Create profile
             </Link>
           </div>
         </section>
+        <AccountFreeLinksPanel session={null} />
       </main>
     );
   }
@@ -1992,6 +1994,11 @@ export function MyLinksClient() {
           </button>
         </div>
       </section>
+
+      <AccountFreeLinksPanel
+        onMoved={() => void Promise.all([loadLinks(), loadClaimableLinks(true)])}
+        session={{ token, username }}
+      />
 
       {createdLink ? (
         <section className="card card-accent link-created-banner" aria-live="polite">

@@ -69,10 +69,9 @@ export function buildActionSocialPreview(input: {
   title: string;
   type: string;
 }): SocialPreview {
+  // Links created without an account have no creator name to show.
   const creatorName =
-    collapseWhitespace(input.creatorDisplayName) ||
-    collapseWhitespace(input.creatorUsername) ||
-    "this creator";
+    collapseWhitespace(input.creatorDisplayName) || collapseWhitespace(input.creatorUsername);
   const title = collapseWhitespace(input.title) || "Kaspa payment link";
   const amountLabel = input.goalKas
     ? `${input.goalKas} KAS goal`
@@ -81,11 +80,11 @@ export function buildActionSocialPreview(input: {
       : "Any amount";
   const typeLabel = actionTypeLabel(input.type);
   const description = collapseWhitespace(input.description);
-  const fallback = `${typeLabel} · ${amountLabel}. Pay ${creatorName} directly with Kaspa. Non-custodial, wallet-to-wallet.`;
+  const fallback = `${typeLabel} · ${amountLabel}. Pay ${creatorName || "directly"}${creatorName ? " directly" : ""} with Kaspa. Non-custodial, wallet-to-wallet.`;
 
   return {
     description: truncatePreviewText(description ? `${description} ${fallback}` : fallback),
-    title: `${title} · ${creatorName}`,
+    title: creatorName ? `${title} · ${creatorName}` : title,
   };
 }
 

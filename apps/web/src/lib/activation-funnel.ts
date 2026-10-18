@@ -29,16 +29,40 @@ export type PromptPageViewRow = {
 /** A claimable link created without a KaspaLinks account (docs/adr/0007). */
 export type AccountFreeLinkRow = {
   createdAt: Date;
+  /** Set once an account adopted the link; it still counts as created without one. */
+  creatorId?: null | string;
   fundingTxId: null | string;
   source: null | string;
   status: string;
 };
 
 export type AccountFreeLinkCounts = {
+  adopted: number;
   claimed: number;
   created: number;
   funded: number;
   returned: number;
+};
+
+/** A payment link created without a KaspaLinks account. */
+export type AccountFreePaymentLinkRow = {
+  createdAt: Date;
+  creatorId: null | string;
+  /** At least one confirmed mainnet payment. */
+  paid: boolean;
+  source: null | string;
+  type: string;
+};
+
+export type AccountFreePaymentTypeCounts = {
+  adopted: number;
+  created: number;
+  paid: number;
+  type: string;
+};
+
+export type AccountFreePaymentCounts = Omit<AccountFreePaymentTypeCounts, "type"> & {
+  byType: AccountFreePaymentTypeCounts[];
 };
 
 export type ActivationState = "activated" | "not_activated" | "pending";
@@ -52,7 +76,7 @@ export type FunnelCounts = {
 };
 
 export type FunnelSourceRow = FunnelCounts & {
-  /** Account-free claimable links carrying this label (30 days). */
+  /** Account-free claimable and payment links carrying this label (30 days). */
   accountFreeLinks: number;
   clicks: number;
   key: FunnelSourceKey;
@@ -68,6 +92,7 @@ export type FunnelCohortRow = FunnelCounts & {
 
 export type ActivationFunnel = {
   accountFree: AccountFreeLinkCounts;
+  accountFreePayments: AccountFreePaymentCounts;
   bySource: FunnelSourceRow[];
   cohorts: FunnelCohortRow[];
   computedAt: string;
@@ -115,6 +140,7 @@ function distinctVisitorDays(rows: PromptPageViewRow[]): number {
 
 export function buildActivationFunnel(input: {
   accountFreeLinks?: AccountFreeLinkRow[];
+  accountFreePaymentLinks?: AccountFreePaymentLinkRow[];
   createProfileViews: PromptPageViewRow[];
   creators: CreatorActivationRow[];
   internalUsernames: ReadonlySet<string>;
@@ -157,16 +183,36 @@ export function buildActivationFunnel(input: {
     (row) => row.createdAt.getTime() >= headlineSince,
   );
   const accountFree: AccountFreeLinkCounts = {
+    adopted: recentAccountFree.filter((row) => row.creatorId != null).length,
     claimed: recentAccountFree.filter((row) => row.status === "claimed").length,
     created: recentAccountFree.length,
     funded: recentAccountFree.filter((row) => row.fundingTxId !== null).length,
     returned: recentAccountFree.filter((row) => row.status === "refunded").length,
   };
 
+  const recentPayments = (input.accountFreePaymentLinks ?? []).filter(
+    (row) => row.createdAt.getTime() >= headlineSince,
+  );
+  const countPayments = (rows: AccountFreePaymentLinkRow[]) => ({
+    adopted: rows.filter((row) => row.creatorId !== null).length,
+    created: rows.length,
+    paid: rows.filter((row) => row.paid).length,
+  });
+  const paymentTypes = [...new Set(recentPayments.map((row) => row.type))].sort();
+  const accountFreePayments: AccountFreePaymentCounts = {
+    ...countPayments(recentPayments),
+    byType: paymentTypes.map((type) => ({
+      ...countPayments(recentPayments.filter((row) => row.type === type)),
+      type,
+    })),
+  };
+
   const sourceKeys: FunnelSourceKey[] = [...SIGNUP_SOURCES, "other"];
   const bySource = sourceKeys.map((key) => ({
     ...(bySourceCounts.get(key) ?? emptyCounts()),
-    accountFreeLinks: recentAccountFree.filter((row) => sourceKey(row.source) === key).length,
+    accountFreeLinks:
+      recentAccountFree.filter((row) => sourceKey(row.source) === key).length +
+      recentPayments.filter((row) => sourceKey(row.source) === key).length,
     clicks: key === "other" ? 0 : distinctVisitorDays(clicksBySource.get(key) ?? []),
     key,
   }));
@@ -206,6 +252,7 @@ export function buildActivationFunnel(input: {
 
   return {
     accountFree,
+    accountFreePayments,
     bySource,
     cohorts,
     computedAt: now.toISOString(),
@@ -220,10 +267,18 @@ export function buildActivationFunnel(input: {
   };
 }
 
-type FunnelPrisma = Pick<PrismaClient, "$queryRaw" | "claimableLink" | "operatorPageView">;
+type FunnelPrisma = Pick<
+  PrismaClient,
+  "$queryRaw" | "action" | "claimableLink" | "operatorPageView"
+>;
 
-// Growth Prompt clicks land on signup, or directly on the account-free claim form.
-const PROMPT_LANDING_PATHS = ["/create-profile", "/claim/create/single"];
+// Growth Prompt clicks land on signup, or directly on an account-free form.
+const PROMPT_LANDING_PATHS = [
+  "/create-profile",
+  "/claim/create",
+  "/claim/create/single",
+  "/new-link",
+];
 
 export async function loadActivationFunnel(
   prisma: FunnelPrisma,
@@ -237,8 +292,9 @@ export async function loadActivationFunnel(
   // The earliest value ever per creator; classifyCreator decides whether it landed
   // inside the window. Mock confirmations and testnet never count. Deleted links
   // still count, because the value really moved.
-  const [creators, createProfileViews, payShareViews, accountFreeLinks] = await Promise.all([
-    prisma.$queryRaw<CreatorActivationRow[]>`
+  const [creators, createProfileViews, payShareViews, accountFreeLinks, accountFreeActions] =
+    await Promise.all([
+      prisma.$queryRaw<CreatorActivationRow[]>`
       WITH first_payment AS (
         SELECT a."creatorId" AS "creatorId", MIN(pr."confirmedAt") AS "firstAt"
         FROM "PaymentRequest" pr
@@ -267,22 +323,49 @@ export async function loadActivationFunnel(
       WHERE c."createdAt" >= ${since}
         AND c."accountKind" = 'REGISTERED'
     `,
-    prisma.operatorPageView.findMany({
-      select: { seenAt: true, status: true, utmSource: true, visitorDayHash: true },
-      where: { isBot: false, path: { in: PROMPT_LANDING_PATHS }, seenAt: { gte: viewsSince } },
-    }),
-    prisma.operatorPageView.findMany({
-      select: { seenAt: true, status: true, utmSource: true, visitorDayHash: true },
-      where: { isBot: false, seenAt: { gte: viewsSince }, utmSource: "pay-share" },
-    }),
-    prisma.claimableLink.findMany({
-      select: { createdAt: true, fundingTxId: true, source: true, status: true },
-      where: { createdAt: { gte: viewsSince }, creatorId: null },
-    }),
-  ]);
+      prisma.operatorPageView.findMany({
+        select: { seenAt: true, status: true, utmSource: true, visitorDayHash: true },
+        where: { isBot: false, path: { in: PROMPT_LANDING_PATHS }, seenAt: { gte: viewsSince } },
+      }),
+      prisma.operatorPageView.findMany({
+        select: { seenAt: true, status: true, utmSource: true, visitorDayHash: true },
+        where: { isBot: false, seenAt: { gte: viewsSince }, utmSource: "pay-share" },
+      }),
+      prisma.claimableLink.findMany({
+        select: { createdAt: true, creatorId: true, fundingTxId: true, source: true, status: true },
+        where: { createdAt: { gte: viewsSince }, createdWithoutAccount: true },
+      }),
+      prisma.action.findMany({
+        select: {
+          _count: {
+            select: {
+              paymentRequests: {
+                where: {
+                  network: "MAINNET",
+                  OR: [{ detectionSource: null }, { detectionSource: { not: "mock" } }],
+                  status: "CONFIRMED",
+                },
+              },
+            },
+          },
+          createdAt: true,
+          creatorId: true,
+          source: true,
+          type: true,
+        },
+        where: { createdAt: { gte: viewsSince }, createdWithoutAccount: true },
+      }),
+    ]);
 
   return buildActivationFunnel({
     accountFreeLinks,
+    accountFreePaymentLinks: accountFreeActions.map((row) => ({
+      createdAt: row.createdAt,
+      creatorId: row.creatorId,
+      paid: row._count.paymentRequests > 0,
+      source: row.source,
+      type: row.type,
+    })),
     createProfileViews,
     creators,
     internalUsernames: readInternalCreatorUsernames(options.env),

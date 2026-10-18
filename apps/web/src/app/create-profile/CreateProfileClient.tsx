@@ -201,7 +201,9 @@ export function CreateProfileClient({
                     ? "Continue to my giveaway"
                     : nextPath.startsWith("/claim/create")
                       ? "Create your first claim link"
-                      : "Create your first link"}
+                      : nextPath === "/my-links"
+                        ? "Continue to My Links"
+                        : "Create your first link"}
                 </Link>
                 <Link className="btn" href="/dashboard">
                   Open dashboard

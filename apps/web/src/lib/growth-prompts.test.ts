@@ -20,11 +20,16 @@ describe("growth prompts", () => {
     }
   });
 
-  it("skips signup after a claim when links work without an account", () => {
+  it("skips signup when the next step works without an account", () => {
     expect(GROWTH_PROMPTS["claim-success"].accountFreeHref).toBe(
       "/claim/create/single?utm_source=claim-success",
     );
-    expect(GROWTH_PROMPTS["pay-success"].accountFreeHref).toBeUndefined();
+    expect(GROWTH_PROMPTS["pay-success"].accountFreeHref).toBe("/new-link?utm_source=pay-success");
+  });
+
+  it("invites giveaway entrants to the claim link chooser", () => {
+    expect(GROWTH_PROMPTS["giveaway-entry"].href).toBe("/claim/create?utm_source=giveaway-entry");
+    expect(GROWTH_PROMPTS["giveaway-entry"].cta).toBe("Create your own");
   });
 });
 

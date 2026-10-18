@@ -11,6 +11,7 @@ import {
   isActionExpired,
   serializePublicAction,
 } from "@/lib/action-serializer";
+import { isAccountFreePaymentLinksEnabled } from "@/lib/account-free-links";
 import { loadGoalProgress } from "@/lib/goal-progress";
 import { buildActionSocialPreview } from "@/lib/social-preview";
 
@@ -128,6 +129,12 @@ export default async function ActionPage({ params }: PageProps) {
   const goalProgress = await loadGoalProgress(prisma, action);
 
   return (
-    <ActionPaymentFlow action={metadata} goalProgress={goalProgress} paymentUri={paymentUri} />
+    <ActionPaymentFlow
+      action={metadata}
+      createdWithoutAccount={action.createdWithoutAccount && action.creatorId === null}
+      goalProgress={goalProgress}
+      paymentLinksAccountFree={isAccountFreePaymentLinksEnabled()}
+      paymentUri={paymentUri}
+    />
   );
 }

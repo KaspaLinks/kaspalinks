@@ -74,6 +74,121 @@ const createActionSchema = z
 
 export type CreateActionInput = z.input<typeof createActionSchema>;
 
+const MANAGE_TOKEN_HASH = /^[a-f0-9]{64}$/;
+
+export type CreateAccountFreeActionInput = Omit<CreateActionInput, "hiddenFromProfile" | "slug">;
+
+/**
+ * A payment link without a KaspaLinks account. It has no slug and never shows on a
+ * profile; the creator manages it with a private link whose SHA-256 is stored here.
+ */
+export async function createAccountFreeActionTool(
+  prisma: PrismaClient,
+  rawInput: CreateAccountFreeActionInput,
+  options: { ipHash?: null | string; manageTokenHash: string; source?: null | string },
+) {
+  if (!MANAGE_TOKEN_HASH.test(options.manageTokenHash)) {
+    throw new ApplicationError("INVALID_ACTION", "manageTokenHash is invalid.");
+  }
+  // The slug only satisfies the shared schema; account-free links are served by publicId.
+  const parsed = createActionSchema.safeParse({ ...rawInput, slug: "account-free" });
+  if (!parsed.success) {
+    throw new ApplicationError(
+      "INVALID_ACTION",
+      parsed.error.issues[0]?.message ?? "Invalid action.",
+    );
+  }
+  const input = parsed.data;
+  const amountSompi = input.amountKas
+    ? parseKaspaAmountToSompi(input.amountKas)
+    : input.amountSompi
+      ? parseSompiAmount(input.amountSompi)
+      : null;
+  const goalSompi = input.goalKas
+    ? parseKaspaAmountToSompi(input.goalKas)
+    : input.goalSompi
+      ? parseSompiAmount(input.goalSompi)
+      : null;
+
+  return prisma.$transaction(async (tx) => {
+    const action = await tx.action.create({
+      data: {
+        amountSompi,
+        createdWithoutAccount: true,
+        creatorId: null,
+        description: normalizeOptional(input.description),
+        expiresAt: input.expiresAt ?? null,
+        goalAutoClose: input.type === "kaspa.goal" ? (input.goalAutoClose ?? false) : false,
+        goalSompi,
+        hiddenFromProfile: true,
+        manageTokenHash: options.manageTokenHash,
+        message: normalizeOptional(input.message),
+        network: Network.MAINNET,
+        noteRequired: input.noteRequired ?? false,
+        recipientAddress: input.recipientAddress,
+        slug: null,
+        source: options.source ?? null,
+        title: input.title,
+        type: actionTypeMap[input.type],
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        actionId: action.id,
+        actorType: AuditActorType.PUBLIC,
+        event: "action.created_account_free",
+        ipHash: options.ipHash ?? null,
+        metadata: {
+          publicId: action.publicId,
+          source: options.source ?? null,
+          type: input.type,
+          variableAmount: amountSompi === null,
+        },
+      },
+    });
+    return action;
+  });
+}
+
+/**
+ * Moves account-free payment links into an account. The manage token is the proof
+ * of ownership; it is cleared afterwards so only the account manages the link.
+ * The public /a/<publicId> URL stays the same.
+ */
+export async function adoptAccountFreeActionsTool(
+  prisma: PrismaClient,
+  actor: ActorContext,
+  links: { manageTokenHash: string; publicId: string }[],
+): Promise<{ adopted: string[] }> {
+  const adopted: string[] = [];
+  await prisma.$transaction(async (tx) => {
+    for (const link of links.slice(0, 50)) {
+      if (!MANAGE_TOKEN_HASH.test(link.manageTokenHash)) continue;
+      const updated = await tx.action.updateMany({
+        data: { creatorId: actor.creatorId, manageTokenHash: null },
+        where: {
+          creatorId: null,
+          deletedAt: null,
+          manageTokenHash: link.manageTokenHash,
+          publicId: link.publicId,
+        },
+      });
+      if (updated.count === 1) adopted.push(link.publicId);
+    }
+    if (adopted.length > 0) {
+      await tx.auditLog.create({
+        data: {
+          actorType: AuditActorType.CREATOR,
+          creatorId: actor.creatorId,
+          event: "action.adopted_account_free",
+          metadata: { channel: actor.channel, count: adopted.length },
+        },
+      });
+    }
+  });
+  return { adopted };
+}
+
 function normalizeOptional(value: null | string | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;

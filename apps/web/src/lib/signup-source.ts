@@ -4,7 +4,7 @@ import { z } from "zod";
  * Growth Prompt labels a signup may carry. They name the completed-task surface a
  * visitor came from and never contain personal data. See docs/adr/0005.
  */
-export const SIGNUP_SOURCES = ["pay-success", "claim-success"] as const;
+export const SIGNUP_SOURCES = ["pay-success", "claim-success", "giveaway-entry"] as const;
 
 export type SignupSource = (typeof SIGNUP_SOURCES)[number];
 
@@ -12,6 +12,7 @@ export const signupSourceSchema = z.enum(SIGNUP_SOURCES);
 
 export const SIGNUP_SOURCE_LABELS: Record<SignupSource, string> = {
   "claim-success": "After claim",
+  "giveaway-entry": "After giveaway entry",
   "pay-success": "After payment",
 };
 

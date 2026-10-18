@@ -42,6 +42,10 @@ describe("social preview helpers", () => {
     });
 
     expect(preview.title).toBe("Buy me some KAS · Ada");
+    expect(buildActionSocialPreview({ title: "Coffee", type: "kaspa.tip" })).toEqual({
+      description: "Tip · Any amount. Pay directly with Kaspa. Non-custodial, wallet-to-wallet.",
+      title: "Coffee",
+    });
     expect(preview.description).toBe(
       "Tip · 10 KAS. Pay Ada directly with Kaspa. Non-custodial, wallet-to-wallet.",
     );

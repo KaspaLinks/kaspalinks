@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { GIVEAWAY_TURNSTILE_ACTION } from "./turnstile-shared";
+import { ACCOUNT_FREE_LINK_TURNSTILE_ACTION, GIVEAWAY_TURNSTILE_ACTION } from "./turnstile-shared";
 
 const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const VERIFY_TIMEOUT_MS = 5_000;
@@ -30,7 +30,31 @@ export async function verifyGiveawayTurnstile(input: {
   token?: string;
 }): Promise<TurnstileVerificationResult> {
   if (process.env.GIVEAWAY_TURNSTILE_ENABLED !== "true") return { ok: true };
+  return verifyTurnstileToken({ ...input, action: GIVEAWAY_TURNSTILE_ACTION });
+}
 
+/** Account-free link creation asks for a human check whenever Turnstile keys are configured. */
+export function getAccountFreeTurnstileClientConfig(): { required: boolean; siteKey: string } {
+  const siteKey = process.env.TURNSTILE_SITE_KEY?.trim() ?? "";
+  return {
+    required: Boolean(siteKey && process.env.TURNSTILE_SECRET_KEY?.trim()),
+    siteKey,
+  };
+}
+
+export async function verifyAccountFreeTurnstile(input: {
+  remoteIp?: string;
+  token?: string;
+}): Promise<TurnstileVerificationResult> {
+  if (!getAccountFreeTurnstileClientConfig().required) return { ok: true };
+  return verifyTurnstileToken({ ...input, action: ACCOUNT_FREE_LINK_TURNSTILE_ACTION });
+}
+
+async function verifyTurnstileToken(input: {
+  action: string;
+  remoteIp?: string;
+  token?: string;
+}): Promise<TurnstileVerificationResult> {
   const secretKey = process.env.TURNSTILE_SECRET_KEY?.trim() ?? "";
   const token = input.token?.trim() ?? "";
   if (!secretKey) return { kind: "unavailable", ok: false };
@@ -60,7 +84,7 @@ export async function verifyGiveawayTurnstile(input: {
   }
   const parsed = siteverifyResponseSchema.safeParse(rawResult);
   if (!parsed.success) return { kind: "unavailable", ok: false };
-  if (!parsed.data.success || parsed.data.action !== GIVEAWAY_TURNSTILE_ACTION) {
+  if (!parsed.data.success || parsed.data.action !== input.action) {
     return { kind: "invalid", ok: false };
   }
 

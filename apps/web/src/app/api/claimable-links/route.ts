@@ -65,18 +65,23 @@ export async function POST(request: Request) {
     return daily.response;
   }
 
-  const source =
-    typeof body === "object" && body !== null
-      ? parseSignupSource((body as Record<string, unknown>).source)
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const source = parseSignupSource(fields.source);
+  // Optional: the SHA-256 of a private token that lets an account adopt the link later.
+  const manageTokenHash =
+    typeof fields.manageTokenHash === "string" && /^[a-f0-9]{64}$/.test(fields.manageTokenHash)
+      ? fields.manageTokenHash
       : null;
 
   let link: ClaimableLinkRow;
   try {
     link = await prisma.claimableLink.create({
       data: {
+        createdWithoutAccount: true,
         creatorId: null,
         linkKey,
         ...immutableData,
+        manageTokenHash,
         source,
         status: "awaiting_funding",
       },
@@ -84,6 +89,9 @@ export async function POST(request: Request) {
   } catch (error) {
     if (isPrismaUniqueConstraintError(error, ["linkKey"])) {
       return apiError(ErrorCodes.INVALID_STATE, "Claimable link key is already registered.", 409);
+    }
+    if (isPrismaUniqueConstraintError(error, ["manageTokenHash"])) {
+      return apiError(ErrorCodes.INVALID_STATE, "This manage token is already in use.", 409);
     }
     throw error;
   }

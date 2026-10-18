@@ -55,6 +55,21 @@ describe("Prisma schema", () => {
     expect(sql).not.toMatch(/DROP TABLE|DELETE FROM|UPDATE "ClaimableLink"/);
   });
 
+  it("keeps account-free links manageable by a hashed token and countable after adoption", () => {
+    for (const name of ["Action", "ClaimableLink"]) {
+      const model = schema.match(new RegExp(`model ${name} \\{[\\s\\S]*?\\n\\}`))?.[0] ?? "";
+      expect(model).toMatch(/manageTokenHash\s+String\?\s+@unique/);
+      expect(model).toMatch(/createdWithoutAccount\s+Boolean\s+@default\(false\)/);
+      expect(model).not.toMatch(/manageToken\s+String/);
+    }
+    const sql = readFileSync(
+      "packages/db/prisma/migrations/20261018120000_account_free_links/migration.sql",
+      "utf8",
+    );
+    expect(sql).not.toMatch(/DROP TABLE|DELETE FROM|DROP COLUMN/);
+    expect(sql).toContain('UPDATE "ClaimableLink" SET "createdWithoutAccount" = true');
+  });
+
   it("records an optional signup source on creators", () => {
     const creator = schema.match(/model Creator \{[\s\S]*?\n\}/)?.[0] ?? "";
     expect(creator).toMatch(/signupSource\s+String\?/);

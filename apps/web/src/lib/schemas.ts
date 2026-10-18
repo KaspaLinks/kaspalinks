@@ -393,6 +393,23 @@ export const createCreatorActionInputSchema = actionInputBaseObjectSchema
   .superRefine(requireFixedAmountForFixedActionTypes)
   .superRefine(requireGoalAmountForGoalType);
 
+// POST /api/actions: a payment link without a KaspaLinks account. No slug and no
+// profile, so hiddenFromProfile is not accepted; the browser sends only the hash
+// of its private manage token.
+export const createAccountFreeActionInputSchema = actionInputBaseObjectSchema
+  .omit({ hiddenFromProfile: true })
+  .extend({
+    manageTokenHash: z.string().regex(/^[a-f0-9]{64}$/, "manageTokenHash is invalid."),
+    // Attribution must never block creation: unknown or forged labels are dropped.
+    source: signupSourceSchema.optional().catch(undefined),
+    turnstileToken: z.string().max(2048).optional(),
+  })
+  .superRefine(requireMainnetRecipientAddress)
+  .and(amountSchema)
+  .and(goalAmountSchema)
+  .superRefine(requireFixedAmountForFixedActionTypes)
+  .superRefine(requireGoalAmountForGoalType);
+
 export const updateCreatorActionInputSchema = z
   .object({
     amountKas: z.string().optional(),

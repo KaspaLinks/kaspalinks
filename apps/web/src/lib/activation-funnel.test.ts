@@ -148,6 +148,14 @@ describe("buildActivationFunnel", () => {
         pending: 0,
         signups: 1,
       },
+      {
+        accountFreeLinks: 0,
+        activated: 0,
+        clicks: 0,
+        key: "giveaway-entry",
+        pending: 0,
+        signups: 0,
+      },
       { accountFreeLinks: 0, activated: 0, clicks: 0, key: "other", pending: 0, signups: 1 },
     ]);
     expect(result.headline.promptClicks).toBe(3);
@@ -245,10 +253,69 @@ describe("account-free claimable links", () => {
       payShareViews: [],
     });
 
-    expect(result.accountFree).toEqual({ claimed: 1, created: 3, funded: 2, returned: 1 });
+    expect(result.accountFree).toEqual({
+      adopted: 0,
+      claimed: 1,
+      created: 3,
+      funded: 2,
+      returned: 1,
+    });
     expect(result.bySource.find((row) => row.key === "claim-success")?.accountFreeLinks).toBe(2);
     expect(result.bySource.find((row) => row.key === "other")?.accountFreeLinks).toBe(1);
     expect(result.headline.activated).toBe(0);
+    expect(result.headline.newCreators).toBe(0);
+  });
+});
+
+describe("account-free payment links", () => {
+  it("counts creations, payments and moves into an account per type", () => {
+    const result = buildActivationFunnel({
+      accountFreeLinks: [
+        {
+          createdAt: daysAgo(1),
+          creatorId: "creator-1",
+          fundingTxId: "a".repeat(64),
+          source: null,
+          status: "funded",
+        },
+      ],
+      accountFreePaymentLinks: [
+        {
+          createdAt: daysAgo(1),
+          creatorId: null,
+          paid: true,
+          source: "pay-success",
+          type: "KASPA_TIP",
+        },
+        {
+          createdAt: daysAgo(2),
+          creatorId: "creator-2",
+          paid: false,
+          source: null,
+          type: "KASPA_TIP",
+        },
+        { createdAt: daysAgo(3), creatorId: null, paid: false, source: null, type: "KASPA_GOAL" },
+        { createdAt: daysAgo(45), creatorId: null, paid: true, source: null, type: "KASPA_GOAL" },
+      ],
+      createProfileViews: [],
+      creators: [],
+      internalUsernames: new Set(),
+      now: NOW,
+      payShareViews: [],
+    });
+
+    expect(result.accountFree.adopted).toBe(1);
+    expect(result.accountFreePayments).toEqual({
+      adopted: 1,
+      byType: [
+        { adopted: 0, created: 1, paid: 0, type: "KASPA_GOAL" },
+        { adopted: 1, created: 2, paid: 1, type: "KASPA_TIP" },
+      ],
+      created: 3,
+      paid: 1,
+    });
+    expect(result.bySource.find((row) => row.key === "pay-success")?.accountFreeLinks).toBe(1);
+    expect(result.bySource.find((row) => row.key === "other")?.accountFreeLinks).toBe(3);
     expect(result.headline.newCreators).toBe(0);
   });
 });
@@ -260,10 +327,20 @@ describe("loadActivationFunnel", () => {
     ]);
     const pageViews = vi.fn(async () => []);
     const claimableLinks = vi.fn(async () => []);
+    const actions = vi.fn(async () => [
+      {
+        _count: { paymentRequests: 1 },
+        createdAt: daysAgo(1),
+        creatorId: null,
+        source: null,
+        type: "KASPA_TIP",
+      },
+    ]);
 
     const result = await loadActivationFunnel(
       {
         $queryRaw: queryRaw,
+        action: { findMany: actions },
         claimableLink: { findMany: claimableLinks },
         operatorPageView: { findMany: pageViews },
       } as never,
@@ -282,7 +359,7 @@ describe("loadActivationFunnel", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           isBot: false,
-          path: { in: ["/create-profile", "/claim/create/single"] },
+          path: { in: ["/create-profile", "/claim/create", "/claim/create/single", "/new-link"] },
         }),
       }),
     );
@@ -292,8 +369,16 @@ describe("loadActivationFunnel", () => {
       }),
     );
     expect(claimableLinks).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ creatorId: null }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({ createdWithoutAccount: true }),
+      }),
     );
+    expect(actions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ createdWithoutAccount: true }),
+      }),
+    );
+    expect(result.accountFreePayments).toMatchObject({ created: 1, paid: 1 });
     expect(result.headline.activated).toBe(1);
   });
 });

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { GrowthPrompt } from "@/app/GrowthPrompt";
 import { TurnstileWidget } from "@/app/toccata-lab/giveaway/[publicId]/TurnstileWidget";
 import { GIVEAWAY_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
 
@@ -80,9 +81,7 @@ export default function V6EntryClient({
 
   if (submission) {
     const explorerUrl =
-      network === "mainnet"
-        ? `https://explorer.kaspa.org/txs/${submission.transactionId}`
-        : null;
+      network === "mainnet" ? `https://explorer.kaspa.org/txs/${submission.transactionId}` : null;
     return (
       <div className="giveaway-entry-success giveaway-v6-entry-success" role="status">
         <span>{chainStatus === "confirmed" ? "✓" : chainStatus === "late" ? "!" : "…"}</span>
@@ -106,6 +105,9 @@ export default function V6EntryClient({
             <a href={explorerUrl} target="_blank" rel="noreferrer">
               View transaction
             </a>
+          ) : null}
+          {chainStatus === "confirmed" && network === "mainnet" ? (
+            <GrowthPrompt source="giveaway-entry" />
           ) : null}
         </div>
       </div>

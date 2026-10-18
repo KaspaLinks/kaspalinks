@@ -16,6 +16,14 @@ function formatRate(numerator: number, denominator: number): string {
   return `${Math.round((numerator / denominator) * 100)}%`;
 }
 
+const PAYMENT_TYPE_LABELS: Record<string, string> = {
+  KASPA_DONATION: "Donation",
+  KASPA_GOAL: "Goal",
+  KASPA_INVOICE: "Invoice",
+  KASPA_TIP: "Tip",
+  KASPA_TRANSFER: "Fixed amount",
+};
+
 function sourceLabel(key: FunnelSourceKey): string {
   return key === "other" ? "Other / direct" : SIGNUP_SOURCE_LABELS[key];
 }
@@ -35,7 +43,7 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
     );
   }
 
-  const { accountFree, headline } = funnel;
+  const { accountFree, accountFreePayments, headline } = funnel;
   const decided = headline.signups - headline.pending;
   const totals = funnel.bySource.reduce(
     (sum, row) => ({
@@ -118,7 +126,7 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
                   <td>{numberFormat.format(totals.activated)}</td>
                   <td>{numberFormat.format(totals.pending)}</td>
                   <td>—</td>
-                  <td>{numberFormat.format(accountFree.created)}</td>
+                  <td>{numberFormat.format(accountFree.created + accountFreePayments.created)}</td>
                 </tr>
               </tbody>
             </table>
@@ -137,6 +145,7 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
                   <th scope="col">Funded</th>
                   <th scope="col">Claimed</th>
                   <th scope="col">Returned</th>
+                  <th scope="col">Moved to account</th>
                 </tr>
               </thead>
               <tbody>
@@ -146,6 +155,40 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
                   <td>{numberFormat.format(accountFree.funded)}</td>
                   <td>{numberFormat.format(accountFree.claimed)}</td>
                   <td>{numberFormat.format(accountFree.returned)}</td>
+                  <td>{numberFormat.format(accountFree.adopted)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article className="card card-muted">
+          <span className="label">Payment links without account</span>
+          <h3>Created → paid → moved to an account</h3>
+          <div className="operator-table-wrap">
+            <table className="operator-table">
+              <thead>
+                <tr>
+                  <th scope="col">Last {HEADLINE_DAYS} days</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Paid</th>
+                  <th scope="col">Moved to account</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accountFreePayments.byType.map((row) => (
+                  <tr key={row.type}>
+                    <th scope="row">{PAYMENT_TYPE_LABELS[row.type] ?? row.type}</th>
+                    <td>{numberFormat.format(row.created)}</td>
+                    <td>{numberFormat.format(row.paid)}</td>
+                    <td>{numberFormat.format(row.adopted)}</td>
+                  </tr>
+                ))}
+                <tr className="operator-table-total">
+                  <th scope="row">Total</th>
+                  <td>{numberFormat.format(accountFreePayments.created)}</td>
+                  <td>{numberFormat.format(accountFreePayments.paid)}</td>
+                  <td>{numberFormat.format(accountFreePayments.adopted)}</td>
                 </tr>
               </tbody>
             </table>
@@ -194,7 +237,8 @@ export function ActivationSection({ funnel }: { funnel: ActivationFunnel | null 
         Activated: first confirmed mainnet payment or claimed claimable link within 7 days of
         signup. Clicks: distinct daily visitors reaching profile creation or the account-free claim
         form from a growth prompt. Pending creators are still inside their 7 days and stay out of
-        the rate. Links without an account are not creators and never count as activated.
+        the rate. Links without an account are not creators and never count as activated; they keep
+        counting as created without an account after they move into one.
       </p>
     </section>
   );

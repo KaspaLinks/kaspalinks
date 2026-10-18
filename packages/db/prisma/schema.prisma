@@ -210,6 +210,13 @@ model Action {
   deletedAt         DateTime?
   invoicePaidAt     DateTime?
   agentCommandKey   String?            @unique
+  // Links created without a KaspaLinks account are managed with a private link.
+  // Only the SHA-256 of its token is stored; it is cleared once an account adopts
+  // the link. createdWithoutAccount stays true so statistics keep the origin.
+  manageTokenHash       String?        @unique
+  createdWithoutAccount Boolean        @default(false)
+  // Fixed Growth Prompt label (allowlist in apps/web/src/lib/signup-source.ts), never personal data.
+  source            String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   paymentRequests   PaymentRequest[]
@@ -230,6 +237,7 @@ model Action {
   @@index([expiresAt])
   @@index([deletedAt])
   @@index([invoicePaidAt])
+  @@index([createdWithoutAccount, createdAt])
 }
 
 model PaymentRequest {
@@ -516,6 +524,9 @@ model ClaimableLink {
   returnAddress      String?
   // Fixed Growth Prompt label (allowlist in apps/web/src/lib/signup-source.ts), never personal data.
   source             String?
+  // SHA-256 of the private token that lets an account adopt an account-free link.
+  manageTokenHash       String?   @unique
+  createdWithoutAccount Boolean   @default(false)
   fundingTxId        String?
   fundingOutputIndex Int?
   claimTxId          String?
@@ -537,6 +548,7 @@ model ClaimableLink {
   @@index([refundedAt])
   @@index([fundingAddress])
   @@index([scriptVersion, status])
+  @@index([createdWithoutAccount, createdAt])
 }
 
 // Public, non-secret manifest for a one-time batch allocator. It commits the

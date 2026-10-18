@@ -5,6 +5,9 @@ export const RateBuckets = {
   AGENT_CONNECTION_CODE: "agent.connection-code",
   AGENT_MUTATION: "agent.mutation",
   ADMIN_MUTATION: "admin.mutation",
+  ACCOUNT_FREE_LINK_CREATE: "account-free-link.create",
+  ACCOUNT_FREE_LINK_DAILY: "account-free-link.daily",
+  ACCOUNT_FREE_LINK_MANAGE: "account-free-link.manage",
   CLAIMABLE_ANONYMOUS_CREATE: "claimable.anonymous-create",
   CLAIMABLE_ANONYMOUS_DAILY: "claimable.anonymous-daily",
   CLAIMABLE_RETURN: "claimable.return",
@@ -42,6 +45,10 @@ export const RateLimits = {
   [RateBuckets.AGENT_CONNECTION_CODE]: { limit: 5, windowMs: 60_000 },
   [RateBuckets.AGENT_MUTATION]: { limit: 30, windowMs: 60_000 },
   [RateBuckets.ADMIN_MUTATION]: { limit: 30, windowMs: 60_000 },
+  [RateBuckets.ACCOUNT_FREE_LINK_CREATE]: { limit: 5, windowMs: 60_000 },
+  // In memory only, like the claimable limits: nothing IP-derived is stored with the link.
+  [RateBuckets.ACCOUNT_FREE_LINK_DAILY]: { limit: 10, windowMs: 24 * 60 * 60_000 },
+  [RateBuckets.ACCOUNT_FREE_LINK_MANAGE]: { limit: 30, windowMs: 60_000 },
   [RateBuckets.CLAIMABLE_ANONYMOUS_CREATE]: { limit: 5, windowMs: 60_000 },
   // In memory only: no IP-derived value is stored with account-free links.
   [RateBuckets.CLAIMABLE_ANONYMOUS_DAILY]: { limit: 10, windowMs: 24 * 60 * 60_000 },

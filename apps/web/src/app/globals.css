@@ -12413,3 +12413,116 @@ main.giveaway-guided-page {
   line-height: 1.5;
   word-break: break-all;
 }
+
+/* Links created without a KaspaLinks account: success view, manage page, list */
+.account-free-created {
+  display: grid;
+  gap: 18px;
+}
+
+.account-free-created-block {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.account-free-created-block p {
+  margin: 0;
+}
+
+.account-free-created-private {
+  border-color: rgba(247, 193, 104, 0.35);
+}
+
+.account-free-url {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.account-free-created-cta {
+  display: grid;
+  gap: 10px;
+}
+
+.account-free-created-cta p {
+  margin: 0;
+  color: var(--fg-muted);
+}
+
+.account-free-signin-hint {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+}
+
+.account-free-pay-notice {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(247, 193, 104, 0.35);
+  border-radius: var(--radius-sm);
+  color: var(--warn);
+  font-size: 0.88rem;
+}
+
+.account-free-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.account-free-panel p {
+  margin: 0;
+}
+
+.account-free-list,
+.manage-link-payments {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.account-free-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.account-free-list li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-free-list strong {
+  overflow-wrap: anywhere;
+}
+
+.manage-link-payments li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.manage-link-payments p {
+  margin: 0;
+}
+
+.manage-link-page {
+  display: grid;
+  gap: 14px;
+}
+
+.giveaway-v6-entry-success .growth-prompt {
+  margin: 14px 0 0;
+}
