@@ -3492,7 +3492,10 @@ export function MyLinksClient() {
                   const versionedClaimUrl = record.claimUrl
                     ? buildCompactClaimUrl(record.claimUrl)
                     : "";
+                  // A drop created elsewhere already says so once at the top of its group.
+                  const coveredByBatchNotice = Boolean(record.batchKey) && !record.hasLocal;
                   const privateRecoveryMissing =
+                    !coveredByBatchNotice &&
                     !record.autoReturn &&
                     !record.manageUrl &&
                     record.status !== "awaiting_funding" &&
@@ -3889,17 +3892,18 @@ export function MyLinksClient() {
                       {privateBatchLinksMissing ? (
                         <div className="notice claimable-batch-recovery-notice">
                           <span>
-                            <strong>Private share links are not on this device.</strong>
+                            <strong>Share this drop from the device you created it on.</strong>
                             <small>
-                              Restore the recovery bundle once to recover every claim and refund
-                              link in this batch.
+                              Its claim links are secret and stay in that browser. Kaspa Links never
+                              stores them, so nobody else can claim your KAS. To share from here
+                              instead, import the drop&apos;s recovery file once.
                             </small>
                           </span>
                           <Link
-                            className="btn btn-primary"
+                            className="btn"
                             href={buildBatchRecoveryPath(group.batch.batchKey, group.batch.title)}
                           >
-                            Restore share links
+                            Import recovery file
                           </Link>
                         </div>
                       ) : null}
