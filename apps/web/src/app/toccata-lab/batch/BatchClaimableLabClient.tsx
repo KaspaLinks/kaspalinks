@@ -2072,8 +2072,41 @@ export function BatchClaimableLabClient({
                 />
               </div>
 
+              <div className="grid-two">
+                <div>
+                  <label className="label" htmlFor="batch-expiry">
+                    Claim window
+                  </label>
+                  <input
+                    id="batch-expiry"
+                    inputMode="numeric"
+                    onChange={(event) => setExpiryValue(event.target.value)}
+                    value={expiryValue}
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="batch-unit">
+                    Unit
+                  </label>
+                  <select
+                    id="batch-unit"
+                    onChange={(event) =>
+                      setExpiryUnit(event.target.value as ToccataCanaryExpiryUnit)
+                    }
+                    value={expiryUnit}
+                  >
+                    <option value="hours">Hours</option>
+                    <option value="days">Days</option>
+                    <option value="minutes">Minutes</option>
+                  </select>
+                </div>
+              </div>
+              <p className="muted batch-drop-hint">
+                Links still unclaimed after this can be refunded to you.
+              </p>
+
               <details className="batch-drop-options">
-                <summary>More options: link names, description, claim window</summary>
+                <summary>More options: link names, description</summary>
                 <fieldset className="batch-link-name-list">
                   <legend className="batch-lab-section-title">Link names</legend>
                   {linkTitles.slice(0, Number.parseInt(count, 10)).map((linkTitle, index) => (
@@ -2105,36 +2138,6 @@ export function BatchClaimableLabClient({
                     value={description}
                   />
                 </div>
-                <div className="grid-two">
-                  <div>
-                    <label className="label" htmlFor="batch-expiry">
-                      Claim window
-                    </label>
-                    <input
-                      id="batch-expiry"
-                      inputMode="numeric"
-                      onChange={(event) => setExpiryValue(event.target.value)}
-                      value={expiryValue}
-                    />
-                  </div>
-                  <div>
-                    <label className="label" htmlFor="batch-unit">
-                      Unit
-                    </label>
-                    <select
-                      id="batch-unit"
-                      onChange={(event) =>
-                        setExpiryUnit(event.target.value as ToccataCanaryExpiryUnit)
-                      }
-                      value={expiryUnit}
-                    >
-                      <option value="hours">Hours</option>
-                      <option value="days">Days</option>
-                      <option value="minutes">Minutes</option>
-                    </select>
-                  </div>
-                </div>
-                <p className="muted">Links still unclaimed after this can be refunded to you.</p>
               </details>
 
               {batchCreationPreview ? (

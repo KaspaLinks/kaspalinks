@@ -8701,6 +8701,20 @@ body:has(main.deck-main) {
   display: grid;
   gap: 16px;
 }
+/* Safari draws native selects at its own height; match the text fields. */
+.batch-drop-form select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238395a2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 14px center;
+  background-repeat: no-repeat;
+  background-size: 12px 8px;
+}
+.batch-drop-hint {
+  margin: -8px 0 0;
+  font-size: 0.85rem;
+}
 .batch-drop-options {
   display: grid;
   gap: 14px;
