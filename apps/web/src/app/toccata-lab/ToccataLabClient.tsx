@@ -73,6 +73,7 @@ import {
   preloadClaimableBrowserSigner,
   type BrowserClaimableSpend,
 } from "./claimable-browser";
+import { singleClaimStage } from "./single-claim-stage";
 
 type LabCapabilities = {
   missing: string[];
@@ -372,6 +373,14 @@ function writeAnonymousDraft(link: ClaimableLabLink): void {
   }
 }
 
+function clearAnonymousDraft(): void {
+  try {
+    window.sessionStorage.removeItem(ANONYMOUS_DRAFT_STORAGE_KEY);
+  } catch {
+    // Nothing stored.
+  }
+}
+
 function readAnonymousDraft(): ClaimableLabLink | null {
   try {
     const raw = window.sessionStorage.getItem(ANONYMOUS_DRAFT_STORAGE_KEY);
@@ -474,8 +483,9 @@ export function ToccataLabClient({
   const [expiryValue, setExpiryValue] = useState("24");
   const [expiryUnit, setExpiryUnit] = useState<ToccataCanaryExpiryUnit>("hours");
   const [feeKas, setFeeKas] = useState(formatSompiForToccataLab(TOCCATA_CANARY_DEFAULT_FEE_SOMPI));
-  const [linkTitle, setLinkTitle] = useState(DEFAULT_CLAIMABLE_TITLE);
-  const [linkDescription, setLinkDescription] = useState(DEFAULT_CLAIMABLE_DESCRIPTION);
+  // Empty means the defaults; normalizeLabTitle/Description fill them in on create.
+  const [linkTitle, setLinkTitle] = useState("");
+  const [linkDescription, setLinkDescription] = useState("");
   const [labLink, setLabLink] = useState<ClaimableLabLink | null>(null);
   const [claimOnlyView, setClaimOnlyView] = useState(initialMode === "claim");
   const [manageOnlyView, setManageOnlyView] = useState(initialMode === "manage");
@@ -483,9 +493,7 @@ export function ToccataLabClient({
   const [recoverySkipConfirmed, setRecoverySkipConfirmed] = useState(false);
   const [recoveryExportedAt, setRecoveryExportedAt] = useState<null | string>(null);
   const [recoveryTarget, setRecoveryTarget] = useState<ClaimableRecoveryTarget | null>(null);
-  const [createdDialog, setCreatedDialog] = useState<"ready" | "setup" | "skip-backup" | null>(
-    null,
-  );
+  const [createdDialog, setCreatedDialog] = useState<"setup" | "skip-backup" | null>(null);
   const [creatorSignedIn, setCreatorSignedIn] = useState<null | boolean>(null);
   const [claimDestination, setClaimDestination] = useState("");
   const [manualClaimCode, setManualClaimCode] = useState("");
@@ -514,7 +522,6 @@ export function ToccataLabClient({
   const [isTouchOnly, setIsTouchOnly] = useState<null | boolean>(null);
   const [spendBuilding, setSpendBuilding] = useState<"claim" | "refund" | null>(null);
   const recoveryInputRef = useRef<HTMLInputElement>(null);
-  const previousShareReadyRef = useRef(false);
 
   const spendPlanResult = useMemo(() => {
     try {
@@ -617,14 +624,6 @@ export function ToccataLabClient({
   const shareReady = linkFunded && (claimOnlyView || manageOnlyView || recoveryReadyForFunding);
 
   useEffect(() => {
-    const wasReady = previousShareReadyRef.current;
-    previousShareReadyRef.current = shareReady;
-    if (!claimOnlyView && !manageOnlyView && shareReady && !wasReady) {
-      setCreatedDialog("ready");
-    }
-  }, [claimOnlyView, manageOnlyView, shareReady]);
-
-  useEffect(() => {
     if (!createdDialog) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -642,44 +641,21 @@ export function ToccataLabClient({
     () => calculateRefundTiming(currentDaaScore, projectedDaaScore, labLink?.refundLockTime ?? ""),
     [currentDaaScore, projectedDaaScore, labLink?.refundLockTime],
   );
-  const creatorFlowSteps = [
-    {
-      label: "Create",
-      state: labLink ? "done" : "active",
-      text: "Set the amount and how long it can be claimed.",
-    },
-    {
-      label: "Fund",
-      state:
-        labLink?.status === "awaiting_funding"
-          ? "active"
-          : linkFunded || labLink?.status === "claimed" || labLink?.status === "refundable"
-            ? "done"
-            : "locked",
-      text: "Fund the link\u2019s one-time address from your wallet.",
-    },
-    {
-      label: "Share",
-      state: shareReady ? "active" : labLink?.status === "claimed" ? "done" : "locked",
-      text: "The share link unlocks once funding arrives.",
-    },
-    {
-      label: isAutoReturn ? "Claim / Return" : "Claim / Refund",
-      state:
-        labLink?.status === "claimed" ||
-        labLink?.status === "refunded" ||
-        labLink?.status === "spent_unknown"
-          ? "done"
-          : labLink?.status === "refundable"
-            ? "active"
-            : shareReady
-              ? "done"
-              : "locked",
-      text: isAutoReturn
-        ? "The recipient claims it \u2014 or it returns to you automatically after expiry."
-        : "The recipient claims it \u2014 or you refund it after expiry.",
-    },
-  ] as const;
+  const singleStage = singleClaimStage({
+    autoReturn: isAutoReturn,
+    recoveryReady: recoveryReadyForFunding,
+    status: labLink?.status ?? null,
+    windowEnded: refundTiming.unlocked,
+  });
+  const singleSteps = isAutoReturn ? ["Pay", "Share"] : ["Save recovery", "Pay", "Share"];
+  const singleStepIndex =
+    singleStage === "save"
+      ? 0
+      : singleStage === "fund" || singleStage === "expired_unfunded"
+        ? singleSteps.indexOf("Pay")
+        : singleStage === "done"
+          ? singleSteps.length
+          : singleSteps.length - 1;
   const refundCompleted = labLink?.status === "refunded" || refundBroadcast !== null;
   const claimPathClosed = labLink?.status === "claimed" || labLink?.status === "spent_unknown";
   const refundAvailable = labLink?.status === "refundable";
@@ -1136,15 +1112,36 @@ export function ToccataLabClient({
     setRecoveryExportedAt(null);
     setReturnTransactionIds([]);
     setReturnError("");
+    // The card below now shows the next step, so no extra notice.
+    setNotice("");
     if (refundKey) {
       setCreatedDialog("setup");
-      setNotice("Claimable link created. Fund the one-time address before sharing the claim link.");
     } else {
-      setNotice(
-        "Claimable link created. Fund the one-time address; if nobody claims it, the KAS returns to your wallet automatically.",
-      );
       scrollToSingleClaimableFunding();
     }
+  }
+
+  // Leaves the current link (it stays in My Links or "Created in this browser")
+  // and shows an empty form again.
+  function startAnotherLink() {
+    clearAnonymousDraft();
+    setLabLink(null);
+    setLinkTitle("");
+    setLinkDescription("");
+    setClaimSpend(null);
+    setRefundSpend(null);
+    setClaimBroadcast(null);
+    setRefundBroadcast(null);
+    setReturnTransactionIds([]);
+    setReturnError("");
+    setUnmatchedFundingOutputs([]);
+    setRecoveryExportedAt(null);
+    setRecoveryBackupSkippedAt(null);
+    setRecoverySkipConfirmed(false);
+    setCreatedDialog(null);
+    setError("");
+    setNotice("");
+    window.scrollTo({ top: 0 });
   }
 
   async function copyClaimLink() {
@@ -2106,12 +2103,9 @@ export function ToccataLabClient({
     <div
       className={`claimable-lab-layout ${claimOnlyView ? "is-claim-view" : ""} ${manageOnlyView ? "is-manage-view" : ""}`}
     >
-      {!claimOnlyView ? (
-        <section
-          className={`claimable-flow-strip ${manageOnlyView ? "is-refund-flow" : ""}`}
-          aria-label={manageOnlyView ? "Refund flow" : "Claimable link flow"}
-        >
-          {(manageOnlyView ? refundFlowSteps : creatorFlowSteps).map((step, index) => (
+      {manageOnlyView ? (
+        <section className="claimable-flow-strip is-refund-flow" aria-label="Refund flow">
+          {refundFlowSteps.map((step, index) => (
             <article className={`claimable-flow-item is-${step.state}`} key={step.label}>
               <span>{index + 1}</span>
               <div>
@@ -2154,28 +2148,20 @@ export function ToccataLabClient({
               ×
             </button>
             <span aria-hidden="true" className="batch-created-dialog-mark">
-              {createdDialog === "ready" ? "✓" : createdDialog === "skip-backup" ? "!" : "1"}
+              {createdDialog === "skip-backup" ? "!" : "1"}
             </span>
             <span className="label">
-              {createdDialog === "ready"
-                ? "Claimable link ready"
-                : createdDialog === "skip-backup"
-                  ? "Recovery warning"
-                  : "Link setup created"}
+              {createdDialog === "skip-backup" ? "Recovery warning" : "Link setup created"}
             </span>
             <h2 id="single-claimable-created-dialog-title">
-              {createdDialog === "ready"
-                ? "Your funded link is ready to share."
-                : createdDialog === "skip-backup"
-                  ? "Continue without a backup?"
-                  : "Protect your refund before funding."}
+              {createdDialog === "skip-backup"
+                ? "Continue without a backup?"
+                : "Protect your refund before funding."}
             </h2>
             <p>
-              {createdDialog === "ready"
-                ? "Funding was detected on-chain. You can now open the recipient view or copy the claim link."
-                : createdDialog === "skip-backup"
-                  ? "Without the recovery file, unclaimed KAS can be refunded only while this browser still has the encrypted refund key and your creator token. If browser data, the token, or this device is lost, Kaspa Links cannot recover the funds."
-                  : "Download the private recovery bundle, or explicitly continue with recovery limited to this browser."}
+              {createdDialog === "skip-backup"
+                ? "Without the recovery file, unclaimed KAS can be refunded only while this browser still has the encrypted refund key and your creator token. If browser data, the token, or this device is lost, Kaspa Links cannot recover the funds."
+                : "Download the private recovery bundle, or explicitly continue with recovery limited to this browser."}
             </p>
             {createdDialog === "skip-backup" ? (
               <label className="claimable-backup-risk-check">
@@ -2219,7 +2205,7 @@ export function ToccataLabClient({
                     Close
                   </button>
                 </>
-              ) : createdDialog === "skip-backup" ? (
+              ) : (
                 <>
                   <button className="btn" onClick={returnToRecoverySetup} type="button">
                     Back to download
@@ -2231,33 +2217,6 @@ export function ToccataLabClient({
                     type="button"
                   >
                     Continue without backup
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    autoFocus
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setCreatedDialog(null);
-                      window.open(claimUrl, "_blank", "noopener,noreferrer");
-                    }}
-                    type="button"
-                  >
-                    Open claim link
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      setCreatedDialog(null);
-                      void copyClaimLink();
-                    }}
-                    type="button"
-                  >
-                    Copy claim link
-                  </button>
-                  <button className="btn" onClick={closeCreatedDialog} type="button">
-                    Close
                   </button>
                 </>
               )}
@@ -2276,326 +2235,601 @@ export function ToccataLabClient({
 
       <div className="claimable-lab-grid">
         {!claimOnlyView && !manageOnlyView ? (
-          <>
-            <section className="card claimable-lab-panel">
-              <span className="label">Creator setup</span>
-              <h2>Create claimable link</h2>
-              <form className="claimable-lab-form" onSubmit={createLabLink}>
-                <div>
-                  <label className="label" htmlFor="claimable-title">
-                    Link name
-                  </label>
-                  <input
-                    id="claimable-title"
-                    maxLength={CLAIMABLE_TITLE_MAX_LENGTH}
-                    onChange={(event) => updateLinkTitle(event.target.value)}
-                    placeholder="Gift for the first claimant"
-                    value={linkTitle}
-                  />
-                </div>
-
-                <div>
-                  <label className="label" htmlFor="claimable-description">
-                    Link description
-                  </label>
-                  <textarea
-                    id="claimable-description"
-                    maxLength={CLAIMABLE_DESCRIPTION_MAX_LENGTH}
-                    onChange={(event) => updateLinkDescription(event.target.value)}
-                    rows={3}
-                    value={linkDescription}
-                  />
-                </div>
-
-                <div className="grid-two">
-                  <div>
-                    <label className="label" htmlFor="claimable-amount">
-                      Recipient gets
-                    </label>
-                    <input
-                      id="claimable-amount"
-                      inputMode="decimal"
-                      min={TOCCATA_LAB_MIN_KAS}
-                      onChange={(event) => setAmountKas(event.target.value.replace(",", "."))}
-                      value={amountKas}
-                    />
-                    <p className="muted">
-                      Minimum {TOCCATA_LAB_MIN_KAS} KAS. Fee is added automatically.
-                    </p>
-                  </div>
-                  <div>
-                    <label className="label" htmlFor="claimable-fee">
-                      Claim/refund fee
-                    </label>
-                    <input
-                      id="claimable-fee"
-                      inputMode="decimal"
-                      onChange={(event) => setFeeKas(event.target.value.replace(",", "."))}
-                      value={feeKas}
-                    />
-                    <p className="muted">
-                      Default: {formatSompiForToccataLab(TOCCATA_CANARY_DEFAULT_FEE_SOMPI)} KAS.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="claimable-expiry-row">
-                  <div>
-                    <label className="label" htmlFor="claimable-expiry">
-                      Valid for
-                    </label>
-                    <input
-                      id="claimable-expiry"
-                      inputMode="numeric"
-                      onChange={(event) => setExpiryValue(event.target.value)}
-                      value={expiryValue}
-                    />
-                  </div>
-                  <div>
-                    <label className="label" htmlFor="claimable-expiry-unit">
-                      Unit
-                    </label>
-                    <select
-                      id="claimable-expiry-unit"
-                      onChange={(event) =>
-                        setExpiryUnit(event.target.value as ToccataCanaryExpiryUnit)
-                      }
-                      value={expiryUnit}
-                    >
-                      <option value="minutes">Minutes</option>
-                      <option value="hours">Hours</option>
-                      <option value="days">Days</option>
-                    </select>
-                  </div>
-                </div>
-
-                {autoReturnEnabled ? (
-                  <div>
-                    <label className="label" htmlFor="claimable-return-address">
-                      Your wallet address
-                    </label>
-                    <input
-                      id="claimable-return-address"
-                      {...KASPA_ADDRESS_INPUT_PROPS}
-                      onChange={(event) => setReturnAddress(event.target.value.trim())}
-                      placeholder="kaspa:your-own-wallet-address"
-                      value={returnAddress}
-                    />
-                    <p className="muted">
-                      If nobody claims the link in time, the KAS goes back here automatically. Use
-                      your own wallet, not an exchange deposit address.
-                    </p>
-                    {isTouchOnly === false ? (
-                      <button
-                        className="btn"
-                        disabled={returnAddressLoading}
-                        onClick={() => void fillReturnAddressFromKasware()}
-                        type="button"
-                      >
-                        {returnAddressLoading ? "Asking KasWare..." : "Use my KasWare address"}
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                <div className="claimable-preview-box">
-                  <div>
-                    <span className="label">You lock</span>
-                    <strong>{spendPlan ? `${spendPlan.utxoKas} KAS` : "—"}</strong>
-                  </div>
-                  <div>
-                    <span className="label">Recipient gets</span>
-                    <strong>{spendPlan ? `${spendPlan.netOutputKas} KAS` : "—"}</strong>
-                  </div>
-                  <div>
-                    <span className="label">
-                      {autoReturnEnabled ? "Returns to you after" : "Refundable after"}
-                    </span>
-                    <strong>
-                      {expiryPlan
-                        ? expiryPlan.durationLabel
-                        : `${expiryValue || "…"} ${expiryUnit}`}
-                    </strong>
-                  </div>
-                </div>
-
-                <p className="notice notice-critical">
-                  Anyone with the claim link can claim it. Send it only to the person it is for.
-                </p>
-                {!creatorSignedIn && accountFree ? (
-                  <p className="muted">
-                    No account needed. Optional:{" "}
-                    <Link href="/sign-in?next=%2Fclaim%2Fcreate" prefetch={false}>
-                      sign in
-                    </Link>{" "}
-                    to see this link in My Links later.
-                  </p>
-                ) : null}
-
-                {!enabled ? (
-                  <p className="notice notice-warn">
-                    Claimable links are disabled on this deployment.
-                  </p>
-                ) : null}
-                {spendPlanResult.error ? (
-                  <p className="error-text">{spendPlanResult.error}</p>
-                ) : null}
-                {expiryPlanResult.error && currentDaaScore ? (
-                  <p className="error-text">{expiryPlanResult.error}</p>
-                ) : null}
-
-                <button
-                  className="btn btn-primary"
-                  disabled={!enabled || !capabilities.ready || !spendPlan}
-                  type="submit"
-                >
-                  Create claimable link
-                </button>
-              </form>
-            </section>
-
-            <section
-              className="card claimable-lab-panel"
-              hidden={!labLink}
-              id="single-claimable-funding"
-            >
-              <span className="label">Funding</span>
-              <h2>Await funding before sharing</h2>
-              {labLink ? (
-                <>
-                  <div className="claimable-status-card">
-                    <span className={`claimable-status-dot is-${labLink.status}`} />
+          !labLink ? (
+            <div className="batch-drop-single">
+              <section className="card claimable-lab-panel">
+                <form className="claimable-lab-form batch-drop-form" onSubmit={createLabLink}>
+                  <div className="grid-two">
                     <div>
-                      <strong>{statusTitle(labLink.status)}</strong>
-                      <p>{statusDescription(labLink.status)}</p>
+                      <label className="label" htmlFor="claimable-amount">
+                        KAS for the recipient
+                      </label>
+                      <input
+                        id="claimable-amount"
+                        inputMode="decimal"
+                        min={TOCCATA_LAB_MIN_KAS}
+                        onChange={(event) => setAmountKas(event.target.value.replace(",", "."))}
+                        value={amountKas}
+                      />
+                    </div>
+                    <div>
+                      <label className="label" htmlFor="claimable-title">
+                        Name <span className="muted">(optional)</span>
+                      </label>
+                      <input
+                        id="claimable-title"
+                        maxLength={CLAIMABLE_TITLE_MAX_LENGTH}
+                        onChange={(event) => updateLinkTitle(event.target.value)}
+                        placeholder="Gift for the first claimant"
+                        value={linkTitle}
+                      />
                     </div>
                   </div>
-                  {isAutoReturn ? (
-                    <div className="claimable-chain-event is-safety">
-                      <span>Automatic return</span>
-                      <p>
-                        If nobody claims it within {labLink.validFor}, the KAS goes back to{" "}
-                        <span className="value-mono">
-                          {labLink.returnAddress
-                            ? compactHex(labLink.returnAddress)
-                            : "your wallet"}
-                        </span>{" "}
-                        automatically. There is nothing to back up.
-                      </p>
+                  <div className="grid-two">
+                    <div>
+                      <label className="label" htmlFor="claimable-expiry">
+                        Claim window
+                      </label>
+                      <input
+                        id="claimable-expiry"
+                        inputMode="numeric"
+                        onChange={(event) => setExpiryValue(event.target.value)}
+                        value={expiryValue}
+                      />
                     </div>
-                  ) : (
-                    <div
-                      className={`batch-recovery-before-funding${
-                        recoveryExportedAt
-                          ? " is-complete"
-                          : recoveryBackupSkippedAt
-                            ? " is-skipped"
-                            : ""
-                      }`}
-                    >
-                      <div>
-                        <span className="label">
-                          {recoveryExportedAt
-                            ? "Recovery protected"
-                            : recoveryBackupSkippedAt
-                              ? "Backup skipped"
-                              : "Before funding"}
-                        </span>
-                        <strong>
-                          {recoveryExportedAt
-                            ? "Private recovery bundle saved"
-                            : recoveryBackupSkippedAt
-                              ? "Recovery is limited to this browser"
-                              : "Protect your refund path"}
-                        </strong>
-                        <p>
-                          {recoveryExportedAt
-                            ? "Keep the file private. It restores the refund path on another device."
-                            : recoveryBackupSkippedAt
-                              ? "If browser data, your creator token, or this device is lost, Kaspa Links cannot recover unclaimed KAS."
-                              : "Download the private recovery file, or continue only after accepting the risk."}
-                        </p>
-                      </div>
-                      <div className="claimable-recovery-choice-actions">
+                    <div>
+                      <label className="label" htmlFor="claimable-expiry-unit">
+                        Unit
+                      </label>
+                      <select
+                        id="claimable-expiry-unit"
+                        onChange={(event) =>
+                          setExpiryUnit(event.target.value as ToccataCanaryExpiryUnit)
+                        }
+                        value={expiryUnit}
+                      >
+                        <option value="hours">Hours</option>
+                        <option value="days">Days</option>
+                        <option value="minutes">Minutes</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {autoReturnEnabled ? (
+                    <div>
+                      <label className="label" htmlFor="claimable-return-address">
+                        Your wallet address
+                      </label>
+                      <input
+                        id="claimable-return-address"
+                        {...KASPA_ADDRESS_INPUT_PROPS}
+                        onChange={(event) => setReturnAddress(event.target.value.trim())}
+                        placeholder="kaspa:your-own-wallet-address"
+                        value={returnAddress}
+                      />
+                      <p className="muted">
+                        If nobody claims the link in time, the KAS goes back here automatically. Use
+                        your own wallet, not an exchange deposit address.
+                      </p>
+                      {isTouchOnly === false ? (
                         <button
-                          className={recoveryExportedAt ? "btn" : "btn btn-primary"}
-                          onClick={() => void downloadRecoveryFile()}
+                          className="btn"
+                          disabled={returnAddressLoading}
+                          onClick={() => void fillReturnAddressFromKasware()}
                           type="button"
                         >
-                          {recoveryExportedAt
-                            ? "Download again"
-                            : recoveryBackupSkippedAt
-                              ? "Download backup now"
-                              : "Download recovery bundle"}
+                          {returnAddressLoading ? "Asking KasWare..." : "Use my KasWare address"}
                         </button>
-                        {!recoveryReadyForFunding ? (
-                          <button className="btn" onClick={openRecoverySkipWarning} type="button">
-                            Continue without backup
-                          </button>
-                        ) : null}
-                      </div>
-                      {recoveryExportedAt ? (
-                        <span className="batch-recovery-saved">Recovery bundle saved</span>
-                      ) : recoveryBackupSkippedAt ? (
-                        <span className="claimable-recovery-skipped">
-                          No recovery file saved. You can still download it before or after funding
-                          while this browser retains the key.
-                        </span>
                       ) : null}
                     </div>
-                  )}
-                  {labLink.status === "awaiting_funding" ? (
-                    <div className="claimable-chain-event is-checking">
-                      <span className="claimable-checking-head">
-                        <span className="claimable-spinner" aria-hidden="true" />
-                        Watching for your payment
-                      </span>
-                      <p>Send exactly {labLink.amountKas} KAS. Checking automatically.</p>
-                    </div>
                   ) : null}
-                  {labLink.fundingMatch && labLink.status !== "claimed" ? (
-                    <div
-                      className={`claimable-chain-event ${
-                        refundTiming.unlocked ? "is-refund" : "is-checking"
-                      }`}
-                    >
-                      <span>
-                        {refundTiming.unlocked
-                          ? isAutoReturn
-                            ? "Returning to you"
-                            : "Refund available"
-                          : "Claim window active"}
-                      </span>
-                      <p>
-                        {refundTiming.unlocked
-                          ? isAutoReturn
-                            ? "The validity window has passed. Kaspa Links sends the unclaimed KAS back to your wallet automatically, usually within a few minutes."
-                            : "The validity window has passed. You can now refund the unclaimed KAS to your own address."
-                          : `The recipient can claim${
-                              refundTiming.remainingLabel
-                                ? ` for about ${refundTiming.remainingLabel}`
-                                : ""
-                            }. ${
-                              isAutoReturn
-                                ? "After that, unclaimed KAS returns to your wallet automatically."
-                                : "After that, Kaspa Links stops offering claims and your refund path becomes available."
-                            }`}
+
+                  <details className="batch-drop-options">
+                    <summary>More options: description, network fee</summary>
+                    <div>
+                      <label className="label" htmlFor="claimable-description">
+                        Description
+                      </label>
+                      <textarea
+                        id="claimable-description"
+                        maxLength={CLAIMABLE_DESCRIPTION_MAX_LENGTH}
+                        onChange={(event) => updateLinkDescription(event.target.value)}
+                        placeholder={DEFAULT_CLAIMABLE_DESCRIPTION}
+                        rows={2}
+                        value={linkDescription}
+                      />
+                    </div>
+                    <div>
+                      <label className="label" htmlFor="claimable-fee">
+                        Network fee (KAS)
+                      </label>
+                      <input
+                        id="claimable-fee"
+                        inputMode="decimal"
+                        onChange={(event) => setFeeKas(event.target.value.replace(",", "."))}
+                        value={feeKas}
+                      />
+                      <p className="muted">
+                        Paid once when the link is claimed or returned. Default{" "}
+                        {formatSompiForToccataLab(TOCCATA_CANARY_DEFAULT_FEE_SOMPI)} KAS.
                       </p>
-                      {refundTiming.unlocked && isAutoReturn ? (
-                        <ReturnNowControls
-                          error={returnError}
-                          onReturn={() => void returnNow()}
-                          sending={returnSending}
-                          transactionIds={returnTransactionIds}
-                        />
-                      ) : null}
+                    </div>
+                  </details>
+
+                  {spendPlan ? (
+                    <div className="batch-drop-total" aria-live="polite">
+                      <span>You send once</span>
+                      <strong>{spendPlan.utxoKas} KAS</strong>
+                      <small>
+                        The recipient gets {spendPlan.netOutputKas} KAS.{" "}
+                        {autoReturnEnabled
+                          ? `If nobody claims it within ${expiryPlan?.durationLabel ?? `${expiryValue} ${expiryUnit}`}, it comes back to you.`
+                          : `You can refund it after ${expiryPlan?.durationLabel ?? `${expiryValue} ${expiryUnit}`}.`}
+                      </small>
                     </div>
                   ) : null}
-                  {labLink.fundingMatch && labLink.status !== "claimed" ? (
-                    <div className="claimable-chain-event is-success">
-                      <span>Funding received</span>
+
+                  {!enabled ? (
+                    <p className="notice notice-warn">
+                      Claimable links are disabled on this deployment.
+                    </p>
+                  ) : null}
+                  {spendPlanResult.error ? (
+                    <p className="error-text">{spendPlanResult.error}</p>
+                  ) : null}
+                  {expiryPlanResult.error && currentDaaScore ? (
+                    <p className="error-text">{expiryPlanResult.error}</p>
+                  ) : null}
+
+                  <button
+                    className="btn btn-primary"
+                    disabled={!enabled || !capabilities.ready || !spendPlan}
+                    type="submit"
+                  >
+                    Create link
+                  </button>
+                  {!creatorSignedIn && accountFree ? (
+                    <p className="muted">
+                      No account needed. Optional:{" "}
+                      <Link href="/sign-in?next=%2Fclaim%2Fcreate" prefetch={false}>
+                        sign in
+                      </Link>{" "}
+                      to see this link in My Links later.
+                    </p>
+                  ) : null}
+                </form>
+              </section>
+              {!autoReturnEnabled ? (
+                <button
+                  className="batch-drop-text-link"
+                  onClick={() => recoveryInputRef.current?.click()}
+                  type="button"
+                >
+                  Recover an existing link
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <section
+              className="card claimable-lab-panel batch-drop-panel"
+              id="single-claimable-funding"
+            >
+              <header className="batch-drop-heading">
+                <div>
+                  <span className="label">Claim link</span>
+                  <h2 className="form-section-heading">{labLink.title}</h2>
+                  <p className="muted">
+                    {labLink.netClaimKas} KAS for the recipient
+                    {singleStage === "share" && refundTiming.remainingLabel
+                      ? ` · claimable for about ${refundTiming.remainingLabel}`
+                      : singleStage === "returning" || singleStage === "refund"
+                        ? " · claim window ended"
+                        : singleStage === "done"
+                          ? ""
+                          : ` · claim window ${labLink.validFor}`}
+                  </p>
+                </div>
+              </header>
+
+              <ol
+                aria-label="Claim link progress"
+                className="studio-steps batch-drop-steps"
+                style={{ gridTemplateColumns: `repeat(${singleSteps.length}, 1fr)` }}
+              >
+                {singleSteps.map((label, index) => (
+                  <li
+                    className={
+                      index < singleStepIndex
+                        ? "is-done"
+                        : index === singleStepIndex
+                          ? "is-current"
+                          : ""
+                    }
+                    key={label}
+                  >
+                    <span className="studio-step-dot">
+                      {index < singleStepIndex ? "✓" : index + 1}
+                    </span>
+                    {label}
+                  </li>
+                ))}
+              </ol>
+
+              {unmatchedFundingOutputs.length > 0 ? (
+                <div className="claimable-unmatched-funding notice notice-critical">
+                  <span className="label">Payment amount does not match</span>
+                  <strong>
+                    {unmatchedFundingOutputs.length} separate unexpected payment
+                    {unmatchedFundingOutputs.length === 1 ? "" : "s"} detected
+                  </strong>
+                  <p>
+                    This link still expects exactly {labLink.amountKas} KAS. Do not send the
+                    difference: every payment creates a separate on-chain output and amounts are
+                    never combined automatically. Before sharing, a single link can instead adopt
+                    one valid received amount.
+                  </p>
+                  <div className="claimable-unmatched-list">
+                    {unmatchedFundingOutputs.map((output) => {
+                      const recoverable = isFundingOutputRecoverable(
+                        output.amountSompi,
+                        labLink.feeSompi,
+                      );
+                      const outputId = `${output.transactionId}:${output.outputIndex}`;
+                      const canAdopt =
+                        labLink.status === "awaiting_funding" &&
+                        !labLink.fundingMatch &&
+                        !refundTiming.unlocked &&
+                        BigInt(output.amountSompi) >= TOCCATA_LAB_MIN_SOMPI;
+                      return (
+                        <div className="claimable-unmatched-row" key={outputId}>
+                          <div>
+                            <strong>
+                              {formatSompiForToccataLab(BigInt(output.amountSompi))} KAS
+                            </strong>
+                            <p className="value-mono">
+                              {compactHex(output.transactionId)}:{output.outputIndex}
+                            </p>
+                          </div>
+                          <a
+                            href={kaspaStreamTransactionUrl(output.transactionId)}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            View transaction
+                          </a>
+                          {canAdopt ? (
+                            <button
+                              className="btn btn-primary"
+                              disabled={adoptingOutputId !== ""}
+                              onClick={() => void adoptUnmatchedFundingAmount(output)}
+                              type="button"
+                            >
+                              {adoptingOutputId === outputId
+                                ? "Updating link..."
+                                : "Use this amount"}
+                            </button>
+                          ) : isAutoReturn ? (
+                            <span className="muted">Returns automatically after expiry</span>
+                          ) : (
+                            <button
+                              className="btn"
+                              disabled={
+                                !refundTiming.unlocked || !recoverable || spendBuilding === "refund"
+                              }
+                              onClick={() => void prepareUnmatchedFundingRecovery(output)}
+                              type="button"
+                            >
+                              {refundTiming.unlocked ? "Prepare recovery" : "Recover after expiry"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p>
+                    {isAutoReturn
+                      ? "Every payment that is not claimed goes back to your wallet automatically after expiry."
+                      : refundTiming.unlocked
+                        ? "Enter your own Kaspa address below, then prepare and broadcast the browser-signed recovery refund."
+                        : `The refund path unlocks after the claim window${
+                            refundTiming.remainingLabel
+                              ? ` in about ${refundTiming.remainingLabel}`
+                              : ""
+                          }. Keep the private refund link safe.`}
+                  </p>
+                  {refundTiming.unlocked && !isAutoReturn ? (
+                    <>
+                      <label className="label" htmlFor="unexpected-refund-address">
+                        Your Kaspa refund address
+                      </label>
+                      <input
+                        id="unexpected-refund-address"
+                        {...KASPA_ADDRESS_INPUT_PROPS}
+                        onChange={(event) => setRefundDestination(event.target.value.trim())}
+                        placeholder="kaspa:your-own-wallet-address"
+                        value={refundDestination}
+                      />
+                    </>
+                  ) : null}
+                  {unmatchedRefundSpend ? (
+                    <div className="claimable-spend-result">
+                      <span className="label">Recovery ready</span>
                       <p>
-                        Exact funding detected at{" "}
+                        Return amount:{" "}
+                        {formatSompiForToccataLab(BigInt(unmatchedRefundSpend.outputAmountSompi))}{" "}
+                        KAS
+                      </p>
+                      <button
+                        className="btn btn-primary"
+                        disabled={broadcasting === "refund"}
+                        onClick={() => void broadcastLabSpend(unmatchedRefundSpend)}
+                        type="button"
+                      >
+                        {broadcasting === "refund" ? "Recovering..." : "Recover unexpected payment"}
+                      </button>
+                    </div>
+                  ) : null}
+                  {refundSendError ? <p className="error-text">{refundSendError}</p> : null}
+                  {refundSendNotice ? <p className="success-text">{refundSendNotice}</p> : null}
+                  {unmatchedRecoveryTxId ? (
+                    <p>
+                      Recovery sent:{" "}
+                      <a
+                        href={kaspaStreamTransactionUrl(unmatchedRecoveryTxId)}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {compactHex(unmatchedRecoveryTxId)}
+                      </a>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {singleStage === "save" ? (
+                <div className="batch-drop-card">
+                  <strong>Save your recovery file</strong>
+                  <p>
+                    It is the only way to refund unclaimed KAS from another device. Keep it private.
+                    The payment details appear once it is saved.
+                  </p>
+                  <div className="claimable-action-row">
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => void downloadRecoveryFile()}
+                      type="button"
+                    >
+                      Download recovery file
+                    </button>
+                    <button className="btn" onClick={openRecoverySkipWarning} type="button">
+                      Continue without backup
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {singleStage === "fund" ? (
+                <div className="batch-drop-card batch-lab-funding-callout">
+                  <div className="batch-lab-funding-amount">
+                    <span>Send exactly</span>
+                    <strong>{labLink.amountKas} KAS</strong>
+                  </div>
+                  <code className="batch-lab-address">
+                    {labLink.fundingAddress ?? FUNDING_ADDRESS_PENDING}
+                  </code>
+                  <div className="claimable-action-row">
+                    {isTouchOnly === false ? (
+                      <button
+                        className="btn btn-primary"
+                        disabled={fundingWithKasware || !labLink.fundingAddress}
+                        onClick={() => void fundWithKasware()}
+                        type="button"
+                      >
+                        {fundingWithKasware ? "Open KasWare..." : "Pay with KasWare"}
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-primary"
+                        disabled={!fundingWalletUri}
+                        onClick={openFundingWallet}
+                        type="button"
+                      >
+                        Open in wallet
+                      </button>
+                    )}
+                    <button
+                      className="btn"
+                      disabled={!labLink.fundingAddress}
+                      onClick={copyFundingAddress}
+                      type="button"
+                    >
+                      Copy address
+                    </button>
+                    <button
+                      className="btn"
+                      disabled={!fundingWalletUri}
+                      onClick={copyFundingUri}
+                      type="button"
+                    >
+                      Copy wallet link
+                    </button>
+                  </div>
+                  {labLink.fundingAddress ? (
+                    <div className="claimable-funding-qr">
+                      <FundingQrCode
+                        ariaLabel={`Funding QR code for ${labLink.amountKas} KAS`}
+                        paymentUri={fundingWalletUri}
+                      />
+                      <div className="claimable-funding-qr-copy">
+                        <strong>Scan with Kaspium</strong>
+                        <p>Exact address and amount included.</p>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="batch-funding-watch" aria-live="polite">
+                    <span className="claimable-spinner" aria-hidden="true" />
+                    <div>
+                      <strong>Watching for your payment</strong>
+                      <p>This page continues by itself once the payment confirms.</p>
+                    </div>
+                    <button
+                      className="btn btn-sm"
+                      disabled={fundingChecking}
+                      onClick={() => void checkFundingStatus()}
+                      type="button"
+                    >
+                      {fundingChecking ? "Checking…" : "Check now"}
+                    </button>
+                  </div>
+                  <details className="batch-drop-more">
+                    <summary>Wallet says &quot;storage mass exceeds maximum&quot;?</summary>
+                    <p>
+                      The wallet would leave a tiny change output. Send your balance to yourself
+                      once to merge coins, then pay again. This is Kaspa&apos;s storage-mass rule,
+                      not a Kaspa Links error.
+                    </p>
+                  </details>
+                </div>
+              ) : null}
+
+              {singleStage === "expired_unfunded" ? (
+                <div className="batch-drop-card">
+                  <strong>This link was never paid</strong>
+                  <p>Its claim window ended before a payment arrived. Nothing is locked.</p>
+                  <button className="btn btn-primary" onClick={startAnotherLink} type="button">
+                    Create a new link
+                  </button>
+                </div>
+              ) : null}
+
+              {singleStage === "share" ? (
+                <div className="batch-drop-card">
+                  <strong>Your link is ready</strong>
+                  <p className="value-mono claimable-link-preview" title={claimUrl}>
+                    {claimUrlPreview}
+                  </p>
+                  <div className="claimable-action-row">
+                    <button className="btn btn-primary" onClick={copyClaimLink} type="button">
+                      Copy claim link
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => void shareClaimLinkPrivately()}
+                      type="button"
+                    >
+                      Send privately
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => window.open(claimUrl, "_blank", "noopener,noreferrer")}
+                      type="button"
+                    >
+                      Open
+                    </button>
+                  </div>
+                  <p>
+                    Anyone who opens this link can claim the KAS, so send it in a private message.{" "}
+                    {isAutoReturn
+                      ? "If nobody claims it in time, the KAS returns to your wallet automatically."
+                      : "Keep your private refund link below as well."}
+                  </p>
+                </div>
+              ) : null}
+
+              {singleStage === "share" && !isAutoReturn ? (
+                <div className="batch-drop-card">
+                  <strong>Private refund link</strong>
+                  <p>
+                    Keep it to yourself. After the claim window it sends unclaimed KAS back to you.
+                  </p>
+                  <button
+                    className="btn"
+                    disabled={!manageUrl}
+                    onClick={copyManageLink}
+                    type="button"
+                  >
+                    Copy refund link
+                  </button>
+                </div>
+              ) : null}
+
+              {singleStage === "returning" ? (
+                <div className="batch-drop-card" aria-live="polite">
+                  <strong>Returning {labLink.netClaimKas} KAS to your wallet</strong>
+                  <p>
+                    Nobody claimed the link in time. Kaspa Links sends the KAS back to{" "}
+                    <span className="value-mono">
+                      {labLink.returnAddress ? compactHex(labLink.returnAddress) : "your wallet"}
+                    </span>{" "}
+                    automatically, usually within a few minutes.
+                  </p>
+                  <ReturnNowControls
+                    error={returnError}
+                    onReturn={() => void returnNow()}
+                    sending={returnSending}
+                    transactionIds={returnTransactionIds}
+                  />
+                </div>
+              ) : null}
+
+              {singleStage === "refund" ? (
+                <div className="batch-drop-card">
+                  <strong>The claim window ended</strong>
+                  <p>Refund the unclaimed KAS to your wallet with your private refund link.</p>
+                  <div className="claimable-action-row">
+                    {manageUrl ? (
+                      <a className="btn btn-primary" href={manageUrl}>
+                        Open refund page
+                      </a>
+                    ) : null}
+                    <button
+                      className="btn"
+                      disabled={!manageUrl}
+                      onClick={copyManageLink}
+                      type="button"
+                    >
+                      Copy refund link
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {singleStage === "done" ? (
+                <div className="batch-drop-card batch-drop-done">
+                  <strong>
+                    {labLink.status === "claimed"
+                      ? `Claimed · the recipient received ${labLink.netClaimKas} KAS`
+                      : labLink.status === "refunded"
+                        ? isAutoReturn
+                          ? "Returned to your wallet"
+                          : "Refunded to your wallet"
+                        : "This link's KAS was spent on-chain"}
+                  </strong>
+                  <button className="btn btn-primary" onClick={startAnotherLink} type="button">
+                    Create another link
+                  </button>
+                </div>
+              ) : null}
+
+              <details className="batch-drop-more">
+                <summary>More</summary>
+                <div className="claimable-lab-mini-grid grid-two">
+                  <div>
+                    <span className="label">You sent</span>
+                    <p>{labLink.amountKas} KAS</p>
+                  </div>
+                  <div>
+                    <span className="label">Network fee</span>
+                    <p>{labLink.feeKas} KAS</p>
+                  </div>
+                  <div>
+                    <span className="label">Claim window</span>
+                    <p>{labLink.validFor}</p>
+                  </div>
+                  <div>
+                    <span className="label">Payment</span>
+                    <p className="value-mono">
+                      {labLink.fundingMatch ? (
                         <a
                           href={kaspaStreamTransactionUrl(labLink.fundingMatch.transactionId)}
                           rel="noreferrer"
@@ -2603,390 +2837,31 @@ export function ToccataLabClient({
                         >
                           {compactHex(labLink.fundingMatch.transactionId)}
                         </a>
-                        . The claim link can be shared.
-                      </p>
-                    </div>
-                  ) : null}
-                  {labLink.fundingMatch && labLink.status === "claimed" ? (
-                    <div className="claimable-chain-event is-closed">
-                      <span>Claim already completed</span>
-                      <p>
-                        The funding output has already been spent on-chain. This claim link is
-                        closed and cannot be claimed again.
-                      </p>
-                    </div>
-                  ) : null}
-
-                  {unmatchedFundingOutputs.length > 0 ? (
-                    <div className="claimable-unmatched-funding notice notice-critical">
-                      <span className="label">Payment amount does not match</span>
-                      <strong>
-                        {unmatchedFundingOutputs.length} separate unexpected payment
-                        {unmatchedFundingOutputs.length === 1 ? "" : "s"} detected
-                      </strong>
-                      <p>
-                        This link still expects exactly {labLink.amountKas} KAS. Do not send the
-                        difference: every payment creates a separate on-chain output and amounts are
-                        never combined automatically. Before sharing, a single link can instead
-                        adopt one valid received amount.
-                      </p>
-                      <div className="claimable-unmatched-list">
-                        {unmatchedFundingOutputs.map((output) => {
-                          const recoverable = isFundingOutputRecoverable(
-                            output.amountSompi,
-                            labLink.feeSompi,
-                          );
-                          const outputId = `${output.transactionId}:${output.outputIndex}`;
-                          const canAdopt =
-                            labLink.status === "awaiting_funding" &&
-                            !labLink.fundingMatch &&
-                            !refundTiming.unlocked &&
-                            BigInt(output.amountSompi) >= TOCCATA_LAB_MIN_SOMPI;
-                          return (
-                            <div className="claimable-unmatched-row" key={outputId}>
-                              <div>
-                                <strong>
-                                  {formatSompiForToccataLab(BigInt(output.amountSompi))} KAS
-                                </strong>
-                                <p className="value-mono">
-                                  {compactHex(output.transactionId)}:{output.outputIndex}
-                                </p>
-                              </div>
-                              <a
-                                href={kaspaStreamTransactionUrl(output.transactionId)}
-                                rel="noreferrer"
-                                target="_blank"
-                              >
-                                View transaction
-                              </a>
-                              {canAdopt ? (
-                                <button
-                                  className="btn btn-primary"
-                                  disabled={adoptingOutputId !== ""}
-                                  onClick={() => void adoptUnmatchedFundingAmount(output)}
-                                  type="button"
-                                >
-                                  {adoptingOutputId === outputId
-                                    ? "Updating link..."
-                                    : "Use this amount"}
-                                </button>
-                              ) : isAutoReturn ? (
-                                <span className="muted">Returns automatically after expiry</span>
-                              ) : (
-                                <button
-                                  className="btn"
-                                  disabled={
-                                    !refundTiming.unlocked ||
-                                    !recoverable ||
-                                    spendBuilding === "refund"
-                                  }
-                                  onClick={() => void prepareUnmatchedFundingRecovery(output)}
-                                  type="button"
-                                >
-                                  {refundTiming.unlocked
-                                    ? "Prepare recovery"
-                                    : "Recover after expiry"}
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <p>
-                        {isAutoReturn
-                          ? "Every payment that is not claimed goes back to your wallet automatically after expiry."
-                          : refundTiming.unlocked
-                            ? "Enter your own Kaspa address below, then prepare and broadcast the browser-signed recovery refund."
-                            : `The refund path unlocks after the claim window${
-                                refundTiming.remainingLabel
-                                  ? ` in about ${refundTiming.remainingLabel}`
-                                  : ""
-                              }. Keep the private refund link safe.`}
-                      </p>
-                      {refundTiming.unlocked && !isAutoReturn ? (
-                        <>
-                          <label className="label" htmlFor="unexpected-refund-address">
-                            Your Kaspa refund address
-                          </label>
-                          <input
-                            id="unexpected-refund-address"
-                            {...KASPA_ADDRESS_INPUT_PROPS}
-                            onChange={(event) => setRefundDestination(event.target.value.trim())}
-                            placeholder="kaspa:your-own-wallet-address"
-                            value={refundDestination}
-                          />
-                        </>
-                      ) : null}
-                      {unmatchedRefundSpend ? (
-                        <div className="claimable-spend-result">
-                          <span className="label">Recovery ready</span>
-                          <p>
-                            Return amount:{" "}
-                            {formatSompiForToccataLab(
-                              BigInt(unmatchedRefundSpend.outputAmountSompi),
-                            )}{" "}
-                            KAS
-                          </p>
-                          <button
-                            className="btn btn-primary"
-                            disabled={broadcasting === "refund"}
-                            onClick={() => void broadcastLabSpend(unmatchedRefundSpend)}
-                            type="button"
-                          >
-                            {broadcasting === "refund"
-                              ? "Recovering..."
-                              : "Recover unexpected payment"}
-                          </button>
-                        </div>
-                      ) : null}
-                      {refundSendError ? <p className="error-text">{refundSendError}</p> : null}
-                      {refundSendNotice ? <p className="success-text">{refundSendNotice}</p> : null}
-                      {unmatchedRecoveryTxId ? (
-                        <p>
-                          Recovery sent:{" "}
-                          <a
-                            href={kaspaStreamTransactionUrl(unmatchedRecoveryTxId)}
-                            rel="noreferrer"
-                            target="_blank"
-                          >
-                            {compactHex(unmatchedRecoveryTxId)}
-                          </a>
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  <div className="claimable-address-panel">
-                    <span className="label">Link</span>
-                    <strong>{labLink.title}</strong>
-                    <span className="label">Funding address</span>
-                    <p className="value-mono">
-                      {recoveryReadyForFunding
-                        ? (labLink.fundingAddress ?? FUNDING_ADDRESS_PENDING)
-                        : "Choose a recovery option to reveal the funding address."}
+                      ) : (
+                        "waiting…"
+                      )}
                     </p>
-                    {labLink.fundingAddress && recoveryReadyForFunding ? (
-                      <div className="claimable-funding-qr">
-                        <FundingQrCode
-                          ariaLabel={`Funding QR code for ${labLink.amountKas} KAS`}
-                          paymentUri={fundingWalletUri}
-                        />
-                        <div className="claimable-funding-qr-copy">
-                          <strong>Scan with Kaspium</strong>
-                          <p>Exact address and amount included.</p>
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
-
-                  {labLink.fundingAddress ? (
-                    <div className="claimable-funding-wallet-card">
-                      <span className="label">Fund with wallet</span>
-                      <p>
-                        Send exactly <strong>{labLink.amountKas} KAS</strong> to unlock sharing for{" "}
-                        <strong>{labLink.title}</strong>.
-                      </p>
-                      <div className="claimable-action-row">
-                        {isTouchOnly === false ? (
-                          <button
-                            className="btn btn-primary"
-                            disabled={fundingWithKasware || !recoveryReadyForFunding}
-                            onClick={() => void fundWithKasware()}
-                            type="button"
-                          >
-                            {fundingWithKasware ? "Open KasWare..." : "Fund with KasWare"}
-                          </button>
-                        ) : (
-                          <button
-                            className="btn btn-primary"
-                            disabled={!fundingWalletUri || !recoveryReadyForFunding}
-                            onClick={openFundingWallet}
-                            type="button"
-                          >
-                            Open in wallet
-                          </button>
-                        )}
-                        <button
-                          className="btn"
-                          disabled={!fundingWalletUri || !recoveryReadyForFunding}
-                          onClick={copyFundingUri}
-                          type="button"
-                        >
-                          Copy wallet URI
-                        </button>
-                      </div>
-                      <p className="muted">
-                        If the wallet says <strong>&quot;Storage mass exceeds maximum&quot;</strong>
-                        , it left a small change output. Fund from a wallet with a larger,
-                        consolidated balance (send your balance to yourself once to merge coins),
-                        then retry — this is Kaspa&apos;s storage-mass rule for tiny outputs, not a
-                        Kaspa Links error.
-                      </p>
-                    </div>
-                  ) : null}
-
-                  <div className="grid-two claimable-lab-mini-grid">
-                    <div>
-                      <span className="label">Recipient gets</span>
-                      <p>
-                        <strong>{labLink.netClaimKas} KAS</strong>
-                      </p>
-                    </div>
-                    <div>
-                      <span className="label">Funding amount</span>
-                      <p>
-                        <strong>{labLink.amountKas} KAS</strong>
-                      </p>
-                    </div>
-                    <div>
-                      <span className="label">Valid for</span>
-                      <p>
-                        <strong>{labLink.validFor}</strong>
-                      </p>
-                    </div>
-                    <div>
-                      <span className="label">Network fee</span>
-                      <p>{labLink.feeKas} KAS</p>
-                    </div>
-                    <div>
-                      <span className="label">Funding tx</span>
-                      <p className="value-mono">
-                        {labLink.fundingMatch
-                          ? `${compactHex(labLink.fundingMatch.transactionId)}:${labLink.fundingMatch.outputIndex}`
-                          : "waiting…"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="claimable-action-row">
+                </div>
+                <div className="batch-lab-actions">
+                  {!isAutoReturn ? (
                     <button
                       className="btn"
-                      disabled={!labLink.fundingAddress || !recoveryReadyForFunding}
-                      onClick={copyFundingAddress}
+                      onClick={() => void downloadRecoveryFile()}
                       type="button"
                     >
-                      Copy address
+                      Download recovery file
                     </button>
-                    {labLink.status === "awaiting_funding" ? (
-                      <button
-                        className="btn"
-                        disabled={fundingChecking}
-                        onClick={() => void checkFundingStatus()}
-                        type="button"
-                      >
-                        {fundingChecking ? "Checking…" : "Check now"}
-                      </button>
-                    ) : null}
-                  </div>
-                </>
-              ) : (
-                <p className="muted">
-                  Create a link first. The funding section then shows the one-time address and keeps
-                  the share action locked until funding is detected.
-                </p>
-              )}
+                  ) : null}
+                  {singleStage !== "done" ? (
+                    <button className="btn" onClick={startAnotherLink} type="button">
+                      Start a different link
+                    </button>
+                  ) : null}
+                </div>
+              </details>
             </section>
-
-            <section className="card claimable-lab-panel" hidden={!labLink}>
-              <span className="label">Share</span>
-              <h2>{shareReady ? "Claimable link created" : "Claim link stays locked"}</h2>
-              {labLink ? (
-                <>
-                  <div
-                    aria-live="polite"
-                    className={`claimable-share-card ${shareReady ? "is-ready" : ""}`}
-                    role="status"
-                  >
-                    <span className="label">{shareReady ? "Successfully funded" : "Locked"}</span>
-                    <p className="claimable-share-copy">
-                      {shareReady
-                        ? "Funding was detected on-chain. Your claimable link is ready to copy and share."
-                        : "Funding must be confirmed first."}
-                    </p>
-                    {shareReady ? (
-                      <div className="claimable-link-box">
-                        <span className="label">Claimable link</span>
-                        <p className="value-mono claimable-link-preview" title={claimUrl}>
-                          {claimUrlPreview}
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="claimable-action-row">
-                    <button
-                      className="btn btn-primary"
-                      disabled={!shareReady}
-                      onClick={copyClaimLink}
-                      type="button"
-                    >
-                      Copy claim link
-                    </button>
-                    <button
-                      className="btn"
-                      disabled={!shareReady}
-                      onClick={() => void shareClaimLinkPrivately()}
-                      type="button"
-                    >
-                      Send privately
-                    </button>
-                    {!isAutoReturn ? (
-                      <button
-                        className="btn"
-                        onClick={() => void downloadRecoveryFile()}
-                        type="button"
-                      >
-                        Download recovery bundle
-                      </button>
-                    ) : null}
-                  </div>
-                  <p className="muted claimable-private-share-note">
-                    Anyone who opens this link can claim the KAS, so send it in a private message.
-                    Giving KAS away publicly?{" "}
-                    <Link href="/toccata-lab/giveaway" prefetch={false}>
-                      Use a giveaway
-                    </Link>{" "}
-                    &mdash; a fair draw instead of the fastest click.
-                  </p>
-                  {isAutoReturn ? (
-                    <p className="muted">
-                      Lost this link? Nothing to do: if nobody claims it, the KAS returns to your
-                      wallet automatically after expiry.
-                    </p>
-                  ) : (
-                    <div className="claimable-link-box claimable-link-box-important">
-                      <span className="label">Private refund link - save this now</span>
-                      <p className="claimable-share-copy">
-                        Keep this private. It can refund unclaimed KAS after expiry. Your recovery
-                        bundle is the backup.
-                      </p>
-                      {manageUrl ? (
-                        <textarea
-                          aria-label="Private refund link"
-                          className="claimable-link-field"
-                          readOnly
-                          rows={3}
-                          value={manageUrl}
-                        />
-                      ) : null}
-                      <button
-                        className="btn"
-                        disabled={!manageUrl}
-                        onClick={copyManageLink}
-                        type="button"
-                      >
-                        Copy refund link
-                      </button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="muted">
-                  The share link appears here only after the link exists and funding has been
-                  detected.
-                </p>
-              )}
-            </section>
-          </>
+          )
         ) : null}
 
         {claimOnlyView || manageOnlyView ? (
@@ -3480,48 +3355,6 @@ function isUnmatchedRefundSpend(spend: ClaimableSpend, link: ClaimableLabLink | 
 
 function isFundingOutputRecoverable(amountSompi: string, feeSompi: string): boolean {
   return BigInt(amountSompi) - BigInt(feeSompi) >= TOCCATA_CANARY_MIN_OUTPUT_SOMPI;
-}
-
-function statusTitle(status: ClaimableLabStatus): string {
-  switch (status) {
-    case "awaiting_funding":
-      return "Awaiting funding";
-    case "funded":
-      return "Funding detected";
-    case "shared":
-      return "Claim link shared";
-    case "claimed":
-      return "Claimed";
-    case "refundable":
-      return "Ready to refund";
-    case "refunded":
-      return "Refunded";
-    case "spent_unknown":
-      return "Spent on-chain";
-    case "draft":
-      return "Draft";
-  }
-}
-
-function statusDescription(status: ClaimableLabStatus): string {
-  switch (status) {
-    case "awaiting_funding":
-      return "Creator should fund the one-time P2SH address. Sharing is disabled until exact funding is detected.";
-    case "funded":
-      return "The link can now be shared with the receiver.";
-    case "shared":
-      return "Receiver can open the claim page and enter a destination address.";
-    case "claimed":
-      return "Claim path completed. The link cannot be refunded.";
-    case "refundable":
-      return "Expiry has passed. Creator can refund with the saved refund code.";
-    case "refunded":
-      return "Refund path completed. The link is closed.";
-    case "spent_unknown":
-      return "The funding output was spent outside a recorded Kaspa Links claim or refund.";
-    case "draft":
-      return "Configure amount and expiry.";
-  }
 }
 
 function compactHex(value: string): string {
