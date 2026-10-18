@@ -18,8 +18,12 @@ const SUBMIT_TIMEOUT_MS = Number(process.env.TOCCATA_RELAY_SUBMIT_TIMEOUT_MS ?? 
 const READ_TIMEOUT_MS = Number(process.env.TOCCATA_RELAY_READ_TIMEOUT_MS ?? "30000");
 const CONNECT_TIMEOUT_MS = Number(process.env.TOCCATA_RELAY_CONNECT_TIMEOUT_MS ?? "30000");
 const WARM_CONNECT_INTERVAL_MS = Number(
-  process.env.TOCCATA_RELAY_WARM_CONNECT_INTERVAL_MS ?? "60000",
+  process.env.TOCCATA_RELAY_WARM_CONNECT_INTERVAL_MS ?? "30000",
 );
+// A connected client is pinged on the same interval. Public nodes drop idle
+// WebSockets silently; without the ping the next submit found a dead socket and
+// waited 10-20 s for a fresh resolver connection.
+const KEEPALIVE_TIMEOUT_MS = 5_000;
 
 let rpc = null;
 let connectPromise = null;
@@ -230,7 +234,11 @@ async function getRpcClient() {
 }
 
 async function warmRpcClient(reason) {
-  if (rpc !== null || connectPromise !== null) return;
+  if (connectPromise !== null) return;
+  if (rpc !== null) {
+    if (reason === "interval") await keepRpcClientAlive(rpc);
+    return;
+  }
   try {
     await getRpcClient();
   } catch (error) {
@@ -238,6 +246,21 @@ async function warmRpcClient(reason) {
       message: error instanceof Error && error.message ? error.message : String(error),
       reason,
     });
+  }
+}
+
+async function keepRpcClientAlive(client) {
+  try {
+    if (!client.isConnected) throw new Error("WebSocket is not connected");
+    await withTimeout(client.ping(), KEEPALIVE_TIMEOUT_MS, "Kaspa RPC keepalive");
+  } catch (error) {
+    // A request may already have replaced the client while the ping was running.
+    if (rpc !== client) return;
+    console.warn("[kaspa-wrpc-relay] keepalive failed, reconnecting", {
+      message: error instanceof Error && error.message ? error.message : String(error),
+    });
+    await resetRpcClient();
+    await warmRpcClient("keepalive");
   }
 }
 
