@@ -1165,6 +1165,24 @@ textarea {
   margin: 0;
 }
 
+/* Create view: notices line up with the form or the link card, and once a
+   link exists the page hero steps back so the card leads the page. */
+.claimable-lab-layout.is-create-view .claimable-lab-feedback {
+  width: 100%;
+  max-width: 640px;
+  min-height: 0;
+  margin: 0 auto;
+}
+
+.claimable-lab-layout.is-create-view.has-link .claimable-lab-feedback {
+  max-width: 760px;
+}
+
+.toccata-lab-page:has(.claimable-lab-layout.has-link) > .toccata-lab-hero,
+.toccata-lab-page:has(.claimable-lab-layout.has-link) > .hero-newcomer-link {
+  display: none;
+}
+
 .claimable-lab-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -12525,4 +12543,45 @@ main.giveaway-guided-page {
 
 .giveaway-v6-entry-success .growth-prompt {
   margin: 14px 0 0;
+}
+
+/* Receiver view of a claim link: the amount leads, one field, one button. */
+.toccata-lab-page:has(.claim-receive-panel) > .toccata-lab-hero {
+  display: none;
+}
+
+.claim-receive-panel {
+  width: 100%;
+  max-width: 560px;
+}
+
+.claim-receive-head {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  text-align: center;
+}
+
+.claim-receive-head p {
+  margin: 4px 0 0;
+}
+
+.claim-receive-amount {
+  color: var(--accent-bright);
+  font-size: 2.6rem;
+  line-height: 1.1;
+}
+
+.claim-receive-head .form-section-heading {
+  margin: 4px 0 0;
+}
+
+.claim-receive-window {
+  margin: 0;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.claim-receive-panel .growth-prompt {
+  margin: 0;
 }
