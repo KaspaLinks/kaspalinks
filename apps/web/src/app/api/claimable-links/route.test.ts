@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockPrisma, mockWriteAuditLog } = vi.hoisted(() => ({
+const { mockPrisma, mockRequireCreator, mockWriteAuditLog } = vi.hoisted(() => ({
+  mockRequireCreator: vi.fn(),
   mockPrisma: {
     claimableLink: {
       create: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("@kaspa-actions/db", async (importOriginal) => ({
 }));
 
 vi.mock("@/lib/audit", () => ({ writeAuditLog: mockWriteAuditLog }));
+vi.mock("@/lib/creator-guard", () => ({ requireCreator: mockRequireCreator }));
 
 vi.mock("@/lib/rate-limit-helpers", () => ({
   enforceRateLimit: () => ({ allowed: true }),
@@ -53,13 +55,15 @@ const body = {
   title: "Coffee for Ada",
 };
 
-function request(payload: unknown) {
+function request(payload: unknown, headers: Record<string, string> = {}) {
   return new Request("https://example.com/api/claimable-links", {
     body: JSON.stringify(payload),
-    headers: { "content-type": "application/json" },
+    headers: { ...headers, "content-type": "application/json" },
     method: "POST",
   });
 }
+
+const TELEGRAM = { "x-telegram-mini-app-init-data": "query_id=1&hash=abc" };
 
 function storedRow(data: Record<string, unknown>) {
   return {
@@ -129,6 +133,51 @@ describe("POST /api/claimable-links (account-free)", () => {
       mockPrisma,
       expect.objectContaining({ event: "claimable_link.created_anonymous" }),
     );
+  });
+
+  it("binds a link created in the Telegram Mini App to that chat's workspace", async () => {
+    mockRequireCreator.mockResolvedValue({
+      creator: { accountKind: "TELEGRAM_ONLY", id: "creator-tg" },
+      ok: true,
+    });
+
+    const response = await POST(request(body, TELEGRAM));
+
+    expect(response.status).toBe(201);
+    expect(mockRequireCreator).toHaveBeenCalledWith(expect.any(Request), mockPrisma, {
+      allowTelegramMiniApp: true,
+      allowTelegramOnly: true,
+    });
+    expect(mockPrisma.claimableLink.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ createdWithoutAccount: true, creatorId: "creator-tg" }),
+    });
+  });
+
+  it("marks a Telegram link of a connected account as an account link", async () => {
+    mockRequireCreator.mockResolvedValue({
+      creator: { accountKind: "REGISTERED", id: "creator-1" },
+      ok: true,
+    });
+
+    await POST(request(body, TELEGRAM));
+
+    expect(mockPrisma.claimableLink.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ createdWithoutAccount: false, creatorId: "creator-1" }),
+    });
+  });
+
+  it("keeps an ordinary account-free link when Telegram authorization fails", async () => {
+    mockRequireCreator.mockResolvedValue({
+      ok: false,
+      response: new Response(null, { status: 401 }),
+    });
+
+    const response = await POST(request(body, TELEGRAM));
+
+    expect(response.status).toBe(201);
+    expect(mockPrisma.claimableLink.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ createdWithoutAccount: true, creatorId: null }),
+    });
   });
 
   it("stores the hash of a private manage token for a later move into an account", async () => {

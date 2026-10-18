@@ -10,6 +10,7 @@ import {
 } from "@/lib/claimable-registration";
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
+import { requireCreator } from "@/lib/creator-guard";
 import { isPrismaUniqueConstraintError } from "@/lib/prisma-errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { parseSignupSource } from "@/lib/signup-source";
@@ -29,6 +30,19 @@ export async function POST(request: Request) {
   const limited = enforceRateLimit(RateBuckets.CLAIMABLE_ANONYMOUS_CREATE, ipHash);
   if (!limited.allowed) return limited.response;
 
+  // From the Telegram Mini App the link belongs to that chat's workspace, so the
+  // bot can list it and say when it was claimed or returned. Still no account.
+  // Without a valid workspace it stays an ordinary account-free link: anyone may
+  // create those, so failed Telegram auth grants nothing and blocks nothing.
+  let owner: null | { accountKind: string; id: string } = null;
+  if (request.headers.get("x-telegram-mini-app-init-data")) {
+    const guard = await requireCreator(request, prisma, {
+      allowTelegramMiniApp: true,
+      allowTelegramOnly: true,
+    });
+    if (guard.ok) owner = { accountKind: guard.creator.accountKind, id: guard.creator.id };
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -45,7 +59,10 @@ export async function POST(request: Request) {
   // A retry of the same registration is idempotent; anything else is a conflict.
   const existing = await prisma.claimableLink.findUnique({ where: { linkKey } });
   if (existing) {
-    if (existing.creatorId !== null || !sameImmutableClaimable(existing, immutableData)) {
+    if (
+      existing.creatorId !== (owner?.id ?? null) ||
+      !sameImmutableClaimable(existing, immutableData)
+    ) {
       return apiError(
         ErrorCodes.INVALID_STATE,
         "Claimable link key is already registered with different metadata.",
@@ -77,8 +94,8 @@ export async function POST(request: Request) {
   try {
     link = await prisma.claimableLink.create({
       data: {
-        createdWithoutAccount: true,
-        creatorId: null,
+        createdWithoutAccount: owner === null || owner.accountKind !== "REGISTERED",
+        creatorId: owner?.id ?? null,
         linkKey,
         ...immutableData,
         manageTokenHash,
@@ -98,6 +115,7 @@ export async function POST(request: Request) {
 
   await writeAuditLog(prisma, {
     actorType: AuditActorType.PUBLIC,
+    ...(owner ? { creatorId: owner.id } : {}),
     event: "claimable_link.created_anonymous",
     ipHash,
     metadata: { linkKey, source },

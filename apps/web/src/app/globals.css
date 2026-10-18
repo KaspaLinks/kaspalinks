@@ -12608,3 +12608,74 @@ main.giveaway-guided-page {
 .telegram-claim-page:has(.claimable-lab-layout.has-link) > .telegram-claim-head {
   display: none;
 }
+
+/* Mini App start screen: four large tiles, two per row on wider screens */
+.telegram-home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  padding-top: 16px;
+}
+
+.telegram-home-tiles {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.telegram-home-tile {
+  display: grid;
+  gap: 4px;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--fg);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.telegram-home-tile:hover,
+.telegram-home-tile:focus-visible {
+  border-color: var(--accent);
+  background: var(--bg-card-hover);
+}
+
+.telegram-home-tile strong {
+  color: var(--fg-strong);
+  font-size: 1.05rem;
+}
+
+.telegram-home-tile span {
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.telegram-type-picker {
+  justify-content: center;
+}
+
+.telegram-pay-alerts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.telegram-pay-alerts input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}

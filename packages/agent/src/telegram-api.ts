@@ -80,6 +80,13 @@ export class TelegramApiClient {
     return this.call("setMyCommands", { commands });
   }
 
+  /** The default menu button for every private chat with the bot. */
+  async setChatMenuButton(input: { text: string; url: string }): Promise<boolean> {
+    return this.call("setChatMenuButton", {
+      menu_button: { text: input.text, type: "web_app", web_app: { url: input.url } },
+    });
+  }
+
   private async call<T>(method: string, body: Record<string, unknown>): Promise<T> {
     let response: Response;
     try {

@@ -13,6 +13,13 @@ import { formatSompiToKaspa } from "@kaspa-actions/kaspa";
 import { z } from "zod";
 import { outboxDelayMs, shouldDeadLetterOutbox } from "./worker-policy.ts";
 
+const claimableStatusPayload = z.object({
+  amountSompi: z.string().regex(/^\d+$/),
+  explorerUrl: z.string().url(),
+  status: z.enum(["claimed", "returned"]),
+  title: z.string().min(1).max(80),
+});
+
 const paymentPayload = z.object({
   actionTitle: z.string().min(1).max(80),
   amountSompi: z.string().regex(/^\d+$/),
@@ -110,6 +117,26 @@ export async function deliverOutbox(
             ],
             [{ text: "Turn off reminder", callback_data: `watch:off:${payload.publicId}` }],
           ],
+        });
+      } else if (candidate.kind === "claimable.status") {
+        // The creator's own claim link changed hands; no opt-in needed, but a
+        // blocked or removed chat is never messaged.
+        const connection = candidate.connectionId
+          ? await prisma.telegramConnection.findUnique({ where: { id: candidate.connectionId } })
+          : null;
+        if (!connection || connection.blockedAt) {
+          await suppress();
+          continue;
+        }
+        const payload = claimableStatusPayload.parse(candidate.payload);
+        activeConnectionId = connection.id;
+        await client.sendMessage({
+          chatId: connection.telegramChatId,
+          text:
+            payload.status === "claimed"
+              ? `Claimed\n${formatSompiToKaspa(payload.amountSompi)} KAS · ${payload.title}\nThe recipient claimed your link.`
+              : `Returned to your wallet\n${formatSompiToKaspa(payload.amountSompi)} KAS · ${payload.title}\nNobody claimed the link in time.`,
+          buttons: [[{ text: "View transaction", url: payload.explorerUrl }]],
         });
       } else if (candidate.kind === "payment.confirmed") {
         const connection = candidate.connectionId

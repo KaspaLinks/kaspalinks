@@ -19,7 +19,7 @@ function readClaimCapabilities() {
 }
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Kaspa Links Giveaways", robots: { index: false, follow: false } };
+export const metadata = { title: "Kaspa Links", robots: { index: false, follow: false } };
 export default function TelegramPage() {
   return (
     <>

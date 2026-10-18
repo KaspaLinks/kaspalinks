@@ -13,14 +13,21 @@ function fixture(kind = "giveaway.result") {
     payload:
       kind === "giveaway.result"
         ? { publicId: "g1", title: "Weekend", status: "DRAWN" }
-        : {
-            actionTitle: "Invoice",
-            amountSompi: "100000000",
-            txId: "a".repeat(64),
-            explorerUrl: "https://kaspa.stream/transactions/test",
-            supporterName: "Test Supporter",
-            supporterMessage: "hello",
-          },
+        : kind === "claimable.status"
+          ? {
+              amountSompi: "500000000",
+              explorerUrl: "https://kaspa.stream/transactions/test",
+              status: "claimed",
+              title: "Coffee for Ada",
+            }
+          : {
+              actionTitle: "Invoice",
+              amountSompi: "100000000",
+              txId: "a".repeat(64),
+              explorerUrl: "https://kaspa.stream/transactions/test",
+              supporterName: "Test Supporter",
+              supporterMessage: "hello",
+            },
   };
   const tx = {
     telegramOutbox: {
@@ -28,28 +35,24 @@ function fixture(kind = "giveaway.result") {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     telegramGiveawaySubscription: {
-      findUnique: vi
-        .fn()
-        .mockResolvedValue({
-          id: "sub1",
-          telegramUserId: "123",
-          telegramChatId: "123",
-          revokedAt: null,
-          giveaway: { publicId: "g1" },
-        }),
+      findUnique: vi.fn().mockResolvedValue({
+        id: "sub1",
+        telegramUserId: "123",
+        telegramChatId: "123",
+        revokedAt: null,
+        giveaway: { publicId: "g1" },
+      }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     telegramConnection: {
-      findUnique: vi
-        .fn()
-        .mockResolvedValue({
-          id: "conn1",
-          creatorId: "c1",
-          telegramChatId: "123",
-          blockedAt: null,
-          notificationsEnabled: false,
-          supporterDetailsEnabled: false,
-        }),
+      findUnique: vi.fn().mockResolvedValue({
+        id: "conn1",
+        creatorId: "c1",
+        telegramChatId: "123",
+        blockedAt: null,
+        notificationsEnabled: false,
+        supporterDetailsEnabled: false,
+      }),
       updateMany: vi.fn(),
     },
     notificationRule: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn() },
@@ -96,6 +99,29 @@ describe("Telegram outbox authorization and retries", () => {
   });
   it("suppresses a payment after notifications and rules are off", async () => {
     const f = fixture("payment.confirmed");
+    await deliverOutbox(f.client, new Date(), f.db);
+    expect(f.sendMessage).not.toHaveBeenCalled();
+  });
+  it("tells the creator a claim link was claimed, without a payment-alert opt-in", async () => {
+    const f = fixture("claimable.status");
+    await deliverOutbox(f.client, new Date(), f.db);
+    expect(f.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: "123",
+        text: "Claimed\n5 KAS · Coffee for Ada\nThe recipient claimed your link.",
+      }),
+    );
+  });
+  it("never messages a blocked chat about a claim link", async () => {
+    const f = fixture("claimable.status");
+    f.tx.telegramConnection.findUnique.mockResolvedValue({
+      id: "conn1",
+      creatorId: "c1",
+      telegramChatId: "123",
+      blockedAt: new Date(),
+      notificationsEnabled: true,
+      supporterDetailsEnabled: false,
+    });
     await deliverOutbox(f.client, new Date(), f.db);
     expect(f.sendMessage).not.toHaveBeenCalled();
   });

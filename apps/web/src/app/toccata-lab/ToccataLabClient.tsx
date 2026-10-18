@@ -67,6 +67,7 @@ import { parseSignupSource } from "@/lib/signup-source";
 import { SESSION_EVENT } from "../BrandNav";
 import { CreatorSignInGate } from "../CreatorSignInGate";
 import { GrowthPrompt } from "../GrowthPrompt";
+import { telegramAuthHeaders } from "../telegram/telegram-mini-app";
 
 import {
   buildClaimableSpendInBrowser,
@@ -92,6 +93,8 @@ export type ToccataLabClientProps = {
   initialAmountKas?: string;
   initialMode?: ClaimableLinksInitialMode;
   initialPublicLink?: PublicClaimableLinkMetadata | null;
+  /** The wallet a Telegram workspace saved once; still editable. */
+  initialReturnAddress?: string;
   initialTitle?: string;
   requiredCapabilities: readonly string[];
   /** Inside the Telegram Mini App: share through Telegram, no web sign-in hints. */
@@ -322,7 +325,11 @@ function readCreatorAuthHeaders(): Record<string, string> | null {
   };
 }
 
-async function registerClaimableLinkInDb(link: ClaimableLabLink): Promise<void> {
+async function registerClaimableLinkInDb(
+  link: ClaimableLabLink,
+  // Inside the Telegram Mini App: binds the link to the chat's workspace.
+  ownerHeaders: Record<string, string> = {},
+): Promise<void> {
   const headers = readCreatorAuthHeaders();
   if (!link.fundingAddress || !link.redeemScriptHex) {
     throw new Error("This claimable link is missing its funding script.");
@@ -357,7 +364,7 @@ async function registerClaimableLinkInDb(link: ClaimableLabLink): Promise<void> 
           }),
       title: link.title,
     }),
-    headers: headers ?? { "content-type": "application/json" },
+    headers: headers ?? { ...ownerHeaders, "content-type": "application/json" },
     method: "POST",
   });
   const body = (await response.json()) as { error?: { message?: string } };
@@ -475,12 +482,13 @@ export function ToccataLabClient({
   initialAmountKas,
   initialMode = "create",
   initialPublicLink = null,
+  initialReturnAddress = "",
   initialTitle = "",
   surface = "web",
 }: ToccataLabClientProps) {
   const accountFree = autoReturnEnabled && anonymousEnabled;
   const [amountKas, setAmountKas] = useState(initialAmountKas ?? TOCCATA_LAB_DEFAULT_AMOUNT_KAS);
-  const [returnAddress, setReturnAddress] = useState("");
+  const [returnAddress, setReturnAddress] = useState(initialReturnAddress);
   const [returnAddressLoading, setReturnAddressLoading] = useState(false);
   const [returnSending, setReturnSending] = useState(false);
   const [returnError, setReturnError] = useState("");
@@ -1082,7 +1090,10 @@ export function ToccataLabClient({
       validFor: nextExpiryPlan.durationLabel,
     };
     try {
-      await registerClaimableLinkInDb(nextLink);
+      await registerClaimableLinkInDb(
+        nextLink,
+        surface === "telegram" ? telegramAuthHeaders() : undefined,
+      );
     } catch (registrationError) {
       setError(
         registrationError instanceof Error

@@ -2,6 +2,7 @@ import { AuditActorType, prisma } from "@kaspa-actions/db";
 import { buildToccataClaimableReturnSpend } from "@kaspa-actions/kaspa";
 
 import { writeAuditLog } from "./audit";
+import { queueClaimableTelegramNotice } from "./claimable-telegram-notice";
 import {
   listClaimableFundingUtxos,
   readCurrentMainnetDaaScore,
@@ -72,6 +73,12 @@ export const defaultClaimableReturnDeps: ClaimableReturnDeps = {
         event: "claimable_link.auto_returned",
         metadata: { linkId: input.linkId, transactionId: input.transactionId },
       });
+      // A failed notice must never undo or block the return itself.
+      await queueClaimableTelegramNotice(prisma, {
+        kind: "returned",
+        linkId: input.linkId,
+        transactionId: input.transactionId,
+      }).catch(() => undefined);
     }
   },
   readDaaScore: readCurrentMainnetDaaScore,

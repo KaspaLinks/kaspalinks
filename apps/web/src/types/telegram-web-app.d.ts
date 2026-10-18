@@ -1,4 +1,12 @@
+type TelegramBackButton = {
+  hide: () => void;
+  offClick: (callback: () => void) => void;
+  onClick: (callback: () => void) => void;
+  show: () => void;
+};
+
 type TelegramWebApp = {
+  BackButton?: TelegramBackButton;
   platform?: string;
   isVersionAtLeast?: (version: string) => boolean;
   initDataUnsafe?: { start_param?: string };

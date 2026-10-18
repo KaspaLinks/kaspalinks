@@ -46,6 +46,7 @@ import { getTelegramGiveawayCard } from "@/lib/telegram-giveaway";
 import { giveawayV6AccessFor, isGiveawayV6CreationEnabled } from "@/lib/giveaway-v6-creation";
 import { isGiveawayLabEnabled } from "@/lib/giveaway-lab";
 import { isClaimableAnonymousEnabled } from "@/lib/claimable-flags";
+import { telegramActionPath } from "@/lib/telegram-links";
 import { isToccataLabEnabled } from "@/lib/toccata-lab";
 
 export const runtime = "nodejs";
@@ -126,6 +127,40 @@ function claimSetupUrl(input: { amountKas: string; title: string }) {
   if (input.title) url.searchParams.set("title", input.title);
   url.searchParams.set("utm_source", "telegram-bot");
   return url.toString();
+}
+// The Mini App start screen and its views; the bot's menu button opens the start screen.
+function miniAppUrl(mode: "claim" | "mine" | "pay") {
+  const url = new URL(`${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}/telegram`);
+  url.searchParams.set("mode", mode);
+  if (mode === "claim") url.searchParams.set("utm_source", "telegram-bot");
+  return url.toString();
+}
+// /start for chats that can use the Mini App: four buttons instead of command syntax.
+function startButtons(giveaway: boolean) {
+  return [
+    [
+      { text: "Send KAS", web_app: { url: miniAppUrl("claim") } },
+      { text: "Get paid", web_app: { url: miniAppUrl("pay") } },
+    ],
+    [
+      ...(giveaway ? [{ text: "Giveaway", web_app: { url: covenantStudioUrl("create") } }] : []),
+      { text: "My links", web_app: { url: miniAppUrl("mine") } },
+    ],
+  ];
+}
+function startText(giveaway: boolean) {
+  return [
+    "Kaspa Links",
+    "",
+    "Send KAS: a claim link for one person. If nobody claims it in time, the KAS comes back to you.",
+    "Get paid: a payment link. Payments go straight to your wallet.",
+    ...(giveaway
+      ? ["Giveaway: fund a prize and share it. The winner is drawn automatically."]
+      : []),
+    "My links: everything you created here.",
+    "",
+    "No account needed. The Open button next to the message field brings you back here. /help lists all commands.",
+  ].join("\n");
 }
 function covenantSetupUrl(input: { amountKas: string; title: string }) {
   const url = new URL(covenantStudioUrl("create"));
@@ -234,16 +269,6 @@ function opensTelegramWorkspace(command: ReturnType<typeof parseTelegramCommand>
   );
 }
 
-// Telegram-only workspaces have no public profile, so their links use /a/<id>.
-function actionSharePath(
-  creator: { accountKind?: string; username: string },
-  action: { publicId: string; slug: null | string },
-) {
-  return action.slug && !isTelegramOnlyCreator(creator)
-    ? `/u/${creator.username}/${action.slug}`
-    : `/a/${action.publicId}`;
-}
-
 function isUniqueUpdateError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
@@ -262,7 +287,7 @@ async function renderLinks(creatorId: string): Promise<string> {
   const creator = await prisma.creator.findUniqueOrThrow({ where: { id: creatorId } });
   return links
     .map((action) => {
-      const path = actionSharePath(creator, action);
+      const path = telegramActionPath(creator, action);
       return `${action.disabledAt ? "Disabled" : "Active"}: ${action.title}\n${appUrl}${path}`;
     })
     .join("\n\n");
@@ -456,7 +481,7 @@ async function createFromCommand(
       idempotencyKey: `telegram-update:${updateId}`,
     },
   );
-  const path = actionSharePath(connection.creator, action);
+  const path = telegramActionPath(connection.creator, action);
   return `Created: ${action.title}\n${requiredEnv("NEXT_PUBLIC_APP_URL").replace(/\/$/, "")}${path}`;
 }
 
@@ -699,6 +724,10 @@ async function handleMessage(
       });
       return;
     }
+    // A workspace lets the link show up in My links and the bot report its claim or return.
+    if (!(await connectedCreator(telegramUserId))) {
+      await ensureTelegramGiveawayWorkspaceTool(prisma, { telegramChatId: chatId, telegramUserId });
+    }
     await client.sendMessage({
       buttons: [[{ text: "Create claim link", web_app: { url: claimSetupUrl(command) } }]],
       chatId,
@@ -768,6 +797,15 @@ async function handleMessage(
 
   if (!command) {
     await handleAiText(client, connection, text);
+    return;
+  }
+  if (command.kind === "start" && connection.creator.telegramBetaEnabled) {
+    const giveaway = usesCovenantStudio(connection.creator);
+    await client.sendMessage({
+      buttons: startButtons(giveaway),
+      chatId,
+      text: startText(giveaway),
+    });
     return;
   }
   if (command.kind === "start" || command.kind === "help") {

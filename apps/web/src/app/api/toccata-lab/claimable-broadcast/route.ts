@@ -5,6 +5,7 @@ import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { TOCCATA_CANARY_MIN_OUTPUT_SOMPI } from "@/lib/toccata-lab-fee";
+import { queueClaimableTelegramNotice } from "@/lib/claimable-telegram-notice";
 import {
   broadcastToccataClaimableTransaction,
   isToccataLabEnabled,
@@ -337,7 +338,7 @@ async function markClaimableLinkBroadcasted(input: {
 }) {
   const status = input.mode === "claim" ? "claimed" : "refunded";
   const now = new Date();
-  await prisma.claimableLink.updateMany({
+  const updated = await prisma.claimableLink.updateMany({
     data:
       input.mode === "claim"
         ? {
@@ -361,6 +362,14 @@ async function markClaimableLinkBroadcasted(input: {
       },
     },
   });
+  if (updated.count === 1 && input.mode === "claim") {
+    // A failed notice must never fail the claim the recipient just made.
+    await queueClaimableTelegramNotice(prisma, {
+      kind: "claimed",
+      linkId: input.linkId,
+      transactionId: input.transactionId,
+    }).catch(() => undefined);
+  }
 }
 
 function isAlreadyAcceptedMessage(message: string): boolean {

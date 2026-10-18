@@ -166,7 +166,7 @@ describe("Telegram Agent webhook", () => {
     );
   });
 
-  it("opens the claim link Mini App for anyone, without creating a workspace", async () => {
+  it("opens the claim link Mini App for anyone and keeps the link in this chat's workspace", async () => {
     mocks.findConnection.mockResolvedValue(null);
 
     const response = await POST(
@@ -195,7 +195,10 @@ describe("Telegram Agent webhook", () => {
       title: "Coffee for Ada",
       utm_source: "telegram-bot",
     });
-    expect(mocks.ensureWorkspace).not.toHaveBeenCalled();
+    expect(mocks.ensureWorkspace).toHaveBeenCalledWith(expect.anything(), {
+      telegramChatId: "123",
+      telegramUserId: "123",
+    });
   });
 
   it("says when claim links are switched off", async () => {
@@ -244,6 +247,31 @@ describe("Telegram Agent webhook", () => {
     expect(mocks.consumeTelegramConnectCode).not.toHaveBeenCalled();
     expect(mocks.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: expect.stringContaining("Already connected") }),
+    );
+  });
+
+  it("keeps the command overview on /start for accounts without the Mini App", async () => {
+    mocks.findConnection.mockResolvedValue({
+      creator: { defaultRecipientAddress: null },
+      creatorId: "creator-1",
+      telegramChatId: "123",
+      telegramUserId: "123",
+    });
+
+    await POST(
+      webhookRequest({
+        message: {
+          chat: { id: 123, type: "private" },
+          from: { id: 123 },
+          message_id: 5,
+          text: "/start",
+        },
+        update_id: 24,
+      }),
+    );
+
+    expect(mocks.sendMessage.mock.calls[0]?.[0]?.text).toContain(
+      "Amounts are always entered in KAS",
     );
   });
 
@@ -692,6 +720,37 @@ describe("SilverScript bot handoff", () => {
     expect(sent.text).not.toContain("/disconnect");
     expect(JSON.stringify(sent.buttons)).toContain("Create giveaway");
   });
+  it("greets /start with four Mini App buttons instead of command syntax", async () => {
+    mocks.findConnection.mockResolvedValue({
+      creatorId: "creator-tg",
+      telegramUserId: "123",
+      telegramChatId: "123",
+      creator: {
+        accountKind: "TELEGRAM_ONLY",
+        prizeCovenantEnabled: true,
+        telegramBetaEnabled: true,
+      },
+    });
+
+    expect((await POST(request("/start"))).status).toBe(200);
+    const sent = mocks.sendMessage.mock.calls[0]![0] as {
+      buttons: Array<Array<{ text: string; web_app: { url: string } }>>;
+      text: string;
+    };
+    expect(sent.text).toContain("No account needed");
+    expect(sent.text).not.toContain("/tip");
+    const buttons = sent.buttons.flat().map((button) => {
+      const url = new URL(button.web_app.url);
+      return [button.text, `${url.pathname}?mode=${url.searchParams.get("mode")}`];
+    });
+    expect(buttons).toEqual([
+      ["Send KAS", "/telegram?mode=claim"],
+      ["Get paid", "/telegram?mode=pay"],
+      ["Giveaway", "/telegram?mode=create"],
+      ["My links", "/telegram?mode=mine"],
+    ]);
+  });
+
   it("lists only the connected creator covenant giveaways and opens management", async () => {
     expect((await POST(request("/giveaways"))).status).toBe(200);
     expect(mocks.giveawayList).toHaveBeenCalledWith(

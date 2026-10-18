@@ -27,6 +27,33 @@ describe("TelegramApiClient", () => {
     );
   });
 
+  it("sets the chat menu button to open the Mini App", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, result: true }), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      }),
+    );
+    const client = new TelegramApiClient("test-token", fetcher);
+
+    await expect(
+      client.setChatMenuButton({ text: "Open", url: "https://example.test/telegram" }),
+    ).resolves.toBe(true);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.telegram.org/bottest-token/setChatMenuButton",
+      expect.objectContaining({
+        body: JSON.stringify({
+          menu_button: {
+            text: "Open",
+            type: "web_app",
+            web_app: { url: "https://example.test/telegram" },
+          },
+        }),
+      }),
+    );
+  });
+
   it("sends Mini App buttons using Telegram web_app markup", async () => {
     const fetcher = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true, result: { message_id: 7 } }), {

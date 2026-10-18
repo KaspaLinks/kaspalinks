@@ -9,7 +9,8 @@ await client.setWebhook({
   url: `${appUrl}/api/agent/telegram/webhook`,
 });
 await client.setMyCommands([
-  { command: "help", description: "Show all KaspaLinks Agent commands" },
+  { command: "start", description: "Send KAS, get paid, giveaways, my links" },
+  { command: "help", description: "Show all commands" },
   { command: "links", description: "Show your recent links" },
   { command: "payments", description: "Show recent confirmed payments" },
   { command: "stats", description: "Show your totals" },
@@ -25,4 +26,6 @@ await client.setMyCommands([
   { command: "stop", description: "Turn off all giveaway result reminders" },
   { command: "disconnect", description: "Disconnect this Telegram chat" },
 ]);
-console.info("Telegram webhook and command menu registered.");
+// The button next to the message field opens the Mini App start screen.
+await client.setChatMenuButton({ text: "Open", url: `${appUrl}/telegram` });
+console.info("Telegram webhook, command menu and menu button registered.");
