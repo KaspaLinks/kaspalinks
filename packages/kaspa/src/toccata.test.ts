@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -141,6 +143,60 @@ describe("Toccata SDK capabilities", () => {
         outputs: [...eightOutputs, eightOutputs[0]!],
       }),
     ).toThrow("between 2 and 8 committed outputs");
+  });
+
+  it("rebuilds the registered 10-link legacy drop for its refund, never for creation", () => {
+    const base = {
+      activationPublicKey: "bb14a257083f78158e5f69ab772e4608353a7f102198ebf8d85cc98326e29e72",
+      refundLockTime: "123456789",
+      refundPublicKey: "1730fc2b967d30f6854d7e7e45b70f63153c51c46f2048a92b45fdd74be5bb8c",
+    };
+    const tenOutputs = Array.from({ length: 10 }, (_, index) => ({
+      amountSompi: "100000000",
+      scriptPublicKeyHex: `0000aa20${String(index + 1)
+        .padStart(2, "0")
+        .repeat(32)}87`,
+    }));
+
+    expect(() => buildToccataBatchAllocatorLabScript({ ...base, outputs: tenOutputs })).toThrow(
+      "between 2 and 8 committed outputs",
+    );
+    const legacy = buildToccataBatchAllocatorLabScript({
+      ...base,
+      outputs: tenOutputs,
+      registered: true,
+    });
+    expect(legacy.outputCount).toBe(10);
+    expect(legacy.redeemScriptHex.length / 2).toBeGreaterThan(520);
+    expect(() =>
+      buildToccataBatchAllocatorLabScript({
+        ...base,
+        outputs: [...tenOutputs, tenOutputs[0]!],
+        registered: true,
+      }),
+    ).toThrow("between 2 and 10 committed outputs");
+  });
+
+  it("embeds redeem scripts above the pre-Toccata push limit with the covenant-aware encoder", () => {
+    // claimable-browser.ts relies on this: the SDK helper still enforces 520 bytes,
+    // the covenant-aware builder emits the same bytes below it and accepts more.
+    const wasm = createRequire(import.meta.url)("kaspa-wasm") as typeof import("kaspa-wasm");
+    const inner = new wasm.ScriptBuilder({ flags: { covenantsEnabled: true } });
+    inner.addData("41" + "ab".repeat(64));
+    inner.addOp(wasm.Opcodes.OpFalse);
+    const innerHex = inner.drain();
+    const encode = (redeemScriptHex: string) =>
+      wasm.ScriptBuilder.fromScript(redeemScriptHex, {
+        flags: { covenantsEnabled: true },
+      }).encodePayToScriptHashSignatureScript(innerHex);
+
+    for (const bytes of [184, 520]) {
+      const redeem = "51".repeat(bytes);
+      expect(encode(redeem)).toBe(wasm.payToScriptHashSignatureScript(redeem, innerHex));
+    }
+    const legacy = "51".repeat(576);
+    expect(() => wasm.payToScriptHashSignatureScript(legacy, innerHex)).toThrow(/520/);
+    expect(encode(legacy).endsWith(`4d4002${legacy}`)).toBe(true);
   });
 
   it("builds a signed claimable lab claim spend as SafeJSON", () => {

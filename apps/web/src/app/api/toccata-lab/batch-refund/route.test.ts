@@ -187,6 +187,65 @@ describe("POST /api/toccata-lab/batch-refund", () => {
     );
   });
 
+  it("relays the refund of the registered 10-link legacy drop above the old push limit", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_BATCH_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_WRPC_RELAY_URL", "http://toccata-relay:3010");
+    const legacyOutputs = Array.from({ length: 10 }, (_, index) => ({
+      amountSompi: "100000000",
+      linkKey: `batch-legacy-${index + 1}`,
+      scriptPublicKeyHex: `0000aa20${String(index + 1)
+        .padStart(2, "0")
+        .repeat(32)}87`,
+    }));
+    const legacy = createToccataBatchAllocatorLabScript({
+      activationPublicKey: ACTIVATION_PUBLIC_KEY,
+      outputs: legacyOutputs,
+      refundLockTime: REFUND_LOCK_TIME,
+      refundPublicKey: REFUND_PUBLIC_KEY,
+      registered: true,
+    });
+    expect(legacy.redeemScriptHex.length / 2).toBeGreaterThan(520);
+    // As in production: the payment arrived, but the server never recorded it.
+    mockPrisma.claimableBatch.findUnique.mockResolvedValue({
+      ...registeredBatch(),
+      expectedOutputs: legacyOutputs,
+      fundingAddress: legacy.fundingAddress,
+      fundingOutputIndex: null,
+      fundingTxId: null,
+      redeemScriptHex: legacy.redeemScriptHex,
+      status: "awaiting_funding",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ networkName: "kaspa-mainnet", virtualDaaScore: REFUND_LOCK_TIME }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            localTransactionId: TRANSACTION_ID,
+            submittedTransactionId: TRANSACTION_ID,
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const safeJson = JSON.parse(SAFE_JSON);
+    safeJson.inputs[0].signatureScript = `41${"11".repeat(65)}00${pushData(legacy.redeemScriptHex)}`;
+
+    const response = await POST(request(JSON.stringify(safeJson)));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      broadcast: { submittedTransactionId: TRANSACTION_ID },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects a refund while batch activation is pending", async () => {
     vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
     vi.stubEnv("TOCCATA_BATCH_LAB_ENABLED", "true");

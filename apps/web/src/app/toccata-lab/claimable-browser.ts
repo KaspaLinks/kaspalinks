@@ -91,6 +91,7 @@ type BrowserScriptBuilder = {
   addOp(opcode: unknown): void;
   addOps(opcodes: string): void;
   drain(): string;
+  encodePayToScriptHashSignatureScript(signatureScriptHex: string): string;
 };
 
 type KaspaBrowserModule = {
@@ -99,7 +100,10 @@ type KaspaBrowserModule = {
     OpTrue: unknown;
   };
   PrivateKey: new (privateKey: string) => unknown;
-  ScriptBuilder: new (options?: unknown) => BrowserScriptBuilder;
+  ScriptBuilder: {
+    new (options?: unknown): BrowserScriptBuilder;
+    fromScript(scriptHex: string, options?: unknown): BrowserScriptBuilder;
+  };
   SighashType: {
     All: unknown;
   };
@@ -207,10 +211,13 @@ export async function buildClaimableSpendInBrowser(
   const innerScript = new kaspa.ScriptBuilder({ flags: { covenantsEnabled: true } });
   innerScript.addOps(signature);
   innerScript.addOp(mode === "claim" ? kaspa.Opcodes.OpTrue : kaspa.Opcodes.OpFalse);
-  const signatureScriptHex = kaspa.payToScriptHashSignatureScript(
-    redeemScriptHex,
-    innerScript.drain(),
-  );
+  // payToScriptHashSignatureScript still applies the pre-Toccata 520-byte element
+  // limit. The covenant-aware builder emits the same bytes for smaller scripts and
+  // also embeds the 576-byte allocator of the one 10-link Claim Drop from before the
+  // 8-link cap, which Toccata accepts (its element limit is 1,000,000 bytes).
+  const signatureScriptHex = kaspa.ScriptBuilder.fromScript(redeemScriptHex, {
+    flags: { covenantsEnabled: true },
+  }).encodePayToScriptHashSignatureScript(innerScript.drain());
   const transactionInput = transaction.inputs[0];
   if (!transactionInput) {
     throw new Error("Could not build claimable spend input.");

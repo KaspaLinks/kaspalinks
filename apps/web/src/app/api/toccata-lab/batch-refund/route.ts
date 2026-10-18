@@ -67,6 +67,8 @@ export async function POST(request: Request) {
       outputs,
       refundLockTime: batch.refundLockTime,
       refundPublicKey: batch.refundPublicKey,
+      // A refund must also work for the legacy 10-link drop that can never activate.
+      registered: true,
     });
     if (
       canonical.fundingAddress !== batch.fundingAddress ||

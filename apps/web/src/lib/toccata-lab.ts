@@ -589,7 +589,10 @@ export function validateRegisteredClaimableMetadata(
 }
 
 export function createToccataBatchAllocatorLabScript(
-  input: z.infer<typeof toccataBatchAllocatorScriptInputSchema>,
+  input: z.infer<typeof toccataBatchAllocatorScriptInputSchema> & {
+    /** Rebuild a registered drop, including the refund-only legacy sizes. */
+    registered?: boolean;
+  },
 ) {
   try {
     return buildToccataBatchAllocatorLabScript(input);
@@ -709,9 +712,7 @@ export async function broadcastToccataGiveawayV6RegistrationTransaction(input: {
   expectedTransactionId: string;
   transactionSafeJson: string;
 }): Promise<ToccataClaimableBroadcastResult> {
-  const transactionId = validateGiveawayV6RegistrationBroadcastSafeJson(
-    input.transactionSafeJson,
-  );
+  const transactionId = validateGiveawayV6RegistrationBroadcastSafeJson(input.transactionSafeJson);
   if (input.expectedTransactionId.toLowerCase() !== transactionId) {
     throw new Error("Giveaway V6 registration id does not match the expected transaction id.");
   }

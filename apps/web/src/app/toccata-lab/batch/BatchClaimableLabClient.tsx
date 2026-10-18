@@ -1075,16 +1075,7 @@ export function BatchClaimableLabClient({
       batchActionInFlight.current
     )
       return;
-    const currentAllocatorScriptBytes = currentBatch.activation.redeemScriptHex.length / 2;
-    if (
-      currentBatch.links.length > MAX_BATCH_SIZE ||
-      currentAllocatorScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES
-    ) {
-      setError(
-        "This legacy batch cannot be refunded because its allocator contract exceeds Kaspa's P2SH spend limit.",
-      );
-      return;
-    }
+    // Refunds also work for the legacy 10-link drop: only activation is out of reach.
     const creatorHeaders = readCreatorAuthHeaders();
     if (!creatorHeaders) {
       setError("Sign in again before refunding this batch.");
@@ -1144,16 +1135,6 @@ export function BatchClaimableLabClient({
   async function recoverUnexpectedBatchFunding(output: UnmatchedFundingOutput) {
     const currentBatch = batchRef.current;
     if (!currentBatch || batchExpiry?.expired !== true) return;
-    const currentAllocatorScriptBytes = currentBatch.activation.redeemScriptHex.length / 2;
-    if (
-      currentBatch.links.length > MAX_BATCH_SIZE ||
-      currentAllocatorScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES
-    ) {
-      setError(
-        "This legacy batch payment cannot be recovered because its allocator contract exceeds Kaspa's P2SH spend limit.",
-      );
-      return;
-    }
     const creatorHeaders = readCreatorAuthHeaders();
     if (!creatorHeaders) {
       setError("Sign in again before recovering this payment.");
@@ -2278,7 +2259,6 @@ export function BatchClaimableLabClient({
                       <button
                         className="btn"
                         disabled={
-                          legacyOversizedBatch ||
                           !batchExpiry?.expired ||
                           !recoverable ||
                           !refundConfirmed ||
@@ -2500,12 +2480,7 @@ export function BatchClaimableLabClient({
               </label>
               <button
                 className="btn btn-primary"
-                disabled={
-                  legacyOversizedBatch ||
-                  checking ||
-                  refundAddress.trim().length === 0 ||
-                  !refundConfirmed
-                }
+                disabled={checking || refundAddress.trim().length === 0 || !refundConfirmed}
                 onClick={() => void refundUnactivatedBatch()}
                 type="button"
               >

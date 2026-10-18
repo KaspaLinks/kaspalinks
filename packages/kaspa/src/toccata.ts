@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 
 import {
+  TOCCATA_BATCH_MAX_REGISTERED_OUTPUTS,
   TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
   TOCCATA_BATCH_MIN_OUTPUTS,
   TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES,
@@ -216,6 +217,11 @@ export type ToccataBatchAllocatorLabScriptInput = {
   outputs: ToccataBatchAllocatorLabOutput[];
   refundLockTime: bigint | string;
   refundPublicKey: string;
+  /**
+   * Rebuild an already registered drop for verification. Allows the larger legacy
+   * sizes up to TOCCATA_BATCH_MAX_REGISTERED_OUTPUTS, which can only be refunded.
+   */
+  registered?: boolean;
 };
 
 export type ToccataBatchAllocatorLabScript = {
@@ -729,7 +735,10 @@ export function buildToccataBatchAllocatorLabScript(
   );
   const refundPublicKey = normalizeXOnlyPublicKey(input.refundPublicKey, "refundPublicKey");
   const refundLockTime = normalizeRefundLockTime(input.refundLockTime);
-  const outputs = normalizeBatchAllocatorOutputs(input.outputs);
+  const outputs = normalizeBatchAllocatorOutputs(
+    input.outputs,
+    input.registered ? TOCCATA_BATCH_MAX_REGISTERED_OUTPUTS : TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
+  );
 
   // The activation branch cannot choose recipients or amounts. It must spend
   // exactly one batch UTXO into the exact ordered list committed below.
@@ -768,7 +777,7 @@ export function buildToccataBatchAllocatorLabScript(
 
   const redeemScriptHex = builder.toString();
   const redeemScriptBytes = redeemScriptHex.length / 2;
-  if (redeemScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES) {
+  if (!input.registered && redeemScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES) {
     throw new Error(
       `Batch allocator script is ${redeemScriptBytes} bytes and exceeds Kaspa's ${TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES}-byte P2SH spend limit. Create fewer links.`,
     );
@@ -1103,14 +1112,15 @@ function normalizeXOnlyPublicKey(value: string, label: string): string {
 
 function normalizeBatchAllocatorOutputs(
   value: ToccataBatchAllocatorLabOutput[],
+  maxOutputs: number,
 ): Array<{ amountSompi: bigint; scriptPublicKeyHex: string }> {
   if (
     !Array.isArray(value) ||
     value.length < TOCCATA_BATCH_MIN_OUTPUTS ||
-    value.length > TOCCATA_BATCH_MAX_SAFE_OUTPUTS
+    value.length > maxOutputs
   ) {
     throw new Error(
-      `Batch allocator requires between ${TOCCATA_BATCH_MIN_OUTPUTS} and ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} committed outputs.`,
+      `Batch allocator requires between ${TOCCATA_BATCH_MIN_OUTPUTS} and ${maxOutputs} committed outputs.`,
     );
   }
 
