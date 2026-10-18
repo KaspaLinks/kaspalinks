@@ -461,7 +461,7 @@ export function NewLinkClient({
 
   useEffect(() => {
     setGiveawayAccess(false);
-    if (!signedIn || username !== "example") return;
+    if (!signedIn) return;
     const controller = new AbortController();
     void fetch("/api/creator/giveaways/v6", {
       headers: authHeaders,
@@ -802,7 +802,7 @@ export function NewLinkClient({
               <span className="quick-template-description">
                 Fund a prize and share a link for people to enter.
               </span>
-              <span className="quick-template-meta">Up to 32 participants · up to 24 hours</span>
+              <span className="quick-template-meta">Fixed draw times · prize locked on-chain</span>
             </Link>
           )}
           {LINK_TEMPLATES.map((template) => (

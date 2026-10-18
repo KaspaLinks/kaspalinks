@@ -43,7 +43,7 @@ import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors
 
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { getTelegramGiveawayCard } from "@/lib/telegram-giveaway";
-import { isGiveawayV6CreationEnabled } from "@/lib/giveaway-v6-creation";
+import { giveawayV6AccessFor, isGiveawayV6CreationEnabled } from "@/lib/giveaway-v6-creation";
 import { isGiveawayLabEnabled } from "@/lib/giveaway-lab";
 
 export const runtime = "nodejs";
@@ -108,8 +108,7 @@ function usesCovenantStudio(creator: {
   telegramBetaEnabled?: boolean;
 }) {
   return (
-    isGiveawayV6CreationEnabled() &&
-    creator.prizeCovenantEnabled === true &&
+    giveawayV6AccessFor({ prizeCovenantEnabled: creator.prizeCovenantEnabled === true }) !== null &&
     creator.telegramBetaEnabled === true
   );
 }

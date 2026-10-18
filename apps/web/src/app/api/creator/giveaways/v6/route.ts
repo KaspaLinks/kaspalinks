@@ -17,6 +17,8 @@ import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors
 import {
   buildGiveawayV6CreationTerms,
   createGiveawayV6InputSchema,
+  GIVEAWAY_V6_MAX_UNFUNDED_PER_CREATOR,
+  giveawayV6AccessFor,
   isGiveawayV6CreationEnabled,
 } from "@/lib/giveaway-v6-creation";
 import { compileGiveawayV6Bootstrap, GiveawayV6CompilerError } from "@/lib/giveaway-v6-compiler";
@@ -41,7 +43,8 @@ export async function GET(request: Request) {
     allowTelegramOnly: true,
   });
   if (!guard.ok) return guard.response;
-  if (!guard.creator.prizeCovenantEnabled) {
+  const access = giveawayV6AccessFor(guard.creator);
+  if (!access) {
     return apiError(ErrorCodes.NOT_FOUND, "Giveaway V6 access is not enabled.", 404);
   }
 
@@ -106,6 +109,7 @@ export async function GET(request: Request) {
         },
       ];
     }),
+    participantCaps: access.participantCaps,
   });
 }
 
@@ -154,7 +158,8 @@ export async function POST(request: Request) {
     allowTelegramOnly: true,
   });
   if (!guard.ok) return guard.response;
-  if (!guard.creator.prizeCovenantEnabled) {
+  const access = giveawayV6AccessFor(guard.creator);
+  if (!access) {
     return apiError(ErrorCodes.NOT_FOUND, "Giveaway V6 access is not enabled.", 404);
   }
 
@@ -173,6 +178,29 @@ export async function POST(request: Request) {
       ErrorCodes.INVALID_BODY,
       parsed.error.issues[0]?.message ?? "Invalid Giveaway V6 terms.",
       400,
+    );
+  }
+
+  if (!access.participantCaps.includes(parsed.data.participantCap)) {
+    return apiError(
+      ErrorCodes.INVALID_BODY,
+      `Giveaways for ${parsed.data.participantCap} participants are not available yet.`,
+      400,
+    );
+  }
+
+  // Unfunded Giveaways whose draw is still ahead; past ones no longer count.
+  const unfunded = await prisma.giveawayV6Bootstrap.count({
+    where: {
+      giveaway: { closesAt: { gt: new Date() }, creatorId: guard.creator.id },
+      status: GiveawayV6BootstrapStatus.AWAITING_FUNDING,
+    },
+  });
+  if (unfunded >= GIVEAWAY_V6_MAX_UNFUNDED_PER_CREATOR) {
+    return apiError(
+      ErrorCodes.RATE_LIMITED,
+      `Fund one of your ${unfunded} open Giveaways before you create another.`,
+      429,
     );
   }
 

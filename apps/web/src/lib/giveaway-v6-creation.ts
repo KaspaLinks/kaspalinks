@@ -13,6 +13,7 @@ import {
   buildGiveawayV6Budget,
   GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD,
   GIVEAWAY_V6_PARTICIPANT_CAPS,
+  type GiveawayV6ParticipantCap,
 } from "./giveaway-v6-budget";
 import type { GiveawayV6SlotTerms } from "./giveaway-v6-slots";
 
@@ -48,6 +49,34 @@ export function isGiveawayV6CreationEnabled(): boolean {
     process.env.GIVEAWAY_LAB_ENABLED === "true" &&
     process.env.GIVEAWAY_V6_CREATION_ENABLED === "true"
   );
+}
+
+/**
+ * Sizes every creator may use: only the shard count that has already been drawn
+ * and returned on mainnet. Allowlisted creators (prizeCovenantEnabled) keep every
+ * size so they can run the first mainnet Giveaway of a new one.
+ */
+export const GIVEAWAY_V6_PUBLIC_PARTICIPANT_CAPS: readonly GiveawayV6ParticipantCap[] = [8];
+
+/** Unfunded Giveaways one creator may hold open at a time. */
+export const GIVEAWAY_V6_MAX_UNFUNDED_PER_CREATOR = 3;
+
+export type GiveawayV6Access = { participantCaps: readonly GiveawayV6ParticipantCap[] };
+
+/**
+ * Who may create V6 Giveaways: allowlisted creators always, every signed-in
+ * creator once GIVEAWAY_V6_ALL_CREATORS is on. Null means no access.
+ */
+export function giveawayV6AccessFor(
+  creator: { prizeCovenantEnabled: boolean },
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): GiveawayV6Access | null {
+  if (!isGiveawayV6CreationEnabled()) return null;
+  if (creator.prizeCovenantEnabled) return { participantCaps: GIVEAWAY_V6_PARTICIPANT_CAPS };
+  if (env.GIVEAWAY_V6_ALL_CREATORS === "true") {
+    return { participantCaps: GIVEAWAY_V6_PUBLIC_PARTICIPANT_CAPS };
+  }
+  return null;
 }
 
 /**

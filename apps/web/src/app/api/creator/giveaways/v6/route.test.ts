@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   guard: vi.fn(),
   limit: vi.fn(),
   transaction: vi.fn(),
+  unfundedCount: vi.fn(),
 }));
 
 vi.mock("@kaspa-actions/db", () => ({
@@ -22,6 +23,7 @@ vi.mock("@kaspa-actions/db", () => ({
   prisma: {
     $transaction: mocks.transaction,
     giveaway: { findMany: mocks.giveawayFindMany },
+    giveawayV6Bootstrap: { count: mocks.unfundedCount },
     giveawayDrawSlot: { create: mocks.slotCreate, findUnique: mocks.slotFindUnique },
   },
 }));
@@ -95,6 +97,7 @@ beforeEach(() => {
   mocks.chain.mockResolvedValue({ daa: 536_000_000n, blueScore: 535_000_000n });
   mocks.compile.mockResolvedValue(bootstrap);
   mocks.giveawayFindMany.mockResolvedValue([]);
+  mocks.unfundedCount.mockResolvedValue(0);
   mocks.slotFindUnique.mockResolvedValue(null);
   mocks.slotCreate.mockImplementation(async ({ data }) => data);
   mocks.giveawayCreate.mockResolvedValue({
@@ -210,6 +213,48 @@ describe("Giveaway V6 creator route", () => {
 
     expect(response.status).toBe(404);
     expect(mocks.compile).not.toHaveBeenCalled();
+  });
+
+  it("opens creation to every creator with the mainnet-proven size only", async () => {
+    vi.stubEnv("GIVEAWAY_V6_ALL_CREATORS", "true");
+    mocks.guard.mockResolvedValue({
+      creator: { id: "creator-id", prizeCovenantEnabled: false },
+      ipHash: "ip-hash",
+      ok: true,
+    });
+
+    const tooLarge = await POST(request(validBody()));
+    expect(tooLarge.status).toBe(400);
+    expect((await tooLarge.json()).error.message).toContain("32 participants");
+    expect(mocks.compile).not.toHaveBeenCalled();
+
+    // Past the access gate; the stub contracts then meet the fee check, not this rule.
+    const proven = await POST(request({ ...validBody(), participantCap: 8 }));
+    expect(proven.status).not.toBe(400);
+    expect(mocks.compile).toHaveBeenCalledTimes(1);
+
+    const list = await GET(new Request("https://kaspalinks.com/api/creator/giveaways/v6"));
+    expect((await list.json()).participantCaps).toEqual([8]);
+  });
+
+  it("keeps every size for allowlisted creators", async () => {
+    const list = await GET(new Request("https://kaspalinks.com/api/creator/giveaways/v6"));
+    expect((await list.json()).participantCaps).toEqual([8, 16, 32]);
+  });
+
+  it("stops a creator who already holds three unfunded Giveaways", async () => {
+    mocks.unfundedCount.mockResolvedValue(3);
+
+    const response = await POST(request(validBody()));
+
+    expect(response.status).toBe(429);
+    expect(mocks.compile).not.toHaveBeenCalled();
+    expect(mocks.unfundedCount).toHaveBeenCalledWith({
+      where: {
+        giveaway: { closesAt: { gt: now }, creatorId: "creator-id" },
+        status: "AWAITING_FUNDING",
+      },
+    });
   });
 
   it("persists the reviewed bootstrap atomically before returning the Kaspium intent", async () => {

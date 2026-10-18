@@ -1,8 +1,12 @@
 import { createRequire } from "node:module";
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
-import { buildGiveawayV6CreationTerms, createGiveawayV6InputSchema } from "./giveaway-v6-creation";
+import {
+  buildGiveawayV6CreationTerms,
+  createGiveawayV6InputSchema,
+  giveawayV6AccessFor,
+} from "./giveaway-v6-creation";
 
 const sdk = createRequire(import.meta.url)("kaspa-wasm") as typeof import("kaspa-wasm");
 const returnKey = new sdk.PrivateKey("71".repeat(32));
@@ -131,5 +135,34 @@ describe("Giveaway V6 creator terms", () => {
     expect(
       createGiveawayV6InputSchema.safeParse({ ...base, recoveryFile: "do-not-accept" }).success,
     ).toBe(false);
+  });
+});
+
+describe("giveawayV6AccessFor", () => {
+  const enabled = {
+    GIVEAWAY_LAB_ENABLED: "true",
+    GIVEAWAY_V6_CREATION_ENABLED: "true",
+    TOCCATA_LAB_ENABLED: "true",
+  };
+
+  it("lets allowlisted creators use every size and others only once opened", () => {
+    for (const [key, value] of Object.entries(enabled)) vi.stubEnv(key, value);
+    try {
+      expect(giveawayV6AccessFor({ prizeCovenantEnabled: true }, {})).toEqual({
+        participantCaps: [8, 16, 32],
+      });
+      expect(giveawayV6AccessFor({ prizeCovenantEnabled: false }, {})).toBeNull();
+      expect(
+        giveawayV6AccessFor({ prizeCovenantEnabled: false }, { GIVEAWAY_V6_ALL_CREATORS: "true" }),
+      ).toEqual({ participantCaps: [8] });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gives nobody access while V6 creation is off", () => {
+    expect(
+      giveawayV6AccessFor({ prizeCovenantEnabled: true }, { GIVEAWAY_V6_ALL_CREATORS: "true" }),
+    ).toBeNull();
   });
 });

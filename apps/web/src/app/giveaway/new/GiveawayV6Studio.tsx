@@ -275,6 +275,8 @@ export function GiveawayV6Studio({
   const [description, setDescription] = useState("");
   const [prize, setPrize] = useState<Prize>("0.5");
   const [participantCap, setParticipantCap] = useState<GiveawayV6ParticipantCap>(8);
+  // The server says which sizes this creator may use; 8 until it answers.
+  const [allowedCaps, setAllowedCaps] = useState<readonly GiveawayV6ParticipantCap[]>([8]);
   const [preferredSlot, setPreferredSlot] = useState("");
   const [slotClock, setSlotClock] = useState<null | number>(null);
   const [returnAddress, setReturnAddress] = useState("");
@@ -360,6 +362,16 @@ export function GiveawayV6Studio({
           ? (body.giveaways as StudioGiveaway[])
           : [];
       setGiveaways(rows);
+      if (body && typeof body === "object" && "participantCaps" in body) {
+        const caps = (body as { participantCaps: unknown }).participantCaps;
+        const allowed = Array.isArray(caps)
+          ? GIVEAWAY_V6_PARTICIPANT_CAPS.filter((cap) => caps.includes(cap))
+          : [];
+        if (allowed.length > 0) {
+          setAllowedCaps(allowed);
+          setParticipantCap((current) => (allowed.includes(current) ? current : allowed[0]!));
+        }
+      }
       const requested =
         preferredPublicId ?? new URLSearchParams(window.location.search).get("id") ?? undefined;
       if (requested) setSelected(rows.find((row) => row.publicId === requested) ?? null);
@@ -804,21 +816,28 @@ export function GiveawayV6Studio({
                       </label>
                     ))}
                   </fieldset>
-                  <fieldset className="studio-prizes">
-                    <legend>Maximum participants</legend>
-                    {GIVEAWAY_V6_PARTICIPANT_CAPS.map((value) => (
-                      <label className={participantCap === value ? "is-selected" : ""} key={value}>
-                        <input
-                          checked={participantCap === value}
-                          name="participantCap"
-                          onChange={() => setParticipantCap(value)}
-                          type="radio"
-                          value={value}
-                        />
-                        {value}
-                      </label>
-                    ))}
-                  </fieldset>
+                  {allowedCaps.length > 1 ? (
+                    <fieldset className="studio-prizes">
+                      <legend>Maximum participants</legend>
+                      {allowedCaps.map((value) => (
+                        <label
+                          className={participantCap === value ? "is-selected" : ""}
+                          key={value}
+                        >
+                          <input
+                            checked={participantCap === value}
+                            name="participantCap"
+                            onChange={() => setParticipantCap(value)}
+                            type="radio"
+                            value={value}
+                          />
+                          {value}
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : (
+                    <p className="muted">Up to {participantCap} participants per Giveaway.</p>
+                  )}
                   <label className="field">
                     Draw time
                     <select

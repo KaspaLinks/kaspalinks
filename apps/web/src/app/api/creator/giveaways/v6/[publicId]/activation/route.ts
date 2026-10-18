@@ -14,7 +14,7 @@ import {
 import { writeAuditLog } from "@/lib/audit";
 import { requireCreator } from "@/lib/creator-guard";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
-import { isGiveawayV6CreationEnabled } from "@/lib/giveaway-v6-creation";
+import { giveawayV6AccessFor, isGiveawayV6CreationEnabled } from "@/lib/giveaway-v6-creation";
 import { giveawayPublicIdSchema } from "@/lib/giveaway-lab";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { broadcastToccataGiveawayV6ActivationTransaction } from "@/lib/toccata-lab";
@@ -34,7 +34,7 @@ export async function POST(request: Request, context: RouteContext) {
     allowTelegramOnly: true,
   });
   if (!guard.ok) return guard.response;
-  if (!guard.creator.prizeCovenantEnabled) {
+  if (!giveawayV6AccessFor(guard.creator)) {
     return apiError(ErrorCodes.NOT_FOUND, "Giveaway V6 access is not enabled.", 404);
   }
 

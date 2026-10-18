@@ -21,9 +21,9 @@ describe("new-link helpers", () => {
   });
 });
 
-it("shows the giveaway template only for the verified pilot account", () => {
+it("shows the giveaway template to any signed-in creator the server lets in", () => {
   expect(canShowGiveawayTemplate("example", true)).toBe(true);
+  expect(canShowGiveawayTemplate("franklobster", true)).toBe(true);
   expect(canShowGiveawayTemplate("example", false)).toBe(false);
-  expect(canShowGiveawayTemplate("franklobster", true)).toBe(false);
   expect(canShowGiveawayTemplate("", true)).toBe(false);
 });
