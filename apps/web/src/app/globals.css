@@ -8627,6 +8627,111 @@ body:has(main.deck-main) {
   align-items: start;
 }
 
+.batch-drop-single {
+  display: grid;
+  gap: 14px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.batch-drop-text-link {
+  justify-self: center;
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.batch-drop-panel {
+  display: grid;
+  gap: 18px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.batch-drop-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.batch-drop-heading p {
+  margin: 4px 0 0;
+}
+.batch-drop-progress {
+  color: var(--accent);
+  font-size: 1.05rem;
+}
+.batch-drop-steps {
+  margin: 0;
+}
+.batch-drop-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-muted);
+}
+.batch-drop-card p {
+  margin: 0;
+  color: var(--fg-muted);
+}
+.batch-drop-card > .btn {
+  justify-self: start;
+}
+.batch-drop-done {
+  border-color: var(--accent);
+}
+.batch-drop-share-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.batch-drop-more summary {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.batch-drop-more .batch-lab-actions {
+  margin-top: 12px;
+}
+.batch-drop-form {
+  display: grid;
+  gap: 16px;
+}
+.batch-drop-options {
+  display: grid;
+  gap: 14px;
+}
+.batch-drop-options[open] {
+  padding-bottom: 4px;
+}
+.batch-drop-options summary {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.batch-drop-options > :not(summary) {
+  margin-top: 12px;
+}
+.batch-drop-total {
+  display: grid;
+  gap: 2px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.batch-drop-total span,
+.batch-drop-total small {
+  color: var(--fg-muted);
+}
+.batch-drop-total strong {
+  color: var(--accent);
+  font-size: 1.5rem;
+}
+
 .batch-lab-flow-strip {
   margin-bottom: 24px;
 }
