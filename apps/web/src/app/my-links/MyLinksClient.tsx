@@ -863,6 +863,11 @@ export function MyLinksClient() {
   const [expandedClaimableBatches, setExpandedClaimableBatches] = useState<Set<string>>(
     () => new Set(),
   );
+  // Drops with open links start expanded so their share buttons are visible;
+  // this remembers the ones the creator folded away.
+  const [collapsedClaimableBatches, setCollapsedClaimableBatches] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [claimableQuery, setClaimableQuery] = useState("");
   const [claimableStatusFilter, setClaimableStatusFilter] = useState<
     "all" | "available" | "claimable_closed" | "claimed" | "refundable"
@@ -3774,8 +3779,6 @@ export function MyLinksClient() {
                 if (!group.batch) return renderClaimableRecord(group.records[0]!);
 
                 const automaticallyExpanded = claimableSelectionMode || claimableFiltersActive;
-                const expanded =
-                  automaticallyExpanded || expandedClaimableBatches.has(group.batch.batchKey);
                 const claimedCount = group.records.filter(
                   (record) => record.status === "claimed",
                 ).length;
@@ -3801,6 +3804,30 @@ export function MyLinksClient() {
                   refundableCount -
                   refundedCount -
                   spentUnknownCount;
+                const batchKey = group.batch.batchKey;
+                const expanded =
+                  automaticallyExpanded ||
+                  expandedClaimableBatches.has(batchKey) ||
+                  (availableCount > 0 && !collapsedClaimableBatches.has(batchKey));
+                // Every link of a drop shares one claim window.
+                const openRecord = group.records.find(
+                  (record) => !isClaimableTerminal(record.status),
+                );
+                const windowExpiry = openRecord
+                  ? estimateClaimableExpiry({
+                      currentDaaScore: claimableDaaScore,
+                      daaLoadedAtMs: claimableDaaLoadedAtMs,
+                      nowMs: claimableNowMs,
+                      refundLockTime: openRecord.refundLockTime,
+                    })
+                  : null;
+                const windowLabel = !openRecord
+                  ? ""
+                  : windowExpiry?.expired
+                    ? " · claim window closed"
+                    : windowExpiry
+                      ? ` · claimable for about ${windowExpiry.remainingLabel}`
+                      : "";
                 const visibleLinkCount = group.records.length;
                 const totalLinkCount = group.batch.linkKeys.length;
                 const batchCanBeDeleted =
@@ -3816,10 +3843,17 @@ export function MyLinksClient() {
                       onToggle={(event) => {
                         if (automaticallyExpanded) return;
                         const isOpen = event.currentTarget.open;
+                        if (isOpen === expanded) return;
                         setExpandedClaimableBatches((current) => {
                           const next = new Set(current);
-                          if (isOpen) next.add(group.batch!.batchKey);
-                          else next.delete(group.batch!.batchKey);
+                          if (isOpen) next.add(batchKey);
+                          else next.delete(batchKey);
+                          return next;
+                        });
+                        setCollapsedClaimableBatches((current) => {
+                          const next = new Set(current);
+                          if (isOpen) next.delete(batchKey);
+                          else next.add(batchKey);
                           return next;
                         });
                       }}
@@ -3834,6 +3868,7 @@ export function MyLinksClient() {
                               ? `${totalLinkCount} links`
                               : `${visibleLinkCount} of ${totalLinkCount} matching links`}
                             {` · ${sumClaimableKas(group.records)} KAS total`}
+                            {windowLabel}
                           </span>
                         </span>
                         <span className="claimable-batch-statuses" aria-label="Batch link status">
