@@ -15,17 +15,21 @@ import {
   type GiveawayV6FamilyDescriptor,
   type GiveawayV6ReconstructionConfig,
   type GiveawayV6ReconstructionSnapshot,
+  GIVEAWAY_V6_FREEZE_PRIZE_COMPUTE_BUDGET,
+  GIVEAWAY_V6_FREEZE_SHARD_COMPUTE_BUDGET,
+  GIVEAWAY_V6_DRAW_COMPUTE_BUDGET,
+  GIVEAWAY_V6_RETURN_COMPUTE_BUDGET,
 } from "@kaspa-actions/kaspa-indexer";
+
+export {
+  GIVEAWAY_V6_FREEZE_PRIZE_COMPUTE_BUDGET,
+  GIVEAWAY_V6_FREEZE_SHARD_COMPUTE_BUDGET,
+  GIVEAWAY_V6_DRAW_COMPUTE_BUDGET,
+  GIVEAWAY_V6_RETURN_COMPUTE_BUDGET,
+};
 
 const ZERO_HASH = "00".repeat(32);
 const HEX_PATTERN = /^(?:[0-9a-f]{2})+$/u;
-
-// These commitments deliberately exceed the measured script units while the
-// reviewed fixed fees still cover the resulting post-Toccata fee mass.
-export const GIVEAWAY_V6_FREEZE_PRIZE_COMPUTE_BUDGET = 1_200;
-export const GIVEAWAY_V6_FREEZE_SHARD_COMPUTE_BUDGET = 100;
-export const GIVEAWAY_V6_DRAW_COMPUTE_BUDGET = 1_650;
-export const GIVEAWAY_V6_RETURN_COMPUTE_BUDGET = 50;
 
 export type GiveawayV6SettlementScripts = {
   prizeRedeemScriptHex: string;

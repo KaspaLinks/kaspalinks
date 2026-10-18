@@ -36,10 +36,10 @@ describe("Giveaway V6 creator terms", () => {
       amountKas: "1",
       description: "Mainnet draw",
       executionReserveSompi: 404_000_000n,
-      expectedFundingSompi: 514_000_000n,
+      expectedFundingSompi: 515_000_000n,
       maximumEntryFeesSompi: 320_000_000n,
-      maximumNetworkCostSompi: 381_000_000n,
-      minimumReturnSompi: 33_000_000n,
+      maximumNetworkCostSompi: 384_000_000n,
+      minimumReturnSompi: 31_000_000n,
       participantCap: 32,
       title: "Community KAS",
     });
@@ -54,10 +54,10 @@ describe("Giveaway V6 creator terms", () => {
     });
     expect(terms.config.returnScriptPublicKeyHex).toMatch(/^[0-9a-f]+$/u);
     expect(terms.economics).toMatchObject({
-      activationFeeSompi: 10_000_000n,
-      drawFeeSompi: 18_000_000n,
+      activationFeeSompi: 11_000_000n,
+      drawFeeSompi: 19_000_000n,
       entryFeeSompi: 10_000_000n,
-      freezeFeeSompi: 33_000_000n,
+      freezeFeeSompi: 34_000_000n,
       prizeValueSompi: 100_000_000n,
       shardValueSompi: 101_000_000n,
       returnFeeSompi: 3_000_000n,
@@ -67,25 +67,28 @@ describe("Giveaway V6 creator terms", () => {
   it.each([
     {
       cap: 8 as const,
-      expectedFundingSompi: 224_000_000n,
+      expectedFundingSompi: 223_000_000n,
+      minimumReturnSompi: 46_000_000n,
       shardCount: 1,
       shardValueSompi: 164_000_000n,
     },
     {
       cap: 16 as const,
       expectedFundingSompi: 304_000_000n,
+      minimumReturnSompi: 41_000_000n,
       shardCount: 2,
       shardValueSompi: 122_000_000n,
     },
     {
       cap: 32 as const,
-      expectedFundingSompi: 464_000_000n,
+      expectedFundingSompi: 465_000_000n,
+      minimumReturnSompi: 31_000_000n,
       shardCount: 4,
       shardValueSompi: 101_000_000n,
     },
   ])(
     "sizes the execution reserve for a $cap-person 0.5 KAS giveaway",
-    ({ cap, expectedFundingSompi, shardCount, shardValueSompi }) => {
+    ({ cap, expectedFundingSompi, minimumReturnSompi, shardCount, shardValueSompi }) => {
       const terms = buildGiveawayV6CreationTerms({
         slot,
         giveawayIdHex: "24".repeat(32),
@@ -101,7 +104,7 @@ describe("Giveaway V6 creator terms", () => {
       expect(terms.expectedFundingSompi).toBe(expectedFundingSompi);
       expect(terms.config.shardCount).toBe(shardCount);
       expect(terms.economics.shardValueSompi).toBe(shardValueSompi);
-      expect(terms.minimumReturnSompi).toBe(33_000_000n);
+      expect(terms.minimumReturnSompi).toBe(minimumReturnSompi);
     },
   );
 

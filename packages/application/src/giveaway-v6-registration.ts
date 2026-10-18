@@ -9,10 +9,10 @@ import {
   type GiveawayV6FamilyDescriptor,
   type GiveawayV6ReconstructionConfig,
   type GiveawayV6ReconstructionSnapshot,
+  GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET,
 } from "@kaspa-actions/kaspa-indexer";
 
-/** Exact budget covering the pinned V6 register method's measured script units. */
-export const GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET = 457;
+export { GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET };
 
 export type GiveawayV6RegistrationTransaction = {
   commitmentHex: string;

@@ -476,6 +476,61 @@ function serializeScriptPublicKey(value: ScriptPublicKeyJson): string {
   return `${value.version.toString(16).padStart(4, "0")}${value.script}`.toLowerCase();
 }
 
+export type PostToccataTransactionShape = {
+  inputs: readonly { signatureScriptBytes: number; computeBudget: number }[];
+  outputs: readonly { scriptPublicKeyBytes: number; covenant: boolean }[];
+};
+
+/**
+ * Compute and transient mass of a version-1 transaction from its shape alone.
+ * Keyless covenants commit their fee before the transaction exists, so this
+ * lets a creator check that fee against the relay minimum in advance.
+ */
+export function estimatePostToccataFeeMass(shape: PostToccataTransactionShape) {
+  const transactionSize =
+    2n +
+    8n +
+    shape.inputs.reduce(
+      (sum, input) => sum + 32n + 4n + 8n + BigInt(input.signatureScriptBytes) + 8n + 2n,
+      0n,
+    ) +
+    8n +
+    shape.outputs.reduce(
+      (sum, output) =>
+        sum +
+        8n +
+        2n +
+        8n +
+        BigInt(output.scriptPublicKeyBytes) +
+        (output.covenant ? 2n + 32n : 0n),
+      0n,
+    ) +
+    8n +
+    20n +
+    8n +
+    32n +
+    8n;
+  const outputScriptMass = shape.outputs.reduce(
+    (sum, output) => sum + (2n + BigInt(output.scriptPublicKeyBytes)) * 10n,
+    0n,
+  );
+  const computeMass =
+    transactionSize +
+    outputScriptMass +
+    shape.inputs.reduce((sum, input) => sum + BigInt(input.computeBudget) * 100n, 0n);
+  const transientMass = transactionSize * 4n;
+  const feeMass = maxBigInt(computeMass, divideCeil(transientMass, 2n));
+  return {
+    computeMass,
+    feeMass,
+    minimumFeeSompi: maxBigInt(
+      feeMass * MINIMUM_RELAY_FEE_SOMPI_PER_GRAM,
+      MINIMUM_RELAY_FEE_FLOOR_SOMPI,
+    ),
+    transientMass,
+  };
+}
+
 function calculatePostToccataMass(input: {
   inputs: readonly {
     computeBudget: number;
@@ -489,44 +544,19 @@ function calculatePostToccataMass(input: {
     scriptPublicKey: ScriptPublicKeyJson;
   }[];
 }) {
-  const signatureScriptBytes = input.inputs.map((candidate) =>
-    BigInt(candidate.signatureScriptHex.length / 2),
-  );
   const outputScriptBytes = input.outputs.map((output) =>
     BigInt(output.scriptPublicKey.script.length / 2),
   );
-  const transactionSize =
-    2n +
-    8n +
-    signatureScriptBytes.reduce(
-      (sum, scriptBytes) => sum + 32n + 4n + 8n + scriptBytes + 8n + 2n,
-      0n,
-    ) +
-    8n +
-    outputScriptBytes.reduce(
-      (sum, scriptBytes, index) =>
-        sum +
-        8n +
-        2n +
-        8n +
-        scriptBytes +
-        (input.outputs[index]!.covenant === null ? 0n : 2n + 32n),
-      0n,
-    ) +
-    8n +
-    20n +
-    8n +
-    32n +
-    8n;
-  const outputScriptMass = outputScriptBytes.reduce(
-    (sum, scriptBytes) => sum + (2n + scriptBytes) * 10n,
-    0n,
-  );
-  const computeMass =
-    transactionSize +
-    outputScriptMass +
-    input.inputs.reduce((sum, candidate) => sum + BigInt(candidate.computeBudget) * 100n, 0n);
-  const transientMass = transactionSize * 4n;
+  const { computeMass, transientMass } = estimatePostToccataFeeMass({
+    inputs: input.inputs.map((candidate) => ({
+      computeBudget: candidate.computeBudget,
+      signatureScriptBytes: candidate.signatureScriptHex.length / 2,
+    })),
+    outputs: input.outputs.map((output) => ({
+      covenant: output.covenant !== null,
+      scriptPublicKeyBytes: output.scriptPublicKey.script.length / 2,
+    })),
+  });
   const normalizedTransientMass = divideCeil(transientMass, 2n);
   const storageMass = calculateStorageMass({
     inputs: input.inputs.map((candidate) => ({

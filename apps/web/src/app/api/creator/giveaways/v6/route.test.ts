@@ -46,7 +46,7 @@ const returnAddress = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24yd
 const bootstrap = {
   compilerCommit: "3ed973335b59269293564805cc2c58a14595ec03",
   config: {},
-  expectedFundingSompi: 514_000_000n,
+  expectedFundingSompi: 515_000_000n,
   familyTerms: {},
   fundingAddress,
   fundingScriptPublicKeyHex: "0000aa20" + "11".repeat(32) + "87",
@@ -266,16 +266,16 @@ describe("Giveaway V6 creator route", () => {
       },
       funding: {
         address: fundingAddress,
-        amountKas: "5.14",
-        amountSompi: "514000000",
+        amountKas: "5.15",
+        amountSompi: "515000000",
         breakdown: {
-          activationFeeSompi: "10000000",
+          activationFeeSompi: "11000000",
           executionReserveSompi: "404000000",
           maximumEntryFeesSompi: "320000000",
-          maximumNetworkCostSompi: "381000000",
-          minimumReturnSompi: "33000000",
+          maximumNetworkCostSompi: "384000000",
+          minimumReturnSompi: "31000000",
           prizeSompi: "100000000",
-          settlementFeesSompi: "51000000",
+          settlementFeesSompi: "53000000",
         },
         network: "mainnet",
         unusedReserveReturnAddress: returnAddress,
@@ -287,7 +287,7 @@ describe("Giveaway V6 creator route", () => {
         shardCount: 4,
       },
     });
-    expect(body.funding.paymentUri).toContain(`${fundingAddress}?amount=5.14`);
+    expect(body.funding.paymentUri).toContain(`${fundingAddress}?amount=5.15`);
   });
 
   it("commits the terms already fixed for the slot instead of its own projection", async () => {
@@ -379,7 +379,7 @@ describe("Giveaway V6 creator route", () => {
   it("returns the smaller reviewed funding intent for an eight-person giveaway", async () => {
     mocks.compile.mockResolvedValue({
       ...bootstrap,
-      expectedFundingSompi: 224_000_000n,
+      expectedFundingSompi: 223_000_000n,
     });
 
     const response = await POST(request({ ...validBody(), amountKas: "0.5", participantCap: 8 }));
@@ -395,15 +395,15 @@ describe("Giveaway V6 creator route", () => {
     expect(body).toMatchObject({
       giveaway: { participantCap: 8 },
       funding: {
-        amountKas: "2.24",
+        amountKas: "2.23",
         breakdown: {
-          maximumNetworkCostSompi: "141000000",
-          minimumReturnSompi: "33000000",
+          maximumNetworkCostSompi: "127000000",
+          minimumReturnSompi: "46000000",
         },
       },
       review: { shardCount: 1 },
     });
-    expect(body.funding.paymentUri).toContain(`${fundingAddress}?amount=2.24`);
+    expect(body.funding.paymentUri).toContain(`${fundingAddress}?amount=2.23`);
   });
 
   it("rejects unrecognized recovery input before chain access or compilation", async () => {
@@ -412,6 +412,17 @@ describe("Giveaway V6 creator route", () => {
     expect(response.status).toBe(400);
     expect(mocks.chain).not.toHaveBeenCalled();
     expect(mocks.compile).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a Giveaway whose committed fees would not relay", async () => {
+    // A prize script this large would need far more than the committed fees.
+    mocks.compile.mockResolvedValue({ ...bootstrap, prizeRedeemScriptHex: "51".repeat(200_000) });
+
+    const response = await POST(request(validBody()));
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.message).toContain("network fees");
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
 

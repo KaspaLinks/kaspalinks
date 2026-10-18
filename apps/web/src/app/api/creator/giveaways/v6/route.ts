@@ -20,6 +20,10 @@ import {
   isGiveawayV6CreationEnabled,
 } from "@/lib/giveaway-v6-creation";
 import { compileGiveawayV6Bootstrap, GiveawayV6CompilerError } from "@/lib/giveaway-v6-compiler";
+import {
+  assertGiveawayV6FeesCoverRelayMinimum,
+  GiveawayV6FeeCoverageError,
+} from "@/lib/giveaway-v6-fee-check";
 import { GiveawayV6SlotClosedError, resolveGiveawayV6DrawSlot } from "@/lib/giveaway-v6-slot-store";
 import { checkGiveawayV6Slot, describeGiveawayV6SlotCheck } from "@/lib/giveaway-v6-slots";
 import { readCurrentMainnetChainPosition } from "@/lib/mainnet-chain-position";
@@ -234,6 +238,26 @@ export async function POST(request: Request) {
   }
   if (bootstrap.expectedFundingSompi !== terms.expectedFundingSompi) {
     return apiError(ErrorCodes.SERVER_ERROR, "Giveaway V6 funding review did not match.", 503);
+  }
+  try {
+    assertGiveawayV6FeesCoverRelayMinimum(
+      {
+        prizeScriptBytes: bootstrap.prizeRedeemScriptHex.length / 2,
+        shardScriptBytes: bootstrap.shardTemplateRedeemScriptHex.length / 2,
+        shardCount: terms.config.shardCount,
+        treeDepth: terms.config.treeDepth,
+      },
+      terms.economics,
+    );
+  } catch (error) {
+    if (!(error instanceof GiveawayV6FeeCoverageError)) throw error;
+    // Nothing is stored or funded yet; refusing here is the only safe point.
+    console.error(error.message);
+    return apiError(
+      ErrorCodes.SERVER_ERROR,
+      "Giveaway creation is paused while its network fees are re-checked.",
+      503,
+    );
   }
 
   const compatibilityCommitment = createHash("sha256")

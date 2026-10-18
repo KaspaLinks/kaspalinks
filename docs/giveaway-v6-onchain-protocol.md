@@ -107,11 +107,27 @@ automatically. The reviewed creation profiles permit 8, 16, or 32 participants
 using one, two, or four shards with eight entries per shard. Each registration
 spends a fixed 0.10 KAS fee. The profiles retain the same 0.84 KAS terminal
 reserve after every available place is used, so each shard holds 1.64, 1.22,
-or 1.01 KAS respectively. Terminal fees are fixed at 0.33 KAS for freeze,
-0.18 KAS for draw, and 0.03 KAS for fallback return. A completed full-capacity
-draw therefore returns at least 0.33 KAS of unused reserve; every unused place
-adds another 0.10 KAS. With a 0.5 KAS prize and 0.10 KAS activation fee, the
-exact funding totals are 2.24, 3.04, or 4.64 KAS.
+or 1.01 KAS respectively. The other fees depend on the shard count, because
+every shard adds a script and its witness to activation and freeze:
+
+| Participants | Activation | Freeze | Draw | Fallback return |
+| ------------ | ---------- | ------ | ---- | --------------- |
+| 8            | 0.09       | 0.19   | 0.19 | 0.02            |
+| 16           | 0.10       | 0.24   | 0.19 | 0.02            |
+| 32           | 0.11       | 0.34   | 0.19 | 0.03            |
+
+Each is the relay minimum of its worst-case transaction plus at least 5%,
+rounded up to 0.01 KAS. A completed full-capacity draw therefore returns at
+least 0.46, 0.41, or 0.31 KAS of unused reserve; every unused place adds
+another 0.10 KAS. With a 0.5 KAS prize the exact funding totals are 2.23,
+3.04, or 4.65 KAS.
+
+A committed fee cannot be raised after funding, and a fee below the relay
+minimum would strand the prize. Creation therefore models every transition's
+worst-case mass from the freshly compiled scripts and refuses a Giveaway whose
+fees do not clear that minimum by at least 2%. The model reproduces the
+Mainnet masses of the first one-shard canary (2026-10-17) exactly for
+activation, registration and freeze, and within a dozen grams for the draw.
 
 The current four-shard profile was measured with the pinned Toccata engine and
 production values. Activation uses 64,709 compute, 192,636 transient, and
@@ -130,7 +146,7 @@ limits of 500,000 compute, 500,000 storage, and 1,000,000 transient mass.
 
 ### Creator
 
-1. Choose title, prize, duration, participant cap, and Return Address.
+1. Choose title, prize, draw time, participant cap, and Return Address.
 2. Review the exact prize and maximum execution budget.
 3. Scan one Kaspium QR code.
 4. Share after activation confirms.

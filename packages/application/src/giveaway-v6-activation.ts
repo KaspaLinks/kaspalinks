@@ -4,6 +4,7 @@ import {
   GIVEAWAY_V6_PRIZE_DISPATCH_TAGS,
   decodeGiveawayV6Witness,
   splitGiveawayV6ShardTemplateHex,
+  GIVEAWAY_V6_ACTIVATION_COMPUTE_BUDGET,
 } from "@kaspa-actions/kaspa-indexer";
 
 import {
@@ -12,10 +13,9 @@ import {
   type GiveawayV6BoundBootstrapRecord,
 } from "./giveaway-v6-bootstrap.ts";
 
-const ZERO_HASH = "00".repeat(32);
+export { GIVEAWAY_V6_ACTIVATION_COMPUTE_BUDGET };
 
-/** Exact SilverScript engine budget measured against the pinned V6 compiler output. */
-export const GIVEAWAY_V6_ACTIVATION_COMPUTE_BUDGET = 147;
+const ZERO_HASH = "00".repeat(32);
 
 export type GiveawayV6ActivationTransaction = {
   activationOutputs: readonly GiveawayV6ActivationOutput[];
