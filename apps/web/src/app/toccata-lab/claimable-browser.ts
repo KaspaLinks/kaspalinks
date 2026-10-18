@@ -3,6 +3,8 @@ import {
   TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES,
 } from "@kaspa-actions/kaspa/toccata-constants";
 
+import { normalizeKaspaAddressInput, thrownMessage } from "@/lib/kaspa-address-input";
+
 type BrowserClaimableSpendMode = "claim" | "refund";
 
 export type BrowserClaimableSpendInput = {
@@ -148,7 +150,7 @@ export async function buildClaimableSpendInBrowser(
   const feeSompi = parsePositiveBigInt(input.feeSompi, "feeSompi");
   const lockTime = parseNonNegativeBigInt(input.lockTime ?? "0", "lockTime");
   const computeBudget = normalizeComputeBudget(input.computeBudget ?? CLAIMABLE_LAB_COMPUTE_BUDGET);
-  const destinationAddress = input.destinationAddress.trim();
+  const destinationAddress = normalizeKaspaAddressInput(input.destinationAddress);
 
   if (feeSompi >= fundingAmountSompi) {
     throw new Error("Claim/refund fee must be lower than the funding amount.");
@@ -170,7 +172,16 @@ export async function buildClaimableSpendInBrowser(
     throw new Error("Redeem script does not match the expected funding address.");
   }
 
-  const destinationScriptPublicKey = kaspa.payToAddressScript(destinationAddress);
+  let destinationScriptPublicKey: BrowserScriptPublicKey;
+  try {
+    destinationScriptPublicKey = kaspa.payToAddressScript(destinationAddress);
+  } catch (addressError) {
+    // The SDK throws a plain string such as "The address checksum is invalid".
+    throw new Error(
+      `Check the Kaspa address: ${thrownMessage(addressError, "it is not a valid mainnet address")}.`,
+      { cause: addressError },
+    );
+  }
   const unsignedSafeJson = JSON.stringify({
     gas: "0",
     id: "0".repeat(64),

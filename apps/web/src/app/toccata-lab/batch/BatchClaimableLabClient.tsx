@@ -17,6 +17,7 @@ import {
 } from "@kaspa-actions/wallet-adapter";
 
 import { createToccataLabKeyPair } from "@/lib/toccata-lab-keys";
+import { KASPA_ADDRESS_INPUT_PROPS, thrownMessage } from "@/lib/kaspa-address-input";
 import {
   assertBatchMatchesRecoveryTarget,
   createBatchRecoveryBundle,
@@ -1646,6 +1647,7 @@ export function BatchClaimableLabClient({
                 </label>
                 <input
                   id="recovery-batch-refund-address"
+                  {...KASPA_ADDRESS_INPUT_PROPS}
                   onChange={(event) => setRefundAddress(event.target.value)}
                   placeholder="kaspa:..."
                   value={refundAddress}
@@ -2214,6 +2216,7 @@ export function BatchClaimableLabClient({
                   </label>
                   <input
                     id="unexpected-batch-refund-address"
+                    {...KASPA_ADDRESS_INPUT_PROPS}
                     onChange={(event) => setRefundAddress(event.target.value.trim())}
                     placeholder="kaspa:your-own-wallet-address"
                     value={refundAddress}
@@ -2466,6 +2469,7 @@ export function BatchClaimableLabClient({
               </label>
               <input
                 id="batch-refund-address"
+                {...KASPA_ADDRESS_INPUT_PROPS}
                 onChange={(event) => setRefundAddress(event.target.value)}
                 placeholder="kaspa:..."
                 value={refundAddress}
@@ -2804,7 +2808,7 @@ function safeFilename(value: string): string {
 }
 
 function friendlyBatchError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : fallback;
+  const message = thrownMessage(error, fallback);
   if (/mass|script units|compute budget/i.test(message)) {
     return "Kaspa rejected the transaction because its mass or script budget was too high. Use fewer outputs or retry after consolidating wallet funds.";
   }

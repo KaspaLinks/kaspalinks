@@ -18,6 +18,11 @@ import {
   type ClaimableStoreRecord,
 } from "@/lib/claimable-store";
 import {
+  KASPA_ADDRESS_INPUT_PROPS,
+  normalizeKaspaAddressInput,
+  thrownMessage,
+} from "@/lib/kaspa-address-input";
+import {
   addAccountFreeEntry,
   createManageToken,
   hashManageTokenInBrowser,
@@ -1703,7 +1708,9 @@ export function ToccataLabClient({
       return;
     }
 
-    const destinationAddress = (mode === "claim" ? claimDestination : refundDestination).trim();
+    const destinationAddress = normalizeKaspaAddressInput(
+      mode === "claim" ? claimDestination : refundDestination,
+    );
     const setModeError = mode === "claim" ? setClaimSendError : setRefundSendError;
 
     if (!destinationAddress) {
@@ -1777,7 +1784,7 @@ export function ToccataLabClient({
         `${mode === "claim" ? "Claim" : "Refund"} transaction signed in this browser. Review it before broadcasting.`,
       );
     } catch (spendError) {
-      const message = (spendError as Error).message || `Could not build ${mode} transaction.`;
+      const message = thrownMessage(spendError, `Could not build ${mode} transaction.`);
       setError(message);
       setModeError(message);
     } finally {
@@ -2368,11 +2375,10 @@ export function ToccataLabClient({
                       Your wallet address
                     </label>
                     <input
-                      autoComplete="off"
                       id="claimable-return-address"
+                      {...KASPA_ADDRESS_INPUT_PROPS}
                       onChange={(event) => setReturnAddress(event.target.value.trim())}
                       placeholder="kaspa:your-own-wallet-address"
-                      spellCheck={false}
                       value={returnAddress}
                     />
                     <p className="muted">
@@ -2704,6 +2710,7 @@ export function ToccataLabClient({
                           </label>
                           <input
                             id="unexpected-refund-address"
+                            {...KASPA_ADDRESS_INPUT_PROPS}
                             onChange={(event) => setRefundDestination(event.target.value.trim())}
                             placeholder="kaspa:your-own-wallet-address"
                             value={refundDestination}
@@ -3119,6 +3126,7 @@ export function ToccataLabClient({
                     <>
                       <input
                         id="claimable-destination-address"
+                        {...KASPA_ADDRESS_INPUT_PROPS}
                         onChange={(event) => setClaimDestination(event.target.value.trim())}
                         placeholder="kaspa:receiver-destination-address"
                         value={claimDestination}
@@ -3221,6 +3229,7 @@ export function ToccataLabClient({
                     </p>
                     <span className="label">Your Kaspa address (where the refund is sent)</span>
                     <input
+                      {...KASPA_ADDRESS_INPUT_PROPS}
                       onChange={(event) => setRefundDestination(event.target.value.trim())}
                       placeholder="kaspa:your-own-wallet-address"
                       value={refundDestination}

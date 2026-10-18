@@ -15,6 +15,7 @@ import {
   hashManageTokenInBrowser,
 } from "@/lib/account-free-store";
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
+import { KASPA_ADDRESS_INPUT_PROPS } from "@/lib/kaspa-address-input";
 import { MIN_RELIABLE_MAINNET_OUTPUT_KAS } from "@/lib/mainnet-amount-policy";
 import { formatApproxUsdMeta, formatApproxUsdValue } from "@/lib/price-display";
 import { parseSignupSource } from "@/lib/signup-source";
@@ -1058,6 +1059,7 @@ export function NewLinkClient({
               >
                 <input
                   id="action-recipient"
+                  {...KASPA_ADDRESS_INPUT_PROPS}
                   onChange={(event) => setRecipientAddress(event.target.value)}
                   placeholder="kaspa:..."
                   required
