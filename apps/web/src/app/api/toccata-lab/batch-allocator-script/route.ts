@@ -8,9 +8,8 @@ import {
   toccataBatchAllocatorScriptInputSchema,
 } from "@/lib/toccata-lab";
 
-// Caddy Basic Auth and the separate feature flag keep this experimental
-// constructor out of the public creator product. It receives public contract
-// terms only, never any activation, claim, or recovery secret.
+// Public, behind the batch feature flag. It receives public contract terms only,
+// never any activation, claim, or recovery secret, and stores nothing.
 export async function POST(request: Request) {
   if (!isToccataBatchLabEnabled()) {
     return apiError(ErrorCodes.TOCCATA_LAB_DISABLED, "Batch claim lab is disabled.", 403);

@@ -2817,6 +2817,13 @@ function friendlyBatchError(error: unknown, fallback: string): string {
   if (/encrypt|vault secret|creator token/i.test(message)) {
     return "The private recovery data could not be encrypted locally. Sign in again before creating, importing, or changing this batch.";
   }
+  // Safari, Chrome and Firefox wording for a response body that is not JSON,
+  // for example a proxy error page.
+  if (
+    /did not match the expected pattern|unexpected token|not valid json|JSON\.parse/i.test(message)
+  ) {
+    return "The server sent an unexpected answer. Reload the page and check this drop's status before trying again.";
+  }
   return message || fallback;
 }
 

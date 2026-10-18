@@ -8,9 +8,9 @@ import {
   toccataBatchClaimableScriptInputSchema,
 } from "@/lib/toccata-lab";
 
-// Caddy protects this private lab endpoint with Basic Auth. The app still
-// keeps a separate feature flag so it cannot accidentally appear on a public
-// deployment that enables ordinary claimable links.
+// Public like the single claim-script route: it only derives scripts from public
+// keys and stores nothing. The batch flag keeps it off deployments that enable
+// ordinary claimable links without Claim Drops.
 export async function POST(request: Request) {
   if (!isToccataBatchLabEnabled()) {
     return apiError(ErrorCodes.TOCCATA_LAB_DISABLED, "Batch claim lab is disabled.", 403);
