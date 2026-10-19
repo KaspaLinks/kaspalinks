@@ -1,7 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { isClaimableAutoReturnEnabled } from "@/lib/claimable-flags";
-import { processClaimableReturns } from "@/lib/claimable-return";
+import { processClaimBatchReturns } from "@/lib/claimable-batch-return";
+import { defaultClaimableReturnDeps, processClaimableReturns } from "@/lib/claimable-return";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 import { isToccataLabEnabled } from "@/lib/toccata-lab";
 
@@ -14,11 +15,11 @@ function isAuthorized(request: Request): boolean {
   const presented = request.headers.get("x-telegram-bot-api-secret-token") ?? "";
   return Boolean(
     expected &&
-      presented &&
-      timingSafeEqual(
-        createHash("sha256").update(expected).digest(),
-        createHash("sha256").update(presented).digest(),
-      ),
+    presented &&
+    timingSafeEqual(
+      createHash("sha256").update(expected).digest(),
+      createHash("sha256").update(presented).digest(),
+    ),
   );
 }
 
@@ -31,8 +32,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await processClaimableReturns(new Date());
-    return apiJson({ ...result, autoReturnEnabled: isClaimableAutoReturnEnabled() });
+    const now = new Date();
+    const result = await processClaimableReturns(now);
+    // Unactivated auto-return Claim Drops; their activated children are links above.
+    const batches = await processClaimBatchReturns(
+      now,
+      await defaultClaimableReturnDeps.readDaaScore(),
+    );
+    return apiJson({ ...result, autoReturnEnabled: isClaimableAutoReturnEnabled(), batches });
   } catch (error) {
     console.error("[claimable-return] tick failed", {
       message: error instanceof Error ? error.message : "unknown error",

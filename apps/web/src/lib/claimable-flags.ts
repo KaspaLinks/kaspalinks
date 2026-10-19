@@ -19,3 +19,13 @@ export function isClaimableAnonymousEnabled(env: ClaimableFlagEnv = process.env)
     isClaimableAutoReturnEnabled(env) && readFlag(env.CLAIMABLE_ANONYMOUS_ENABLED, env.NODE_ENV)
   );
 }
+
+/**
+ * New Claim Drops use v2 children and a keyless allocator return, so no refund
+ * key and no recovery file exist (requires v2 links).
+ */
+export function isClaimDropAutoReturnEnabled(env: ClaimableFlagEnv = process.env): boolean {
+  return (
+    isClaimableAutoReturnEnabled(env) && readFlag(env.CLAIM_DROP_AUTO_RETURN_ENABLED, env.NODE_ENV)
+  );
+}

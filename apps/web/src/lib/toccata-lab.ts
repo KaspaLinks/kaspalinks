@@ -212,31 +212,98 @@ export const registeredClaimableMetadataInputSchema = z
     }
   });
 
-export const toccataBatchClaimableScriptInputSchema = z.object({
+const batchLinkCountMessage = `The batch claim flow is limited to ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} links.`;
+
+const toccataBatchClaimableScriptV1InputSchema = z.object({
   links: z
     .array(toccataClaimableScriptKeysSchema)
     .min(2, "A batch needs at least two links.")
-    .max(
-      TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
-      `The batch claim flow is limited to ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} links.`,
-    ),
+    .max(TOCCATA_BATCH_MAX_SAFE_OUTPUTS, batchLinkCountMessage),
   refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
 });
 
-export const toccataBatchAllocatorScriptInputSchema = z.object({
-  activationPublicKey: z
-    .string()
-    .regex(/^[0-9a-fA-F]{64}$/, "Activation public key must be 32-byte hex."),
-  outputs: z
-    .array(toccataBatchAllocatorOutputSchema)
-    .min(2, "A batch allocator needs at least two outputs.")
-    .max(
-      TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
-      `The batch allocator is limited to ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} outputs.`,
-    ),
+/** Auto-return drop: every child is a v2 link returning to the same address. */
+const toccataBatchClaimableScriptV2InputSchema = z.object({
+  feeSompi: autoReturnFeeSchema,
+  links: z
+    .array(
+      z.object({
+        linkPublicKey: z
+          .string()
+          .regex(/^[0-9a-fA-F]{64}$/, "Claim public key must be 32-byte hex."),
+      }),
+    )
+    .min(2, "A batch needs at least two links.")
+    .max(TOCCATA_BATCH_MAX_SAFE_OUTPUTS, batchLinkCountMessage),
   refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
-  refundPublicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, "Refund public key must be 32-byte hex."),
+  returnAddress: returnAddressSchema,
+  version: z.literal(2),
 });
+
+export const toccataBatchClaimableScriptInputSchema = z.union([
+  toccataBatchClaimableScriptV2InputSchema,
+  toccataBatchClaimableScriptV1InputSchema,
+]);
+
+export const toccataBatchAllocatorScriptInputSchema = z
+  .object({
+    activationPublicKey: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "Activation public key must be 32-byte hex."),
+    outputs: z
+      .array(toccataBatchAllocatorOutputSchema)
+      .min(2, "A batch allocator needs at least two outputs.")
+      .max(
+        TOCCATA_BATCH_MAX_SAFE_OUTPUTS,
+        `The batch allocator is limited to ${TOCCATA_BATCH_MAX_SAFE_OUTPUTS} outputs.`,
+      ),
+    refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
+    refundPublicKey: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "Refund public key must be 32-byte hex.")
+      .optional(),
+    // Auto-return drop: no refund key; an unactivated allocator returns here.
+    returnAddress: returnAddressSchema.optional(),
+    returnFeeSompi: autoReturnFeeSchema.optional(),
+  })
+  .superRefine(requireRefundKeyOrAutoReturn);
+
+function requireRefundKeyOrAutoReturn(
+  value: { refundPublicKey?: string; returnAddress?: string; returnFeeSompi?: string },
+  context: z.RefinementCtx,
+) {
+  const autoReturn = value.returnAddress !== undefined || value.returnFeeSompi !== undefined;
+  const complete = value.returnAddress !== undefined && value.returnFeeSompi !== undefined;
+  if (autoReturn === (value.refundPublicKey !== undefined) || (autoReturn && !complete)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Give either a refund public key or a return address with its fee.",
+      path: ["refundPublicKey"],
+    });
+  }
+}
+
+/** The allocator's recovery terms as stored: a refund key (v1) or a return address (v2). */
+export function batchAllocatorRecoveryTerms(value: {
+  refundPublicKey?: null | string;
+  returnAddress?: null | string;
+  returnFeeSompi?: bigint | null | string;
+}): Pick<
+  Parameters<typeof buildToccataBatchAllocatorLabScript>[0],
+  "autoReturn" | "refundPublicKey"
+> {
+  if (value.returnAddress && value.returnFeeSompi !== null && value.returnFeeSompi !== undefined) {
+    return {
+      autoReturn: {
+        feeSompi: value.returnFeeSompi.toString(),
+        returnAddress: value.returnAddress,
+      },
+    };
+  }
+  if (!value.refundPublicKey)
+    throw new Error("Batch has neither a refund key nor a return address.");
+  return { refundPublicKey: value.refundPublicKey };
+}
 
 const registeredBatchOutputSchema = toccataBatchAllocatorOutputSchema.extend({
   linkKey: z
@@ -272,10 +339,14 @@ export const registeredClaimableBatchInputSchema = z
     refundLockTime: z.string().regex(/^[0-9]+$/, "Refund lock time must be a whole number."),
     refundPublicKey: z
       .string()
-      .regex(/^[0-9a-fA-F]{64}$/, "Refund public key must be 32-byte hex."),
+      .regex(/^[0-9a-fA-F]{64}$/, "Refund public key must be 32-byte hex.")
+      .optional(),
+    returnAddress: returnAddressSchema.optional(),
+    returnFeeSompi: autoReturnFeeSchema.optional(),
     title: z.string().trim().min(1).max(80),
   })
   .superRefine((value, context) => {
+    requireRefundKeyOrAutoReturn(value, context);
     const fundingAmount = BigInt(value.fundingAmountSompi);
     const activationFee = BigInt(value.activationFeeSompi);
     const outputTotal = value.outputs.reduce(
@@ -589,10 +660,17 @@ export function validateRegisteredClaimableMetadata(
 }
 
 export function createToccataBatchAllocatorLabScript(
-  input: z.infer<typeof toccataBatchAllocatorScriptInputSchema> & {
-    /** Rebuild a registered drop, including the refund-only legacy sizes. */
-    registered?: boolean;
-  },
+  input: Omit<
+    z.infer<typeof toccataBatchAllocatorScriptInputSchema>,
+    "refundPublicKey" | "returnAddress" | "returnFeeSompi"
+  > &
+    Pick<
+      Parameters<typeof buildToccataBatchAllocatorLabScript>[0],
+      "autoReturn" | "refundPublicKey"
+    > & {
+      /** Rebuild a registered drop, including the refund-only legacy sizes. */
+      registered?: boolean;
+    },
 ) {
   try {
     return buildToccataBatchAllocatorLabScript(input);
@@ -613,7 +691,7 @@ export function validateRegisteredClaimableBatchMetadata(
     activationPublicKey: parsed.activationPublicKey,
     outputs: parsed.outputs,
     refundLockTime: parsed.refundLockTime,
-    refundPublicKey: parsed.refundPublicKey,
+    ...batchAllocatorRecoveryTerms(parsed),
   });
   if (allocator.fundingAddress !== parsed.fundingAddress) {
     throw new Error("Batch funding address does not match the canonical allocator script.");
@@ -636,6 +714,9 @@ export function validateRegisteredClaimableBatchMetadata(
     redeemScriptHex: allocator.redeemScriptHex,
     refundLockTime: allocator.refundLockTime,
     refundPublicKey: allocator.refundPublicKey,
+    returnAddress: allocator.returnAddress,
+    returnFeeSompi: allocator.returnFeeSompi === null ? null : BigInt(allocator.returnFeeSompi),
+    scriptVersion: allocator.version,
     title: parsed.title,
   };
 }

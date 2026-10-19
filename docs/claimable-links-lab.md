@@ -501,6 +501,40 @@ OpEndIf
   link). Unfunded account-free links are deleted a week after expiry once their address is empty.
 - Engine tests: `labs/claimable-script/claimable_autoreturn_tests.rs`.
 
+### Auto-return Claim Drops (batch version 2)
+
+Behind `CLAIM_DROP_AUTO_RETURN_ENABLED` (requires `CLAIMABLE_AUTO_RETURN_ENABLED`), new Claim
+Drops hold no refund key anywhere, so the creator saves no recovery file:
+
+- Every child is an ordinary v2 link (script above) returning to the drop's one return address.
+  After activation the link pass of the worker tick returns unclaimed children one by one.
+- The allocator keeps its activation branch unchanged. Its refund branch is replaced by the same
+  keyless return branch (`addKeylessReturnBranch`), committing the return address and a fee cap
+  of 0.01 KAS (the allocator script is larger than a link's):
+
+  ```text
+  OpIf   <activationPk> OpCheckSigVerify ... exact committed children ... OpTrue
+  OpElse <keyless return branch, fee 0.01 KAS>
+  OpEndIf
+  ```
+
+- An allocator that was never activated (the creator closed the page, or paid a wrong amount) is
+  returned by the worker after the lock time: `processClaimBatchReturns` in
+  `apps/web/src/lib/claimable-batch-return.ts`, called from the same internal tick. Every UTXO at
+  the allocator address goes back in its own transaction; only the first one closes the drop
+  (batch `refunded`, unfunded children `refunded` with the same transaction id). Extra payments
+  to an already activated allocator are returned without touching its recorded state.
+- Activation stays possible after expiry (no upper time bound on-chain). Then the children are
+  immediately returnable and the link pass sends them back.
+- `ClaimableBatch.scriptVersion = 2` rows store `returnAddress` and `returnFeeSompi`;
+  `refundPublicKey` is null. Registration only accepts v2 children with the same return address,
+  and the manual refund route refuses v2 drops.
+- Return transactions use the covenant-aware P2SH encoder, so scripts above the pre-Toccata
+  520-byte element limit are encoded the same way as the legacy 10-link refund.
+- Engine tests: `labs/claimable-script/claimable_batch_autoreturn_tests.rs` (activation with key
+  and exact children, keyless return only after the lock time, only to the return script, at most
+  the committed fee, one input, never into the committed children).
+
 ## Server Data
 
 Allowed:

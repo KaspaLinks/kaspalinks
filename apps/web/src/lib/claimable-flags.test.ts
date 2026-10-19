@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { isClaimableAnonymousEnabled, isClaimableAutoReturnEnabled } from "./claimable-flags";
+import {
+  isClaimableAnonymousEnabled,
+  isClaimableAutoReturnEnabled,
+  isClaimDropAutoReturnEnabled,
+} from "./claimable-flags";
 
 describe("claimable flags", () => {
   it("are on in development and off in production unless set explicitly", () => {
@@ -41,5 +45,23 @@ describe("claimable flags", () => {
         NODE_ENV: "production",
       }),
     ).toBe(false);
+  });
+
+  it("only creates auto-return Claim Drops when v2 links are on too", () => {
+    expect(isClaimDropAutoReturnEnabled({ NODE_ENV: "production" })).toBe(false);
+    expect(
+      isClaimDropAutoReturnEnabled({
+        CLAIM_DROP_AUTO_RETURN_ENABLED: "true",
+        CLAIMABLE_AUTO_RETURN_ENABLED: "false",
+        NODE_ENV: "production",
+      }),
+    ).toBe(false);
+    expect(
+      isClaimDropAutoReturnEnabled({
+        CLAIM_DROP_AUTO_RETURN_ENABLED: "true",
+        CLAIMABLE_AUTO_RETURN_ENABLED: "true",
+        NODE_ENV: "production",
+      }),
+    ).toBe(true);
   });
 });

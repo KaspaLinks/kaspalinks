@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createToccataBatchAllocatorLabScript,
+  createToccataClaimableAutoReturnScript,
   createToccataClaimableLabScript,
 } from "@/lib/toccata-lab";
 import { deriveToccataLabKeyPair } from "@/lib/toccata-lab-keys";
@@ -75,6 +76,113 @@ function request(overrides: Record<string, unknown> = {}) {
     method: "POST",
   });
 }
+
+const RETURN_ADDRESS = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
+const autoChildren = children.map((child) => ({
+  ...child,
+  script: createToccataClaimableAutoReturnScript({
+    feeSompi: "200000",
+    linkPublicKey: child.claim.xOnlyPublicKey,
+    refundLockTime: REFUND_LOCK_TIME,
+    returnAddress: RETURN_ADDRESS,
+  }),
+}));
+const autoOutputs = autoChildren.map((child) => ({
+  amountSompi: "100000000",
+  linkKey: `batch-test-0${child.index + 1}`,
+  scriptPublicKeyHex: serializeScriptPublicKey(child.script.scriptPublicKey),
+}));
+const autoAllocator = createToccataBatchAllocatorLabScript({
+  activationPublicKey: activation.xOnlyPublicKey,
+  autoReturn: { feeSompi: "1000000", returnAddress: RETURN_ADDRESS },
+  outputs: autoOutputs,
+  refundLockTime: REFUND_LOCK_TIME,
+});
+
+describe("POST /api/creator/claimable-batches (auto-return drop)", () => {
+  function autoRequest(overrides: Record<string, unknown> = {}) {
+    return request({
+      fundingAddress: autoAllocator.fundingAddress,
+      outputs: autoOutputs,
+      redeemScriptHex: autoAllocator.redeemScriptHex,
+      refundPublicKey: undefined,
+      returnAddress: RETURN_ADDRESS,
+      returnFeeSompi: "1000000",
+      ...overrides,
+    });
+  }
+
+  function v2Children(returnAddress = RETURN_ADDRESS) {
+    return autoChildren.map((child) => ({
+      amountSompi: 100_000_000n,
+      claimPublicKey: child.claim.xOnlyPublicKey,
+      creatorId: "creator-1",
+      deletedAt: null,
+      feeSompi: 200_000n,
+      linkKey: autoOutputs[child.index]!.linkKey,
+      redeemScriptHex: child.script.redeemScriptHex,
+      refundLockTime: REFUND_LOCK_TIME,
+      refundPublicKey: null,
+      returnAddress,
+      scriptVersion: 2,
+    }));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv("CLAIMABLE_AUTO_RETURN_ENABLED", "true");
+    vi.stubEnv("CLAIM_DROP_AUTO_RETURN_ENABLED", "true");
+    mockRequireCreator.mockResolvedValue({
+      creator: { id: "creator-1" },
+      ipHash: "ip-hash",
+      ok: true,
+    });
+    mockPrisma.claimableBatch.findUnique.mockResolvedValue(null);
+    mockPrisma.claimableLink.findMany.mockResolvedValue(v2Children());
+    mockPrisma.claimableBatch.create.mockImplementation(({ data }) =>
+      Promise.resolve({ ...data, batchKey: "batch-test", status: "awaiting_funding" }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetRateLimits();
+  });
+
+  it("stores the return address instead of a refund key", async () => {
+    const response = await POST(autoRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.claimableBatch.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        fundingAddress: autoAllocator.fundingAddress,
+        refundPublicKey: null,
+        returnAddress: RETURN_ADDRESS,
+        returnFeeSompi: 1_000_000n,
+        scriptVersion: 2,
+      }),
+    });
+  });
+
+  it("refuses children that return somewhere else or need a refund key", async () => {
+    mockPrisma.claimableLink.findMany.mockResolvedValueOnce(
+      v2Children("kaspa:qrpuhc8c998cdp4fkgjljspuwtetvjhy022k0a00da4dxh3kkz89qa96gge5r"),
+    );
+    expect((await POST(autoRequest())).status).toBe(409);
+    expect(mockPrisma.claimableBatch.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a manifest with both a refund key and a return address", async () => {
+    const response = await POST(autoRequest({ refundPublicKey: batchRefund.xOnlyPublicKey }));
+    expect(response.status).toBe(400);
+  });
+
+  it("is refused while auto-return Claim Drops are switched off", async () => {
+    vi.stubEnv("CLAIM_DROP_AUTO_RETURN_ENABLED", "false");
+    expect((await POST(autoRequest())).status).toBe(409);
+    expect(mockPrisma.claimableBatch.create).not.toHaveBeenCalled();
+  });
+});
 
 describe("POST /api/creator/claimable-batches", () => {
   beforeEach(() => {
@@ -150,6 +258,8 @@ describe("POST /api/creator/claimable-batches", () => {
       redeemScriptHex: allocator.redeemScriptHex,
       refundLockTime: REFUND_LOCK_TIME,
       refundPublicKey: batchRefund.xOnlyPublicKey,
+      returnAddress: null,
+      scriptVersion: 1,
       status: "awaiting_funding",
       title: "Test batch",
     };
@@ -185,6 +295,8 @@ describe("POST /api/creator/claimable-batches", () => {
       redeemScriptHex: allocator.redeemScriptHex,
       refundLockTime: REFUND_LOCK_TIME,
       refundPublicKey: batchRefund.xOnlyPublicKey,
+      returnAddress: null,
+      scriptVersion: 1,
       status: "activated",
       title: "Test batch",
     });
@@ -210,6 +322,8 @@ describe("POST /api/creator/claimable-batches", () => {
       redeemScriptHex: allocator.redeemScriptHex,
       refundLockTime: REFUND_LOCK_TIME,
       refundPublicKey: batchRefund.xOnlyPublicKey,
+      returnAddress: null,
+      scriptVersion: 1,
       status: "activated",
       title: "Historical batch title",
     });
@@ -235,6 +349,8 @@ describe("POST /api/creator/claimable-batches", () => {
       redeemScriptHex: allocator.redeemScriptHex,
       refundLockTime: REFUND_LOCK_TIME,
       refundPublicKey: batchRefund.xOnlyPublicKey,
+      returnAddress: null,
+      scriptVersion: 1,
       status: "activated",
       title: "Test batch",
     });

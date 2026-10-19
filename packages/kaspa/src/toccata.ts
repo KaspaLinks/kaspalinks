@@ -214,9 +214,15 @@ export type ToccataBatchAllocatorLabOutput = {
 
 export type ToccataBatchAllocatorLabScriptInput = {
   activationPublicKey: string;
+  /**
+   * Auto-return drop (version 2): instead of a refund key, an unactivated
+   * allocator can only go back to this address after the lock time, minus at
+   * most the fee. Exactly one of `autoReturn` and `refundPublicKey` is given.
+   */
+  autoReturn?: { feeSompi: bigint | string; returnAddress: string };
   outputs: ToccataBatchAllocatorLabOutput[];
   refundLockTime: bigint | string;
-  refundPublicKey: string;
+  refundPublicKey?: string;
   /**
    * Rebuild an already registered drop for verification. Allows the larger legacy
    * sizes up to TOCCATA_BATCH_MAX_REGISTERED_OUTPUTS, which can only be refunded.
@@ -232,11 +238,16 @@ export type ToccataBatchAllocatorLabScript = {
   outputs: Array<{ amountSompi: string; scriptPublicKeyHex: string }>;
   redeemScriptHex: string;
   refundLockTime: string;
-  refundPublicKey: string;
+  /** Version 1 only. */
+  refundPublicKey: null | string;
+  /** Version 2 only: where an unactivated drop returns, and the most it may pay in fees. */
+  returnAddress: null | string;
+  returnFeeSompi: null | string;
   scriptPublicKey: {
     script: string;
     version: number;
   };
+  version: 1 | 2;
   warning: string;
 };
 
@@ -663,39 +674,17 @@ export function buildToccataClaimableAutoReturnScript(
   const returnScriptPublicKeyHex = buildKaspaAddressScriptPublicKeyHex(returnAddress, wasmModule);
 
   // claim(sig):  checkSig(sig, linkPk)
-  // return():    tx.lockTime >= refundAfter
-  //              && tx.inputs.length == 1 && tx.outputs.length == 1
-  //              && outputs[0].spk == returnSpk
-  //              && outputs[0].amount >= inputs[this].amount - fee
-  //
-  // One input only: two UTXOs of this address merged into one output could
-  // otherwise satisfy the amount check for the larger one and burn the rest.
+  // return():    see addKeylessReturnBranch
   const builder = new wasmModule.ScriptBuilder({ flags: { covenantsEnabled: true } });
   builder.addOp(wasmModule.Opcodes.OpIf);
   builder.addData(linkPublicKey);
   builder.addOp(wasmModule.Opcodes.OpCheckSig);
   builder.addOp(wasmModule.Opcodes.OpElse);
-  builder.addOp(wasmModule.Opcodes.OpTxLockTime);
-  builder.addLockTime(refundLockTime);
-  builder.addOp(wasmModule.Opcodes.OpGreaterThanOrEqual);
-  builder.addOp(wasmModule.Opcodes.OpVerify);
-  builder.addOp(wasmModule.Opcodes.OpTxInputCount);
-  builder.addI64(1n);
-  builder.addOp(wasmModule.Opcodes.OpNumEqualVerify);
-  builder.addOp(wasmModule.Opcodes.OpTxOutputCount);
-  builder.addI64(1n);
-  builder.addOp(wasmModule.Opcodes.OpNumEqualVerify);
-  builder.addI64(0n);
-  builder.addOp(wasmModule.Opcodes.OpTxOutputSpk);
-  builder.addData(returnScriptPublicKeyHex);
-  builder.addOp(wasmModule.Opcodes.OpEqualVerify);
-  builder.addI64(0n);
-  builder.addOp(wasmModule.Opcodes.OpTxOutputAmount);
-  builder.addOp(wasmModule.Opcodes.OpTxInputIndex);
-  builder.addOp(wasmModule.Opcodes.OpTxInputAmount);
-  builder.addI64(feeSompi);
-  builder.addOp(wasmModule.Opcodes.OpSub);
-  builder.addOp(wasmModule.Opcodes.OpGreaterThanOrEqual);
+  addKeylessReturnBranch(builder, wasmModule, {
+    feeSompi,
+    refundLockTime,
+    returnScriptPublicKeyHex,
+  });
   builder.addOp(wasmModule.Opcodes.OpEndIf);
 
   const redeemScriptHex = builder.toString();
@@ -733,7 +722,20 @@ export function buildToccataBatchAllocatorLabScript(
     input.activationPublicKey,
     "activationPublicKey",
   );
-  const refundPublicKey = normalizeXOnlyPublicKey(input.refundPublicKey, "refundPublicKey");
+  if ((input.autoReturn === undefined) === (input.refundPublicKey === undefined)) {
+    throw new Error("A batch allocator needs either a refund key or an auto-return address.");
+  }
+  const refundPublicKey =
+    input.refundPublicKey === undefined
+      ? null
+      : normalizeXOnlyPublicKey(input.refundPublicKey, "refundPublicKey");
+  const autoReturn =
+    input.autoReturn === undefined
+      ? null
+      : {
+          feeSompi: normalizeAutoReturnFee(input.autoReturn.feeSompi),
+          returnAddress: validateMainnetSpendAddress(input.autoReturn.returnAddress),
+        };
   const refundLockTime = normalizeRefundLockTime(input.refundLockTime);
   const outputs = normalizeBatchAllocatorOutputs(
     input.outputs,
@@ -767,12 +769,25 @@ export function buildToccataBatchAllocatorLabScript(
 
   builder.addOp(wasmModule.Opcodes.OpTrue);
   builder.addOp(wasmModule.Opcodes.OpElse);
-  builder.addOp(wasmModule.Opcodes.OpTxLockTime);
-  builder.addLockTime(refundLockTime);
-  builder.addOp(wasmModule.Opcodes.OpGreaterThanOrEqual);
-  builder.addOp(wasmModule.Opcodes.OpVerify);
-  builder.addData(refundPublicKey);
-  builder.addOp(wasmModule.Opcodes.OpCheckSig);
+  if (autoReturn) {
+    // Never activated: after the lock time anyone may send the whole UTXO back
+    // to the committed return address. No key exists that could redirect it.
+    addKeylessReturnBranch(builder, wasmModule, {
+      feeSompi: autoReturn.feeSompi,
+      refundLockTime,
+      returnScriptPublicKeyHex: buildKaspaAddressScriptPublicKeyHex(
+        autoReturn.returnAddress,
+        wasmModule,
+      ),
+    });
+  } else {
+    builder.addOp(wasmModule.Opcodes.OpTxLockTime);
+    builder.addLockTime(refundLockTime);
+    builder.addOp(wasmModule.Opcodes.OpGreaterThanOrEqual);
+    builder.addOp(wasmModule.Opcodes.OpVerify);
+    builder.addData(refundPublicKey!);
+    builder.addOp(wasmModule.Opcodes.OpCheckSig);
+  }
   builder.addOp(wasmModule.Opcodes.OpEndIf);
 
   const redeemScriptHex = builder.toString();
@@ -801,10 +816,49 @@ export function buildToccataBatchAllocatorLabScript(
     redeemScriptHex,
     refundLockTime: refundLockTime.toString(),
     refundPublicKey,
+    returnAddress: autoReturn?.returnAddress ?? null,
+    returnFeeSompi: autoReturn?.feeSompi.toString() ?? null,
     scriptPublicKey: scriptPublicKeyJson,
+    version: autoReturn ? 2 : 1,
     warning:
       "Experimental lab contract. The activation signature cannot change the committed child outputs. Use tiny mainnet amounts only.",
   };
+}
+
+// return():  tx.lockTime >= refundAfter
+//            && tx.inputs.length == 1 && tx.outputs.length == 1
+//            && outputs[0].spk == returnSpk
+//            && outputs[0].amount >= inputs[this].amount - fee
+//
+// One input only: two UTXOs of this address merged into one output could
+// otherwise satisfy the amount check for the larger one and burn the rest.
+// Shared by v2 claim links and auto-return Claim Drop allocators.
+function addKeylessReturnBranch(
+  builder: InstanceType<KaspaWasmModule["ScriptBuilder"]>,
+  wasmModule: KaspaWasmModule,
+  input: { feeSompi: bigint; refundLockTime: bigint; returnScriptPublicKeyHex: string },
+): void {
+  builder.addOp(wasmModule.Opcodes.OpTxLockTime);
+  builder.addLockTime(input.refundLockTime);
+  builder.addOp(wasmModule.Opcodes.OpGreaterThanOrEqual);
+  builder.addOp(wasmModule.Opcodes.OpVerify);
+  builder.addOp(wasmModule.Opcodes.OpTxInputCount);
+  builder.addI64(1n);
+  builder.addOp(wasmModule.Opcodes.OpNumEqualVerify);
+  builder.addOp(wasmModule.Opcodes.OpTxOutputCount);
+  builder.addI64(1n);
+  builder.addOp(wasmModule.Opcodes.OpNumEqualVerify);
+  builder.addI64(0n);
+  builder.addOp(wasmModule.Opcodes.OpTxOutputSpk);
+  builder.addData(input.returnScriptPublicKeyHex);
+  builder.addOp(wasmModule.Opcodes.OpEqualVerify);
+  builder.addI64(0n);
+  builder.addOp(wasmModule.Opcodes.OpTxOutputAmount);
+  builder.addOp(wasmModule.Opcodes.OpTxInputIndex);
+  builder.addOp(wasmModule.Opcodes.OpTxInputAmount);
+  builder.addI64(input.feeSompi);
+  builder.addOp(wasmModule.Opcodes.OpSub);
+  builder.addOp(wasmModule.Opcodes.OpGreaterThanOrEqual);
 }
 
 export function buildToccataClaimableLabSpend(
@@ -998,13 +1052,14 @@ export function buildToccataClaimableReturnSpend(
     }),
   );
 
-  // Branch selector only: OpFalse picks the return branch, no signature.
+  // Branch selector only: OpFalse picks the return branch, no signature. The
+  // covenant-aware encoder emits the same bytes as payToScriptHashSignatureScript
+  // but is not bound to the pre-Toccata 520-byte element limit (allocators).
   const innerScript = new wasmModule.ScriptBuilder({ flags: { covenantsEnabled: true } });
   innerScript.addOp(wasmModule.Opcodes.OpFalse);
-  const signatureScriptHex = wasmModule.payToScriptHashSignatureScript(
-    redeemScriptHex,
-    innerScript.drain(),
-  );
+  const signatureScriptHex = wasmModule.ScriptBuilder.fromScript(redeemScriptHex, {
+    flags: { covenantsEnabled: true },
+  }).encodePayToScriptHashSignatureScript(innerScript.drain());
   const transactionInput = transaction.inputs[0];
   if (!transactionInput) {
     throw new Error("Could not build the return input.");

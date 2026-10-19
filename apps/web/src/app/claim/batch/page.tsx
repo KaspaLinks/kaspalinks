@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { TOCCATA_BATCH_MAX_SAFE_OUTPUTS } from "@kaspa-actions/kaspa/toccata-constants";
 
+import { isClaimDropAutoReturnEnabled } from "@/lib/claimable-flags";
 import { isToccataBatchLabEnabled, readToccataLabCapabilities } from "@/lib/toccata-lab";
 
 import { BatchClaimableLabClient } from "../../toccata-lab/batch/BatchClaimableLabClient";
@@ -47,6 +48,7 @@ export default async function ClaimBatchPage({
 
   return (
     <BatchClaimableLabClient
+      autoReturnEnabled={isClaimDropAutoReturnEnabled()}
       capabilities={capabilities}
       enabled={isToccataBatchLabEnabled()}
       initialCount={parseInitialCount(query.count)}

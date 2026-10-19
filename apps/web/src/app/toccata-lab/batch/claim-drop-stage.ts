@@ -1,5 +1,9 @@
 import { isTerminalBatchChildStatus } from "@/lib/batch-claimable-state";
-import type { BatchRecoveryRecord } from "@/lib/batch-claimable-recovery";
+import {
+  isAutoReturnBatch,
+  isBatchRecoverySecured,
+  type BatchRecoveryRecord,
+} from "@/lib/batch-claimable-recovery";
 
 /**
  * The one thing a Claim Drop needs from its creator right now. The page shows
@@ -19,6 +23,8 @@ export type ClaimDropStage =
   | "share"
   /** The claim window ended with links still unclaimed. */
   | "refund_links"
+  /** Auto-return drop past its window: unclaimed KAS goes back without any action. */
+  | "returning"
   /** Every link is claimed or refunded, or the whole drop was refunded. */
   | "done";
 
@@ -30,15 +36,18 @@ type StageInput = {
 
 export function claimDropStage({ batch, expired }: StageInput): ClaimDropStage {
   const status = batch.activation.status;
+  const autoReturn = isAutoReturnBatch(batch);
   if (status === "refunded") return "done";
   if (status === "activated") {
     const open = batch.links.filter((link) => !isTerminalBatchChildStatus(link.status));
     if (open.length === 0) return "done";
-    return expired ? "refund_links" : "share";
+    if (!expired) return "share";
+    return autoReturn ? "returning" : "refund_links";
   }
-  if (!batch.recoveryExportedAt) return "save";
+  if (!isBatchRecoverySecured(batch)) return "save";
   if (status === "awaiting_funding") return "fund";
-  return expired ? "refund_unactivated" : "activate";
+  if (!expired) return "activate";
+  return autoReturn ? "returning" : "refund_unactivated";
 }
 
 export type ClaimDropProgress = {
@@ -59,18 +68,21 @@ export function claimDropProgress(batch: Pick<BatchRecoveryRecord, "links">): Cl
 export function claimLinkLabel(
   status: BatchRecoveryRecord["links"][number]["status"],
   expired: boolean | null,
+  /** Auto-return drops go back by themselves: nothing waits for a refund. */
+  autoReturn = false,
 ): string {
   switch (status) {
     case "awaiting_activation":
       return "Not active yet";
     case "funded":
-      return expired ? "Refundable" : "Ready";
+      if (!expired) return "Ready";
+      return autoReturn ? "Returning" : "Refundable";
     case "refundable":
-      return "Refundable";
+      return autoReturn ? "Returning" : "Refundable";
     case "claimed":
       return "Claimed";
     case "refunded":
-      return "Refunded";
+      return autoReturn ? "Returned" : "Refunded";
     case "spent":
     case "spent_unknown":
       return "Spent";

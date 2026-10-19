@@ -2,6 +2,7 @@ import { isClaimableFundingAddressEmpty } from "@/lib/claimable-onchain";
 import { prisma, AuditActorType, Network, Prisma } from "@kaspa-actions/db";
 
 import { writeAuditLog } from "@/lib/audit";
+import { isClaimDropAutoReturnEnabled } from "@/lib/claimable-flags";
 import { REGISTERED_TERMINAL_BATCH_CHILD_STATUSES } from "@/lib/batch-claimable-state";
 import {
   parseStoredClaimableBatchOutputs,
@@ -12,6 +13,7 @@ import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { isPrismaUniqueConstraintError } from "@/lib/prisma-errors";
 import {
+  createToccataClaimableAutoReturnScript,
   createToccataClaimableLabScript,
   registeredClaimableBatchInputSchema,
   ToccataLabSdkUnavailableError,
@@ -177,6 +179,10 @@ export async function POST(request: Request) {
     );
   }
 
+  if (canonical.scriptVersion === 2 && !isClaimDropAutoReturnEnabled()) {
+    return apiError(ErrorCodes.INVALID_STATE, "Auto-return Claim Drops are not enabled yet.", 409);
+  }
+
   const childLinks = await prisma.claimableLink.findMany({
     where: {
       creatorId: guard.creator.id,
@@ -192,14 +198,18 @@ export async function POST(request: Request) {
     );
   }
 
+  // An auto-return drop only commits v2 children that return to the drop's own
+  // return address; a classic drop only v1 children with their refund keys.
+  const autoReturn = canonical.scriptVersion === 2;
   const childByKey = new Map(childLinks.map((link) => [link.linkKey, link]));
   for (const output of canonical.outputs) {
     const child = childByKey.get(output.linkKey);
     if (
       !child ||
       child.amountSompi !== output.amountSompi ||
-      child.scriptVersion === 2 ||
-      !child.refundPublicKey
+      (autoReturn
+        ? child.scriptVersion !== 2 || child.returnAddress !== canonical.returnAddress
+        : child.scriptVersion === 2 || !child.refundPublicKey)
     ) {
       return apiError(
         ErrorCodes.INVALID_STATE,
@@ -207,11 +217,18 @@ export async function POST(request: Request) {
         409,
       );
     }
-    const childScript = createToccataClaimableLabScript({
-      linkPublicKey: child.claimPublicKey,
-      refundLockTime: child.refundLockTime,
-      refundPublicKey: child.refundPublicKey,
-    });
+    const childScript = autoReturn
+      ? createToccataClaimableAutoReturnScript({
+          feeSompi: child.feeSompi.toString(),
+          linkPublicKey: child.claimPublicKey,
+          refundLockTime: child.refundLockTime,
+          returnAddress: child.returnAddress!,
+        })
+      : createToccataClaimableLabScript({
+          linkPublicKey: child.claimPublicKey,
+          refundLockTime: child.refundLockTime,
+          refundPublicKey: child.refundPublicKey!,
+        });
     if (
       childScript.redeemScriptHex !== child.redeemScriptHex.toLowerCase() ||
       serializeScriptPublicKey(childScript.scriptPublicKey) !== output.scriptPublicKeyHex
@@ -240,6 +257,9 @@ export async function POST(request: Request) {
     redeemScriptHex: canonical.redeemScriptHex,
     refundLockTime: canonical.refundLockTime,
     refundPublicKey: canonical.refundPublicKey,
+    returnAddress: canonical.returnAddress,
+    returnFeeSompi: canonical.returnFeeSompi,
+    scriptVersion: canonical.scriptVersion,
     title: canonical.title,
   };
 
@@ -405,7 +425,9 @@ function sameManifest(
     fundingAmountSompi: bigint;
     redeemScriptHex: string;
     refundLockTime: string;
-    refundPublicKey: string;
+    refundPublicKey: null | string;
+    returnAddress: null | string;
+    scriptVersion: number;
   },
   immutable: {
     activationFeeSompi: bigint;
@@ -414,7 +436,9 @@ function sameManifest(
     fundingAmountSompi: bigint;
     redeemScriptHex: string;
     refundLockTime: string;
-    refundPublicKey: string;
+    refundPublicKey: null | string;
+    returnAddress: null | string;
+    scriptVersion: number;
   },
   outputs: StoredClaimableBatchOutput[],
 ): boolean {
@@ -426,6 +450,8 @@ function sameManifest(
     existing.redeemScriptHex === immutable.redeemScriptHex &&
     existing.refundLockTime === immutable.refundLockTime &&
     existing.refundPublicKey === immutable.refundPublicKey &&
+    existing.returnAddress === immutable.returnAddress &&
+    existing.scriptVersion === immutable.scriptVersion &&
     sameStoredOutputs(existing.expectedOutputs, outputs)
   );
 }

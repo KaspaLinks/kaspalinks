@@ -11,6 +11,7 @@ import { readCurrentMainnetDaaScore } from "@/lib/kaspa-daa";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import {
   broadcastToccataBatchActivationTransaction,
+  batchAllocatorRecoveryTerms,
   createToccataBatchAllocatorLabScript,
   isToccataBatchLabEnabled,
   readBatchActivationBroadcastSafeJsonSummary,
@@ -217,7 +218,9 @@ function validateSignedActivation(input: {
     fundingAmountSompi: bigint;
     redeemScriptHex: string;
     refundLockTime: string;
-    refundPublicKey: string;
+    refundPublicKey: null | string;
+    returnAddress: null | string;
+    returnFeeSompi: bigint | null;
   };
   expectedTransactionId: string;
   outputs: Array<{ amountSompi: string; scriptPublicKeyHex: string }>;
@@ -227,7 +230,7 @@ function validateSignedActivation(input: {
     activationPublicKey: input.batch.activationPublicKey,
     outputs: input.outputs,
     refundLockTime: input.batch.refundLockTime,
-    refundPublicKey: input.batch.refundPublicKey,
+    ...batchAllocatorRecoveryTerms(input.batch),
   });
   if (
     canonical.fundingAddress !== input.batch.fundingAddress ||

@@ -23,6 +23,54 @@ function batch(
   };
 }
 
+function autoReturnBatch(
+  status: "awaiting_funding" | "funded" | "activated" | "refunded",
+  links: LinkStatus[],
+) {
+  return {
+    activation: {
+      autoReturn: { feeSompi: "1000000", returnAddress: "kaspa:qexample" },
+      status,
+    } as never,
+    links: links.map((linkStatus) => ({ status: linkStatus })) as never,
+  };
+}
+
+describe("claimDropStage for auto-return drops", () => {
+  it("goes straight to payment: there is no recovery file to save", () => {
+    expect(
+      claimDropStage({
+        batch: autoReturnBatch("awaiting_funding", ["awaiting_activation", "awaiting_activation"]),
+        expired: false,
+      }),
+    ).toBe("fund");
+  });
+
+  it("never asks for a refund after the window: the KAS returns by itself", () => {
+    expect(
+      claimDropStage({
+        batch: autoReturnBatch("funded", ["awaiting_activation", "awaiting_activation"]),
+        expired: true,
+      }),
+    ).toBe("returning");
+    expect(
+      claimDropStage({ batch: autoReturnBatch("activated", ["claimed", "funded"]), expired: true }),
+    ).toBe("returning");
+    expect(
+      claimDropStage({
+        batch: autoReturnBatch("activated", ["claimed", "refunded"]),
+        expired: true,
+      }),
+    ).toBe("done");
+  });
+
+  it("labels unclaimed links as returning, not refundable", () => {
+    expect(claimLinkLabel("funded", true, true)).toBe("Returning");
+    expect(claimLinkLabel("refunded", true, true)).toBe("Returned");
+    expect(claimLinkLabel("funded", true)).toBe("Refundable");
+  });
+});
+
 describe("claimDropStage", () => {
   it("asks for the recovery file before anything else", () => {
     expect(

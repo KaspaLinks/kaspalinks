@@ -17,10 +17,16 @@ import {
 } from "@kaspa-actions/wallet-adapter";
 
 import { createToccataLabKeyPair } from "@/lib/toccata-lab-keys";
-import { KASPA_ADDRESS_INPUT_PROPS, thrownMessage } from "@/lib/kaspa-address-input";
+import {
+  KASPA_ADDRESS_INPUT_PROPS,
+  normalizeKaspaAddressInput,
+  thrownMessage,
+} from "@/lib/kaspa-address-input";
 import {
   assertBatchMatchesRecoveryTarget,
   createBatchRecoveryBundle,
+  isAutoReturnBatch,
+  isBatchRecoverySecured,
   parseBatchRecoveryBundle,
   readBatchRecoveryTarget,
   shortBatchReference,
@@ -93,6 +99,8 @@ type ScriptResponse = {
 const STORAGE_KEY = BATCH_CLAIMABLE_STORAGE_KEY;
 const MAX_BATCH_SIZE = TOCCATA_BATCH_MAX_SAFE_OUTPUTS;
 const BATCH_ACTIVATION_FEE_SOMPI = 1_000_000n;
+// Most an unactivated auto-return drop pays to come back (its allocator script is large).
+const BATCH_RETURN_FEE_SOMPI = 1_000_000n;
 // Claim and refund fee per link. Fixed rather than asked for: too low and a
 // link cannot be claimed, too high and the creator overpays.
 const feeKas = formatSompiForToccataLab(TOCCATA_CANARY_DEFAULT_FEE_SOMPI);
@@ -103,11 +111,14 @@ const EXISTING_BATCH_ERROR =
   "A local batch already exists. Export its recovery bundle and clear it before creating another.";
 
 export function BatchClaimableLabClient({
+  autoReturnEnabled = false,
   capabilities,
   enabled,
   initialCount = 2,
   mode = "create",
 }: {
+  /** New drops return unclaimed KAS by themselves: no refund keys, no recovery file. */
+  autoReturnEnabled?: boolean;
   capabilities: Capabilities;
   enabled: boolean;
   initialCount?: number;
@@ -130,6 +141,7 @@ export function BatchClaimableLabClient({
   const [fundingWithKasware, setFundingWithKasware] = useState(false);
   const [isTouchOnly, setIsTouchOnly] = useState<null | boolean>(null);
   const [refundAddress, setRefundAddress] = useState("");
+  const [dropReturnAddress, setDropReturnAddress] = useState("");
   const [showFundingQr, setShowFundingQr] = useState(false);
   const [title, setTitle] = useState("");
   const [showKaswareHelp, setShowKaswareHelp] = useState(false);
@@ -268,7 +280,7 @@ export function BatchClaimableLabClient({
   // Funding detection is only needed until the exact allocator output exists.
   // Later state changes are read from the registered batch endpoint below.
   useEffect(() => {
-    if (!batch || !batch.recoveryExportedAt || batch.activation.status !== "awaiting_funding")
+    if (!batch || !isBatchRecoverySecured(batch) || batch.activation.status !== "awaiting_funding")
       return;
 
     const tick = (quiet = true) => void checkFunding({ quiet });
@@ -287,7 +299,12 @@ export function BatchClaimableLabClient({
       window.removeEventListener("focus", checkWhenVisible);
       document.removeEventListener("visibilitychange", checkWhenVisible);
     };
-  }, [batch?.id, batch?.activation.status, batch?.recoveryExportedAt]);
+  }, [
+    batch?.id,
+    batch?.activation.status,
+    batch?.recoveryExportedAt,
+    batch?.activation.autoReturn,
+  ]);
 
   // Reconcile public server state after load/import/status changes. A funded
   // allocator is checked without rewriting unchanged browser-held recovery data.
@@ -366,6 +383,7 @@ export function BatchClaimableLabClient({
       allocatorScriptBytes > TOCCATA_P2SH_MAX_SCRIPT_ELEMENT_BYTES),
   );
   const stage = batch ? claimDropStage({ batch, expired: batchExpiry?.expired ?? null }) : null;
+  const autoReturnBatch = batch ? isAutoReturnBatch(batch) : false;
   const progress = batch ? claimDropProgress(batch) : null;
 
   // Once the payment is found, create the claim links without asking for a
@@ -507,18 +525,39 @@ export function BatchClaimableLabClient({
         throw new Error(`Net claim output must stay above ${spendPlan.minimumOutputKas} KAS.`);
       }
 
+      // Auto-return: no refund keys at all. Unclaimed KAS can only go back to
+      // this wallet, so there is no recovery file to save.
+      const autoReturn = autoReturnEnabled
+        ? {
+            feeSompi: BATCH_RETURN_FEE_SOMPI.toString(),
+            returnAddress: normalizeKaspaAddressInput(dropReturnAddress),
+          }
+        : undefined;
+      if (autoReturn && !autoReturn.returnAddress.startsWith("kaspa:")) {
+        throw new Error("Enter your own kaspa: wallet address for unclaimed KAS.");
+      }
       const keyPairs = Array.from({ length: linkCount }, () => ({
         claim: createToccataLabKeyPair(),
-        refund: createToccataLabKeyPair(),
+        refund: autoReturn ? null : createToccataLabKeyPair(),
       }));
       const scriptResponse = await fetch("/api/toccata-lab/batch-scripts", {
-        body: JSON.stringify({
-          links: keyPairs.map(({ claim, refund }) => ({
-            linkPublicKey: claim.xOnlyPublicKey,
-            refundPublicKey: refund.xOnlyPublicKey,
-          })),
-          refundLockTime: expiryPlan.refundLockTime.toString(),
-        }),
+        body: JSON.stringify(
+          autoReturn
+            ? {
+                feeSompi: spendPlan.feeSompi.toString(),
+                links: keyPairs.map(({ claim }) => ({ linkPublicKey: claim.xOnlyPublicKey })),
+                refundLockTime: expiryPlan.refundLockTime.toString(),
+                returnAddress: autoReturn.returnAddress,
+                version: 2,
+              }
+            : {
+                links: keyPairs.map(({ claim, refund }) => ({
+                  linkPublicKey: claim.xOnlyPublicKey,
+                  refundPublicKey: refund!.xOnlyPublicKey,
+                })),
+                refundLockTime: expiryPlan.refundLockTime.toString(),
+              },
+        ),
         headers: { "content-type": "application/json" },
         method: "POST",
       });
@@ -538,7 +577,7 @@ export function BatchClaimableLabClient({
       }
 
       const activation = createToccataLabKeyPair();
-      const batchRefund = createToccataLabKeyPair();
+      const batchRefund = autoReturn ? null : createToccataLabKeyPair();
       const allocatorResponse = await fetch("/api/toccata-lab/batch-allocator-script", {
         body: JSON.stringify({
           activationPublicKey: activation.xOnlyPublicKey,
@@ -547,7 +586,9 @@ export function BatchClaimableLabClient({
             scriptPublicKeyHex: serializeScriptPublicKey(script.scriptPublicKey),
           })),
           refundLockTime: expiryPlan.refundLockTime.toString(),
-          refundPublicKey: batchRefund.xOnlyPublicKey,
+          ...(autoReturn
+            ? { returnAddress: autoReturn.returnAddress, returnFeeSompi: autoReturn.feeSompi }
+            : { refundPublicKey: batchRefund!.xOnlyPublicKey }),
         }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -572,6 +613,7 @@ export function BatchClaimableLabClient({
           activationCode: activation.privateKey,
           activationFeeSompi: BATCH_ACTIVATION_FEE_SOMPI.toString(),
           activationPublicKey: activation.xOnlyPublicKey,
+          ...(autoReturn ? { autoReturn } : {}),
           fundingAddress: allocatorBody.allocator.fundingAddress,
           fundingAmountSompi: (
             spendPlan.utxoSompi * BigInt(linkCount) +
@@ -579,8 +621,9 @@ export function BatchClaimableLabClient({
           ).toString(),
           fundingMatch: null,
           redeemScriptHex: allocatorBody.allocator.redeemScriptHex,
-          refundCode: batchRefund.privateKey,
-          refundPublicKey: batchRefund.xOnlyPublicKey,
+          ...(batchRefund
+            ? { refundCode: batchRefund.privateKey, refundPublicKey: batchRefund.xOnlyPublicKey }
+            : {}),
           status: "awaiting_funding",
         },
         createdAt: createdAt.toISOString(),
@@ -599,9 +642,13 @@ export function BatchClaimableLabClient({
           id: `${batchId}-${String(index + 1).padStart(2, "0")}`,
           netClaimKas: spendPlan.netOutputKas,
           redeemScriptHex: script.redeemScriptHex,
-          refundCode: keyPairs[index]!.refund.privateKey,
           refundLockTime: expiryPlan.refundLockTime.toString(),
-          refundPublicKey: keyPairs[index]!.refund.xOnlyPublicKey,
+          ...(keyPairs[index]!.refund
+            ? {
+                refundCode: keyPairs[index]!.refund!.privateKey,
+                refundPublicKey: keyPairs[index]!.refund!.xOnlyPublicKey,
+              }
+            : {}),
           scriptPublicKeyHex: serializeScriptPublicKey(script.scriptPublicKey),
           status: "awaiting_activation",
           title: normalizedLinkTitles[index]!,
@@ -623,7 +670,9 @@ export function BatchClaimableLabClient({
       setShowKaswareHelp(false);
       setShowFundingQr(false);
       setNotice(
-        `Batch created locally. All private codes (activation + per-link claim/refund) stay in your browser. Fund the single allocator address, then create the child outputs.`,
+        autoReturn
+          ? "Claim Drop ready. The claim codes stay in this browser. Unclaimed KAS returns to your wallet by itself."
+          : `Batch created locally. All private codes (activation + per-link claim/refund) stay in your browser. Fund the single allocator address, then create the child outputs.`,
       );
     } catch (createError) {
       const message = friendlyBatchError(createError, "Could not create the batch.");
@@ -835,7 +884,11 @@ export function BatchClaimableLabClient({
   }
 
   function openBatchFundingWallet() {
-    if (!batchFundingWalletUri || !batch?.batchManifestRegisteredAt || !batch.recoveryExportedAt)
+    if (
+      !batchFundingWalletUri ||
+      !batch?.batchManifestRegisteredAt ||
+      !isBatchRecoverySecured(batch)
+    )
       return;
     setError("");
     setShowKaswareHelp(false);
@@ -850,7 +903,7 @@ export function BatchClaimableLabClient({
   async function fundBatchWithKasware() {
     if (
       !batch?.batchManifestRegisteredAt ||
-      !batch.recoveryExportedAt ||
+      !isBatchRecoverySecured(batch) ||
       batch.activation.status !== "awaiting_funding"
     )
       return;
@@ -945,7 +998,7 @@ export function BatchClaimableLabClient({
   }
 
   async function copyBatchFundingAddress() {
-    if (!batch?.batchManifestRegisteredAt || !batch.recoveryExportedAt) return;
+    if (!batch?.batchManifestRegisteredAt || !isBatchRecoverySecured(batch)) return;
     try {
       await navigator.clipboard.writeText(batch.activation.fundingAddress);
       setError("");
@@ -974,7 +1027,7 @@ export function BatchClaimableLabClient({
       batchActionInFlight.current
     )
       return;
-    if (!currentBatch.recoveryExportedAt) {
+    if (!isBatchRecoverySecured(currentBatch)) {
       setError("Download the private recovery bundle before creating claim outputs.");
       return;
     }
@@ -1076,6 +1129,11 @@ export function BatchClaimableLabClient({
       batchActionInFlight.current
     )
       return;
+    if (!currentBatch.activation.refundCode) {
+      setError("This drop has no refund key. Unclaimed KAS returns to your wallet by itself.");
+      return;
+    }
+    const refundCode = currentBatch.activation.refundCode;
     // Refunds also work for the legacy 10-link drop: only activation is out of reach.
     const creatorHeaders = readCreatorAuthHeaders();
     if (!creatorHeaders) {
@@ -1097,7 +1155,7 @@ export function BatchClaimableLabClient({
         fundingTransactionId: currentBatch.activation.fundingMatch.transactionId,
         lockTime: refundLockTime,
         mode: "refund",
-        privateKey: currentBatch.activation.refundCode,
+        privateKey: refundCode,
         redeemScriptHex: currentBatch.activation.redeemScriptHex,
       });
       const response = await fetch("/api/toccata-lab/batch-refund", {
@@ -1136,6 +1194,11 @@ export function BatchClaimableLabClient({
   async function recoverUnexpectedBatchFunding(output: UnmatchedFundingOutput) {
     const currentBatch = batchRef.current;
     if (!currentBatch || batchExpiry?.expired !== true) return;
+    if (!currentBatch.activation.refundCode) {
+      setError("This payment returns to your wallet by itself after the claim window.");
+      return;
+    }
+    const refundCode = currentBatch.activation.refundCode;
     const creatorHeaders = readCreatorAuthHeaders();
     if (!creatorHeaders) {
       setError("Sign in again before recovering this payment.");
@@ -1162,7 +1225,7 @@ export function BatchClaimableLabClient({
         fundingTransactionId: output.transactionId,
         lockTime: refundLockTime,
         mode: "refund",
-        privateKey: currentBatch.activation.refundCode,
+        privateKey: refundCode,
         redeemScriptHex: currentBatch.activation.redeemScriptHex,
       });
       const response = await fetch("/api/toccata-lab/batch-refund", {
@@ -1324,7 +1387,7 @@ export function BatchClaimableLabClient({
   async function clearLocalBatch() {
     if (!batch) return;
     setError("");
-    if (!batch.recoveryExportedAt && batch.batchManifestRegisteredAt) {
+    if (!isBatchRecoverySecured(batch) && batch.batchManifestRegisteredAt) {
       try {
         const response = await fetch("/api/toccata-lab/funding-status", {
           body: JSON.stringify({
@@ -1404,9 +1467,11 @@ export function BatchClaimableLabClient({
           <p>
             {stage === "done"
               ? "Nothing is left to claim or refund. This removes its local copy so you can start a new drop."
-              : "This deletes its private recovery data here. Nothing changes on-chain. Keep a downloaded recovery file to get unclaimed KAS back later."}
+              : isAutoReturnBatch(batch)
+                ? "This deletes the claim links stored here, so links you have not shared yet are lost. Nothing changes on-chain: unclaimed KAS still returns to your wallet by itself."
+                : "This deletes its private recovery data here. Nothing changes on-chain. Keep a downloaded recovery file to get unclaimed KAS back later."}
           </p>
-          {!batch.recoveryExportedAt &&
+          {!isBatchRecoverySecured(batch) &&
           (batch.activation.status === "funded" || batch.activation.status === "activated") ? (
             <p className="notice notice-critical">
               This batch is funded or active. Download the recovery bundle first; clearing is
@@ -2084,9 +2149,29 @@ export function BatchClaimableLabClient({
                   </select>
                 </div>
               </div>
-              <p className="muted batch-drop-hint">
-                Links still unclaimed after this can be refunded to you.
-              </p>
+              {autoReturnEnabled ? (
+                <div>
+                  <label className="label" htmlFor="batch-return-address">
+                    Your wallet address
+                  </label>
+                  <input
+                    id="batch-return-address"
+                    {...KASPA_ADDRESS_INPUT_PROPS}
+                    onChange={(event) => setDropReturnAddress(event.target.value)}
+                    placeholder="kaspa:your-own-wallet-address"
+                    required
+                    value={dropReturnAddress}
+                  />
+                  <p className="muted batch-drop-hint">
+                    Links still unclaimed after this go back here automatically. Use your own
+                    wallet, not an exchange deposit address. No recovery file needed.
+                  </p>
+                </div>
+              ) : (
+                <p className="muted batch-drop-hint">
+                  Links still unclaimed after this can be refunded to you.
+                </p>
+              )}
 
               <details className="batch-drop-options">
                 <summary>More options: link names, description</summary>
@@ -2162,12 +2247,15 @@ export function BatchClaimableLabClient({
                 {progress.total} links · {batch.links[0]?.netClaimKas} KAS each
                 {stage === "share" && batchExpiry?.remainingLabel
                   ? ` · claim window ends in about ${batchExpiry.remainingLabel}`
-                  : stage === "refund_links"
+                  : stage === "refund_links" || stage === "returning"
                     ? " · claim window ended"
                     : ""}
               </p>
             </div>
-            {stage === "share" || stage === "refund_links" || stage === "done" ? (
+            {stage === "share" ||
+            stage === "refund_links" ||
+            stage === "done" ||
+            (stage === "returning" && batch.activation.status === "activated") ? (
               <strong className="batch-drop-progress">
                 {progress.claimed} of {progress.total} claimed
               </strong>
@@ -2175,17 +2263,24 @@ export function BatchClaimableLabClient({
           </header>
 
           <ol className="studio-steps batch-drop-steps" aria-label="Claim drop progress">
-            {(["Save recovery", "Pay", "Create links", "Share"] as const).map((label, index) => {
-              const current =
+            {(autoReturnBatch
+              ? (["Pay", "Create links", "Share"] as const)
+              : (["Save recovery", "Pay", "Create links", "Share"] as const)
+            ).map((label, index) => {
+              const step =
                 stage === "save"
                   ? 0
                   : stage === "fund"
                     ? 1
-                    : stage === "activate" || stage === "refund_unactivated"
+                    : stage === "activate" ||
+                        stage === "refund_unactivated" ||
+                        (stage === "returning" && batch.activation.status !== "activated")
                       ? 2
                       : stage === "done"
                         ? 4
                         : 3;
+              // Auto-return drops have no "Save recovery" step.
+              const current = autoReturnBatch ? step - 1 : step;
               return (
                 <li
                   className={index < current ? "is-done" : index === current ? "is-current" : ""}
@@ -2209,7 +2304,17 @@ export function BatchClaimableLabClient({
                 This batch still expects exactly {batchFundingAmountKas} KAS. Do not send the
                 difference: separate UTXOs are not combined and cannot activate the batch.
               </p>
-              {batchExpiry?.expired ? (
+              {autoReturnBatch ? (
+                <p>
+                  Each unexpected payment goes back to{" "}
+                  {shortAddress(batch.activation.autoReturn?.returnAddress ?? "")} by itself after
+                  the claim window
+                  {batchExpiry?.remainingLabel && !batchExpiry.expired
+                    ? ` (in about ${batchExpiry.remainingLabel})`
+                    : ""}
+                  . Nothing to sign.
+                </p>
+              ) : batchExpiry?.expired ? (
                 <>
                   <label className="label" htmlFor="unexpected-batch-refund-address">
                     Your Kaspa refund address
@@ -2259,24 +2364,26 @@ export function BatchClaimableLabClient({
                       >
                         View transaction
                       </a>
-                      <button
-                        className="btn"
-                        disabled={
-                          !batchExpiry?.expired ||
-                          !recoverable ||
-                          !refundConfirmed ||
-                          refundAddress.trim().length === 0 ||
-                          recoveringOutputId !== ""
-                        }
-                        onClick={() => void recoverUnexpectedBatchFunding(output)}
-                        type="button"
-                      >
-                        {recoveringOutputId === outputId
-                          ? "Recovering..."
-                          : batchExpiry?.expired
-                            ? "Recover payment"
-                            : "Recover after expiry"}
-                      </button>
+                      {autoReturnBatch ? null : (
+                        <button
+                          className="btn"
+                          disabled={
+                            !batchExpiry?.expired ||
+                            !recoverable ||
+                            !refundConfirmed ||
+                            refundAddress.trim().length === 0 ||
+                            recoveringOutputId !== ""
+                          }
+                          onClick={() => void recoverUnexpectedBatchFunding(output)}
+                          type="button"
+                        >
+                          {recoveringOutputId === outputId
+                            ? "Recovering..."
+                            : batchExpiry?.expired
+                              ? "Recover payment"
+                              : "Recover after expiry"}
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -2331,7 +2438,7 @@ export function BatchClaimableLabClient({
                     disabled={
                       generating ||
                       !batch.batchManifestRegisteredAt ||
-                      !batch.recoveryExportedAt ||
+                      !isBatchRecoverySecured(batch) ||
                       batch.activation.status !== "awaiting_funding"
                     }
                     onClick={openBatchFundingWallet}
@@ -2345,7 +2452,7 @@ export function BatchClaimableLabClient({
                     disabled={
                       generating ||
                       !batch.batchManifestRegisteredAt ||
-                      !batch.recoveryExportedAt ||
+                      !isBatchRecoverySecured(batch) ||
                       fundingWithKasware ||
                       batch.activation.status !== "awaiting_funding"
                     }
@@ -2357,7 +2464,7 @@ export function BatchClaimableLabClient({
                 )}
                 <button
                   className="btn"
-                  disabled={!batch.batchManifestRegisteredAt || !batch.recoveryExportedAt}
+                  disabled={!batch.batchManifestRegisteredAt || !isBatchRecoverySecured(batch)}
                   onClick={() => void copyBatchFundingAddress()}
                   type="button"
                 >
@@ -2366,7 +2473,7 @@ export function BatchClaimableLabClient({
                 <button
                   aria-expanded={showFundingQr}
                   className="btn"
-                  disabled={!batch.batchManifestRegisteredAt || !batch.recoveryExportedAt}
+                  disabled={!batch.batchManifestRegisteredAt || !isBatchRecoverySecured(batch)}
                   onClick={() => setShowFundingQr((current) => !current)}
                   type="button"
                 >
@@ -2493,7 +2600,24 @@ export function BatchClaimableLabClient({
             </div>
           ) : null}
 
-          {stage === "share" || stage === "refund_links" || stage === "done" ? (
+          {stage === "returning" ? (
+            <div className="batch-drop-card" aria-live="polite">
+              <strong>Unclaimed KAS is on its way back</strong>
+              <p className="muted">
+                The claim window ended.{" "}
+                {batch.activation.status === "activated"
+                  ? `${progress.open} unclaimed ${progress.open === 1 ? "link goes" : "links go"}`
+                  : "The whole drop goes"}{" "}
+                back to {shortAddress(batch.activation.autoReturn?.returnAddress ?? "")} within a
+                few minutes. Nothing to sign, and you can close this page.
+              </p>
+            </div>
+          ) : null}
+
+          {stage === "share" ||
+          stage === "refund_links" ||
+          stage === "done" ||
+          (stage === "returning" && batch.activation.status === "activated") ? (
             <div className="batch-lab-link-section" id="batch-created-links">
               {stage === "share" ? (
                 <div className="batch-drop-share-actions">
@@ -2540,7 +2664,11 @@ export function BatchClaimableLabClient({
                       <span className={`batch-lab-link-status is-${link.status}`}>
                         {link.hidden && shareable
                           ? "Not shared"
-                          : claimLinkLabel(link.status, batchExpiry?.expired ?? null)}
+                          : claimLinkLabel(
+                              link.status,
+                              batchExpiry?.expired ?? null,
+                              autoReturnBatch,
+                            )}
                       </span>
 
                       {shareable && claimUrl ? (
@@ -2621,7 +2749,7 @@ export function BatchClaimableLabClient({
                 {batch.activation.status === "refunded"
                   ? "This drop was refunded to your wallet"
                   : progress.refunded > 0
-                    ? `Finished · ${progress.claimed} claimed, ${progress.refunded} refunded`
+                    ? `Finished · ${progress.claimed} claimed, ${progress.refunded} ${autoReturnBatch ? "returned" : "refunded"}`
                     : "Finished · every link was claimed"}
               </strong>
               <button
@@ -2638,7 +2766,7 @@ export function BatchClaimableLabClient({
             <summary>More</summary>
             <div className="batch-lab-actions">
               <button className="btn" onClick={() => void downloadRecoveryFile()} type="button">
-                Download recovery file
+                {isAutoReturnBatch(batch) ? "Back up the claim links" : "Download recovery file"}
               </button>
               <button
                 className="btn"
@@ -2652,7 +2780,7 @@ export function BatchClaimableLabClient({
                   Download links as CSV
                 </button>
               ) : null}
-              {batch.recoveryExportedAt ? (
+              {isBatchRecoverySecured(batch) ? (
                 <button className="btn" onClick={downloadFundingPlan} type="button">
                   Download funding plan
                 </button>
@@ -2674,6 +2802,11 @@ export function BatchClaimableLabClient({
   );
 }
 
+function shortAddress(address: string): string {
+  if (!address) return "your wallet";
+  return address.length > 26 ? `${address.slice(0, 16)}…${address.slice(-6)}` : address;
+}
+
 function isBatchLinkTerminal(status: BatchLink["status"]): boolean {
   return isTerminalBatchChildStatus(status);
 }
@@ -2693,7 +2826,10 @@ function readCreatorAuthHeaders(): Record<string, string> | null {
   };
 }
 
-async function registerBatchClaimableLink(link: BatchLink): Promise<void> {
+async function registerBatchClaimableLink(
+  link: BatchLink,
+  autoReturn: BatchRecord["activation"]["autoReturn"],
+): Promise<void> {
   const headers = readCreatorAuthHeaders();
   if (!headers) throw new Error("Creator session is required to register batch links.");
   const response = await fetch("/api/creator/claimable-links", {
@@ -2706,7 +2842,9 @@ async function registerBatchClaimableLink(link: BatchLink): Promise<void> {
       linkKey: link.id,
       redeemScriptHex: link.redeemScriptHex,
       refundLockTime: link.refundLockTime,
-      refundPublicKey: link.refundPublicKey,
+      ...(autoReturn
+        ? { returnAddress: autoReturn.returnAddress, scriptVersion: 2 }
+        : { refundPublicKey: link.refundPublicKey }),
       title: link.title,
     }),
     headers,
@@ -2719,7 +2857,8 @@ async function registerBatchClaimableLink(link: BatchLink): Promise<void> {
 }
 
 async function registerAllBatchLinks(batch: BatchRecord): Promise<void> {
-  for (const link of batch.links) await registerBatchClaimableLink(link);
+  const autoReturn = batch.activation.autoReturn;
+  for (const link of batch.links) await registerBatchClaimableLink(link, autoReturn);
   const headers = readCreatorAuthHeaders();
   if (!headers) throw new Error("Creator session is required to register the batch manifest.");
   const refundLockTime = batch.links[0]?.refundLockTime;
@@ -2738,7 +2877,9 @@ async function registerAllBatchLinks(batch: BatchRecord): Promise<void> {
       })),
       redeemScriptHex: batch.activation.redeemScriptHex,
       refundLockTime,
-      refundPublicKey: batch.activation.refundPublicKey,
+      ...(autoReturn
+        ? { returnAddress: autoReturn.returnAddress, returnFeeSompi: autoReturn.feeSompi }
+        : { refundPublicKey: batch.activation.refundPublicKey }),
       title: batch.title,
     }),
     headers,

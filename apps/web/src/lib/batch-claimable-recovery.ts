@@ -28,9 +28,10 @@ const batchLinkSchema = z.object({
   id: z.string().min(1).max(120),
   netClaimKas: z.string().min(1).max(40),
   redeemScriptHex: z.string().regex(/^[0-9a-f]+$/i),
-  refundCode: hex32Schema,
+  // Classic drops only. Auto-return drops have no refund keys at all.
+  refundCode: hex32Schema.optional(),
   refundLockTime: nonNegativeIntegerSchema,
-  refundPublicKey: hex32Schema,
+  refundPublicKey: hex32Schema.optional(),
   scriptPublicKeyHex: z.string().regex(/^[0-9a-f]+$/i),
   status: z.enum([
     "awaiting_activation",
@@ -49,12 +50,19 @@ export const batchRecordSchema = z.object({
     activationCode: hex32Schema,
     activationPublicKey: hex32Schema,
     activationFeeSompi: positiveIntegerSchema,
+    // Auto-return drop: unclaimed or unactivated KAS goes back here by itself.
+    autoReturn: z
+      .object({
+        feeSompi: positiveIntegerSchema,
+        returnAddress: z.string().startsWith("kaspa:").max(128),
+      })
+      .optional(),
     fundingAddress: z.string().startsWith("kaspa:").max(128),
     fundingAmountSompi: positiveIntegerSchema,
     fundingMatch: fundingMatchSchema.nullable(),
     redeemScriptHex: z.string().regex(/^[0-9a-f]+$/i),
-    refundCode: hex32Schema,
-    refundPublicKey: hex32Schema,
+    refundCode: hex32Schema.optional(),
+    refundPublicKey: hex32Schema.optional(),
     status: z.enum(["awaiting_funding", "funded", "activated", "refunded"]),
   }),
   createdAt: z.string().datetime(),
@@ -81,6 +89,18 @@ const recoveryBundleSchema = z.object({
 });
 
 export type BatchRecoveryRecord = z.infer<typeof batchRecordSchema>;
+
+/** An auto-return drop needs no recovery file: no refund key exists to lose. */
+export function isAutoReturnBatch(batch: Pick<BatchRecoveryRecord, "activation">): boolean {
+  return batch.activation.autoReturn !== undefined;
+}
+
+/** Whether a drop may be funded: its refund keys are saved, or it has none. */
+export function isBatchRecoverySecured(
+  batch: Pick<BatchRecoveryRecord, "activation" | "recoveryExportedAt">,
+): boolean {
+  return isAutoReturnBatch(batch) || Boolean(batch.recoveryExportedAt);
+}
 export type BatchRecoveryBundle = z.infer<typeof recoveryBundleSchema>;
 export type BatchRecoveryTarget = { batchKey: string; title: string };
 
@@ -163,9 +183,25 @@ function assertRecoveryKeysMatch(batch: BatchRecoveryRecord): void {
   ) {
     throw new Error("Recovery file activation key does not match its public key.");
   }
+  const autoReturn = isAutoReturnBatch(batch);
+  const refundKeys = [batch.activation, ...batch.links];
   if (
-    deriveToccataLabKeyPair(batch.activation.refundCode).xOnlyPublicKey !==
-    batch.activation.refundPublicKey.toLowerCase()
+    refundKeys.some((holder) =>
+      autoReturn
+        ? holder.refundCode !== undefined || holder.refundPublicKey !== undefined
+        : holder.refundCode === undefined || holder.refundPublicKey === undefined,
+    )
+  ) {
+    throw new Error(
+      autoReturn
+        ? "Recovery file mixes refund keys into an auto-return drop."
+        : "Recovery file is missing a refund key.",
+    );
+  }
+  if (
+    !autoReturn &&
+    deriveToccataLabKeyPair(batch.activation.refundCode!).xOnlyPublicKey !==
+      batch.activation.refundPublicKey!.toLowerCase()
   ) {
     throw new Error("Recovery file batch refund key does not match its public key.");
   }
@@ -177,7 +213,9 @@ function assertRecoveryKeysMatch(batch: BatchRecoveryRecord): void {
       throw new Error(`Recovery key for “${link.title}” does not match its public key.`);
     }
     if (
-      deriveToccataLabKeyPair(link.refundCode).xOnlyPublicKey !== link.refundPublicKey.toLowerCase()
+      !autoReturn &&
+      deriveToccataLabKeyPair(link.refundCode!).xOnlyPublicKey !==
+        link.refundPublicKey!.toLowerCase()
     ) {
       throw new Error(`Refund key for “${link.title}” does not match its public key.`);
     }
@@ -185,8 +223,11 @@ function assertRecoveryKeysMatch(batch: BatchRecoveryRecord): void {
 
   const privateCodes = [
     batch.activation.activationCode,
-    batch.activation.refundCode,
-    ...batch.links.flatMap((link) => [link.claimCode, link.refundCode]),
+    ...(batch.activation.refundCode ? [batch.activation.refundCode] : []),
+    ...batch.links.flatMap((link) => [
+      link.claimCode,
+      ...(link.refundCode ? [link.refundCode] : []),
+    ]),
   ];
   if (new Set(privateCodes.map((value) => value.toLowerCase())).size !== privateCodes.length) {
     throw new Error("Recovery file reuses a private code across multiple contract roles.");

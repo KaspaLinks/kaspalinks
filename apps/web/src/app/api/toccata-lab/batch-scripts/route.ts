@@ -2,6 +2,7 @@ import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import {
+  createToccataClaimableAutoReturnScript,
   createToccataClaimableLabScript,
   isToccataBatchLabEnabled,
   ToccataLabSdkUnavailableError,
@@ -38,12 +39,24 @@ export async function POST(request: Request) {
     );
   }
 
+  const input = parsed.data;
   try {
     return apiJson({
-      scripts: parsed.data.links.map((link) =>
-        createToccataClaimableLabScript({ ...link, refundLockTime: parsed.data.refundLockTime }),
-      ),
-      warning: "Only public keys were received. Claim and refund codes remain in this browser.",
+      // v2: keyless return to one address, so no refund code exists anywhere.
+      scripts:
+        "version" in input
+          ? input.links.map((link) =>
+              createToccataClaimableAutoReturnScript({
+                feeSompi: input.feeSompi,
+                linkPublicKey: link.linkPublicKey,
+                refundLockTime: input.refundLockTime,
+                returnAddress: input.returnAddress,
+              }),
+            )
+          : input.links.map((link) =>
+              createToccataClaimableLabScript({ ...link, refundLockTime: input.refundLockTime }),
+            ),
+      warning: "Only public keys were received. Claim codes remain in this browser.",
     });
   } catch (error) {
     if (error instanceof ToccataLabSdkUnavailableError) {

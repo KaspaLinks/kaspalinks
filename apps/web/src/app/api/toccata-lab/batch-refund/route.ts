@@ -55,6 +55,13 @@ export async function POST(request: Request) {
     },
   });
   if (!batch) return apiError(ErrorCodes.NOT_FOUND, "Registered claimable batch not found.", 404);
+  if (batch.scriptVersion === 2 || !batch.refundPublicKey) {
+    return apiError(
+      ErrorCodes.INVALID_STATE,
+      "This Claim Drop has no refund key. Unclaimed KAS returns to your wallet automatically after it expires.",
+      409,
+    );
+  }
 
   let summary: ReturnType<typeof readClaimableBroadcastSafeJsonSummary>;
   let mismatchRecovery: boolean;

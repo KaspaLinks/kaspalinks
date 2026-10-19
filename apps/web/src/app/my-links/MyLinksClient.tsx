@@ -3542,20 +3542,30 @@ export function MyLinksClient() {
                                 expired ? "status-expired" : claimableStatusPillClass(record.status)
                               }`}
                             >
-                              {expired ? "Ready to refund" : humanClaimableStatus(record.status)}
+                              {expired
+                                ? record.autoReturn
+                                  ? "Returning"
+                                  : "Ready to refund"
+                                : record.autoReturn && record.status === "refunded"
+                                  ? "Returned"
+                                  : humanClaimableStatus(record.status)}
                             </span>
                           </div>
                           <p className="muted claimable-mylinks-meta">
                             <strong>{record.netClaimKas} KAS claim</strong>
                             {record.status === "refunded" ? (
-                              <span>Refund completed</span>
+                              <span>
+                                {record.autoReturn ? "Back in your wallet" : "Refund completed"}
+                              </span>
                             ) : record.status === "claimed" ? (
                               <span>Claim completed</span>
                             ) : record.status === "spent_unknown" ? (
                               <span>Output spent on-chain</span>
                             ) : expired ? (
                               <span className="claimable-mylinks-expired">
-                                Claim window closed · refund available
+                                {record.autoReturn
+                                  ? "Claim window closed · returning to your wallet"
+                                  : "Claim window closed · refund available"}
                               </span>
                             ) : expiry ? (
                               <span>
@@ -3569,8 +3579,9 @@ export function MyLinksClient() {
                           </p>
                           {expired ? (
                             <p className="claimable-mylinks-expiry-notice">
-                              This link can no longer be claimed. The locked KAS are ready to refund
-                              with your private refund link.
+                              {record.autoReturn
+                                ? "This link can no longer be claimed. The KAS go back to your wallet by themselves within a few minutes; nothing to do."
+                                : "This link can no longer be claimed. The locked KAS are ready to refund with your private refund link."}
                             </p>
                           ) : null}
                           {privateRecoveryMissing ? (
@@ -3785,6 +3796,9 @@ export function MyLinksClient() {
                 const claimedCount = group.records.filter(
                   (record) => record.status === "claimed",
                 ).length;
+                // Auto-return drops go back by themselves: "returning", not "refundable".
+                const groupAutoReturn =
+                  group.records.length > 0 && group.records.every((record) => record.autoReturn);
                 const refundableCount = group.records.filter((record) => {
                   if (isClaimableTerminal(record.status)) return false;
                   const expiry = estimateClaimableExpiry({
@@ -3878,10 +3892,14 @@ export function MyLinksClient() {
                           {availableCount > 0 ? <span>{availableCount} available</span> : null}
                           {claimedCount > 0 ? <span>{claimedCount} claimed</span> : null}
                           {refundableCount > 0 ? (
-                            <span className="is-warning">{refundableCount} refundable</span>
+                            <span className="is-warning">
+                              {refundableCount} {groupAutoReturn ? "returning" : "refundable"}
+                            </span>
                           ) : null}
                           {refundedCount > 0 ? (
-                            <span className="is-refunded">{refundedCount} refunded</span>
+                            <span className="is-refunded">
+                              {refundedCount} {groupAutoReturn ? "returned" : "refunded"}
+                            </span>
                           ) : null}
                           {spentUnknownCount > 0 ? (
                             <span>{spentUnknownCount} spent on-chain</span>

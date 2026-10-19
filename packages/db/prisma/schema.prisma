@@ -561,8 +561,13 @@ model ClaimableBatch {
   batchKey              String   @unique
   title                 String
   activationPublicKey   String
-  refundPublicKey       String
+  // v1 only. v2 drops have no refund key: an unactivated allocator returns to returnAddress.
+  refundPublicKey       String?
   refundLockTime        String
+  // 1 = refund needs the creator's refund keys; 2 = keyless auto-return (children are v2 links).
+  scriptVersion         Int      @default(1)
+  returnAddress         String?
+  returnFeeSompi        BigInt?
   fundingAddress        String
   fundingAmountSompi    BigInt
   activationFeeSompi    BigInt
@@ -583,6 +588,7 @@ model ClaimableBatch {
   @@index([creatorId])
   @@index([status])
   @@index([fundingAddress])
+  @@index([scriptVersion, status])
 }
 
 // Lab-only, non-custodial giveaway registration. The server stores public

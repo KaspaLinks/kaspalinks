@@ -246,6 +246,28 @@ describe("POST /api/toccata-lab/batch-refund", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("has nothing to sign for an auto-return drop", async () => {
+    vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
+    vi.stubEnv("TOCCATA_BATCH_LAB_ENABLED", "true");
+    mockPrisma.claimableBatch.findUnique.mockResolvedValueOnce({
+      ...registeredBatch(),
+      refundPublicKey: null,
+      returnAddress: "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j",
+      returnFeeSompi: 1_000_000n,
+      scriptVersion: 2,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: expect.stringContaining("automatically") },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects a refund while batch activation is pending", async () => {
     vi.stubEnv("TOCCATA_LAB_ENABLED", "true");
     vi.stubEnv("TOCCATA_BATCH_LAB_ENABLED", "true");

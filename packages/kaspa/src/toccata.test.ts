@@ -145,6 +145,112 @@ describe("Toccata SDK capabilities", () => {
     ).toThrow("between 2 and 8 committed outputs");
   });
 
+  describe("auto-return Claim Drop allocator (v2)", () => {
+    const returnAddress = "kaspa:qrpuhc8c998cdp4fkgjljspuwtetvjhy022k0a00da4dxh3kkz89qa96gge5r";
+    const activationPublicKey = "bb14a257083f78158e5f69ab772e4608353a7f102198ebf8d85cc98326e29e72";
+    const eightChildren = Array.from({ length: 8 }, (_, index) =>
+      buildToccataClaimableAutoReturnScript({
+        feeSompi: "200000",
+        linkPublicKey: (index + 1).toString(16).padStart(2, "0").repeat(32),
+        refundLockTime: "123456789",
+        returnAddress,
+      }),
+    );
+    const outputs = eightChildren.map((child) => ({
+      amountSompi: "100200000",
+      scriptPublicKeyHex: `${child.scriptPublicKey.version.toString(16).padStart(4, "0")}${child.scriptPublicKey.script}`,
+    }));
+    const autoReturn = { feeSompi: "1000000", returnAddress };
+
+    it("replaces the refund key with a keyless return and stays spendable at 8 links", () => {
+      const allocator = buildToccataBatchAllocatorLabScript({
+        activationPublicKey,
+        autoReturn,
+        outputs,
+        refundLockTime: "123456789",
+      });
+      const returnSpk = buildKaspaAddressScriptPublicKeyHex(returnAddress);
+
+      expect(allocator).toMatchObject({
+        outputCount: 8,
+        refundPublicKey: null,
+        returnAddress,
+        returnFeeSompi: "1000000",
+        version: 2,
+      });
+      expect(allocator.redeemScriptHex).toContain(returnSpk);
+      expect(allocator.redeemScriptHex.endsWith("94a268")).toBe(true); // OpSub OpGreaterThanOrEqual OpEndIf
+      expect(allocator.redeemScriptHex.length / 2).toBeLessThanOrEqual(520);
+      // Same committed children, different recovery terms: different addresses.
+      const classic = buildToccataBatchAllocatorLabScript({
+        activationPublicKey,
+        outputs,
+        refundLockTime: "123456789",
+        refundPublicKey: "1730fc2b967d30f6854d7e7e45b70f63153c51c46f2048a92b45fdd74be5bb8c",
+      });
+      expect(classic.version).toBe(1);
+      expect(classic.fundingAddress).not.toBe(allocator.fundingAddress);
+    });
+
+    it("builds the bytes pinned by the engine tests", () => {
+      // labs/claimable-script/claimable_batch_autoreturn_tests.rs
+      const allocator = buildToccataBatchAllocatorLabScript({
+        activationPublicKey,
+        autoReturn,
+        outputs: [
+          { amountSompi: "100000000", scriptPublicKeyHex: "000051" },
+          { amountSompi: "200000000", scriptPublicKeyHex: "000052" },
+        ],
+        refundLockTime: "123456789",
+      });
+      expect(allocator.redeemScriptHex).toBe(
+        "6320bb14a257083f78158e5f69ab772e4608353a7f102198ebf8d85cc98326e29e72adb3519db4529d00c20400e1f5059d00c3030000518851c20400c2eb0b9d51c303000052885167b50415cd5b07a269b3519db4519d00c324000020c3cbe0f8294f8686a9b225f9403c72f2b64ae47a9567f5ef6f6ad35e36b08e50ac8800c2b9be0340420f94a268",
+      );
+    });
+
+    it("needs exactly one of a refund key and an auto-return address", () => {
+      expect(() =>
+        buildToccataBatchAllocatorLabScript({ activationPublicKey, outputs, refundLockTime: "1" }),
+      ).toThrow("either a refund key or an auto-return address");
+      expect(() =>
+        buildToccataBatchAllocatorLabScript({
+          activationPublicKey,
+          autoReturn,
+          outputs,
+          refundLockTime: "1",
+          refundPublicKey: "1730fc2b967d30f6854d7e7e45b70f63153c51c46f2048a92b45fdd74be5bb8c",
+        }),
+      ).toThrow("either a refund key or an auto-return address");
+    });
+
+    it("returns an unactivated allocator keylessly to the committed address", () => {
+      const allocator = buildToccataBatchAllocatorLabScript({
+        activationPublicKey,
+        autoReturn,
+        outputs,
+        refundLockTime: "123456789",
+      });
+      const spend = buildToccataClaimableReturnSpend({
+        expectedFundingAddress: allocator.fundingAddress,
+        feeSompi: autoReturn.feeSompi,
+        fundingAmountSompi: "802600000",
+        fundingOutputIndex: 0,
+        fundingTransactionId: "0d9549eb73606202fbb4fb92605da289d530489ef2f53e2d7f95a1a0d588a309",
+        redeemScriptHex: allocator.redeemScriptHex,
+        refundLockTime: allocator.refundLockTime,
+        returnAddress,
+      });
+
+      expect(spend).toMatchObject({
+        mode: "return",
+        outputAmountSompi: "801600000",
+        returnAddress,
+      });
+      expect(spend.signatureScriptHex.startsWith("00")).toBe(true);
+      expect(spend.signatureScriptHex).toContain(allocator.redeemScriptHex);
+    });
+  });
+
   it("rebuilds the registered 10-link legacy drop for its refund, never for creation", () => {
     const base = {
       activationPublicKey: "bb14a257083f78158e5f69ab772e4608353a7f102198ebf8d85cc98326e29e72",

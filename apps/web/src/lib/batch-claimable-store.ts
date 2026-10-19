@@ -52,7 +52,8 @@ export function buildBatchRefundUrl(
   batch: BatchRecoveryRecord,
   origin?: string,
 ): string {
-  if (!link.fundingMatch) return "";
+  // Auto-return links have no refund key, so there is nothing to manage by hand.
+  if (!link.fundingMatch || !link.refundCode || !link.refundPublicKey) return "";
   return `${browserOrigin(origin)}/claim/refund#lab-manage=${encodeClaimableFragmentPayload({
     amountKas: link.amountKas,
     amountSompi: link.amountSompi,

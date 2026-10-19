@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { BatchClaimableLabClient } from "./BatchClaimableLabClient";
 
+import { isClaimDropAutoReturnEnabled } from "@/lib/claimable-flags";
 import { isToccataBatchLabEnabled, readToccataLabCapabilities } from "@/lib/toccata-lab";
 
 export const dynamic = "force-dynamic";
@@ -18,5 +19,11 @@ export default function BatchClaimableLabPage() {
   } catch (error) {
     capabilities = { missing: [(error as Error).message], ready: false, version: "unknown" };
   }
-  return <BatchClaimableLabClient capabilities={capabilities} enabled={isToccataBatchLabEnabled()} />;
+  return (
+    <BatchClaimableLabClient
+      autoReturnEnabled={isClaimDropAutoReturnEnabled()}
+      capabilities={capabilities}
+      enabled={isToccataBatchLabEnabled()}
+    />
+  );
 }
