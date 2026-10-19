@@ -2162,7 +2162,7 @@ export function BatchClaimableLabClient({
                     required
                     value={dropReturnAddress}
                   />
-                  <p className="muted batch-drop-hint">
+                  <p className="muted batch-drop-field-hint">
                     Links still unclaimed after this go back here automatically. Use your own
                     wallet, not an exchange deposit address. No recovery file needed.
                   </p>

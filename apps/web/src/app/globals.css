@@ -8733,6 +8733,12 @@ body:has(main.deck-main) {
   margin: -8px 0 0;
   font-size: 0.85rem;
 }
+/* Hint directly under an input (the hint above sits under a whole row). */
+.batch-drop-field-hint {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
 .batch-drop-options {
   display: grid;
   gap: 14px;
