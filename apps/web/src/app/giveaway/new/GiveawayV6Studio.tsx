@@ -12,6 +12,7 @@ import {
   GIVEAWAY_V6_PARTICIPANT_CAPS,
   type GiveawayV6ParticipantCap,
 } from "@/lib/giveaway-v6-budget";
+import { formatGiveawayV6Prize, parseGiveawayV6Prize } from "@/lib/giveaway-v6-prize";
 import {
   describeGiveawayV6SlotOption,
   GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES,
@@ -21,7 +22,8 @@ import { validateRecipientAddress } from "../../new-link/helpers";
 
 type Surface = "browser" | "telegram";
 type StudioView = "create" | "manage";
-type Prize = "0.2" | "0.5" | "1";
+/** Prize in KAS as typed; any amount from 0.2 KAS (see parseGiveawayV6Prize). */
+type Prize = string;
 
 type StudioGiveaway = {
   activation: {
@@ -93,7 +95,7 @@ type ActivationResponse = {
   giveaway: { publicId: string; shareReady: boolean };
 };
 
-const PRIZES: Prize[] = ["0.2", "0.5", "1"];
+const PRIZE_PRESETS: Prize[] = ["1", "10", "100", "1000"];
 const SLOT_REFRESH_MS = 30_000;
 // Funding and activation checks share a 12-per-minute budget with creation,
 // so automatic checks stay at one request every eight seconds.
@@ -107,11 +109,6 @@ class StudioRequestError extends Error {
     super(message);
   }
 }
-const PRIZE_SOMPI: Record<Prize, bigint> = {
-  "0.2": 20_000_000n,
-  "0.5": 50_000_000n,
-  "1": 100_000_000n,
-};
 
 function formatSompi(value: bigint): string {
   const whole = value / 100_000_000n;
@@ -273,7 +270,7 @@ export function GiveawayV6Studio({
   const [selected, setSelected] = useState<null | StudioGiveaway>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [prize, setPrize] = useState<Prize>("0.5");
+  const [prize, setPrize] = useState<Prize>("1");
   const [participantCap, setParticipantCap] = useState<GiveawayV6ParticipantCap>(8);
   // The server says which sizes this creator may use; 8 until it answers.
   const [allowedCaps, setAllowedCaps] = useState<readonly GiveawayV6ParticipantCap[]>([8]);
@@ -311,9 +308,7 @@ export function GiveawayV6Studio({
     const presetSlot = params.get("slot");
     const presetParticipantCap = Number(params.get("participants"));
     if (presetTitle) setTitle(presetTitle.slice(0, 80));
-    if (presetPrize === "0.2" || presetPrize === "0.5" || presetPrize === "1") {
-      setPrize(presetPrize);
-    }
+    if (presetPrize && parseGiveawayV6Prize(presetPrize).ok) setPrize(presetPrize.trim());
     if (presetSlot) {
       const parsed = new Date(presetSlot);
       if (Number.isFinite(parsed.getTime())) setPreferredSlot(parsed.toISOString());
@@ -526,6 +521,11 @@ export function GiveawayV6Studio({
       return;
     }
     const slotStartsAt = shown;
+    const prizeToSubmit = parseGiveawayV6Prize(prize);
+    if (!prizeToSubmit.ok) {
+      setError(prizeToSubmit.reason);
+      return;
+    }
     const address = validateRecipientAddress(returnAddress);
     if (address.state !== "valid") {
       setError(address.state === "invalid" ? address.reason : "Enter your return Kaspa address.");
@@ -535,7 +535,7 @@ export function GiveawayV6Studio({
     try {
       const response = await fetch("/api/creator/giveaways/v6", {
         body: JSON.stringify({
-          amountKas: prize,
+          amountKas: formatGiveawayV6Prize(prizeToSubmit.sompi),
           description: description.trim() || null,
           participantCap,
           returnAddress: returnAddress.trim(),
@@ -646,16 +646,16 @@ export function GiveawayV6Studio({
   const slotNow = slotClock === null ? null : new Date(slotClock);
   const slots = slotNow ? listGiveawayV6Slots(slotNow) : [];
   const chosenSlot = chooseGiveawayV6Slot(slots, preferredSlot);
-  const budget = buildGiveawayV6Budget(PRIZE_SOMPI[prize], participantCap);
-  const selectedPrize = selected
-    ? PRIZES.find((candidate) => candidate === selected.amountKas)
-    : undefined;
+  const prizeCheck = parseGiveawayV6Prize(prize);
+  const budget = prizeCheck.ok ? buildGiveawayV6Budget(prizeCheck.sompi, participantCap) : null;
+  const selectedPrizeCheck = selected ? parseGiveawayV6Prize(selected.amountKas) : null;
+  const selectedPrize = selectedPrizeCheck?.ok ? selected!.amountKas : undefined;
   const selectedParticipantCap = selected
     ? GIVEAWAY_V6_PARTICIPANT_CAPS.find((candidate) => candidate === selected.participantCap)
     : undefined;
   const selectedBudget =
-    selectedPrize && selectedParticipantCap
-      ? buildGiveawayV6Budget(PRIZE_SOMPI[selectedPrize], selectedParticipantCap)
+    selectedPrizeCheck?.ok && selectedParticipantCap
+      ? buildGiveawayV6Budget(selectedPrizeCheck.sompi, selectedParticipantCap)
       : null;
   const publicUrl = selected
     ? new URL(
@@ -801,21 +801,38 @@ export function GiveawayV6Studio({
                       value={description}
                     />
                   </label>
-                  <fieldset className="studio-prizes">
-                    <legend>Prize</legend>
-                    {PRIZES.map((value) => (
-                      <label className={prize === value ? "is-selected" : ""} key={value}>
-                        <input
-                          checked={prize === value}
-                          name="prize"
-                          onChange={() => setPrize(value)}
-                          type="radio"
-                          value={value}
-                        />
+                  <label className="field">
+                    Prize (KAS)
+                    <input
+                      aria-invalid={!prizeCheck.ok || undefined}
+                      inputMode="decimal"
+                      maxLength={24}
+                      onChange={(event) => setPrize(event.target.value)}
+                      placeholder="1"
+                      required
+                      value={prize}
+                    />
+                    <small className={prizeCheck.ok ? undefined : "error-text"}>
+                      {prizeCheck.ok ? "Any amount from 0.2 KAS." : prizeCheck.reason}
+                    </small>
+                  </label>
+                  <div
+                    className="studio-prize-presets"
+                    role="group"
+                    aria-label="Quick prize amounts"
+                  >
+                    {PRIZE_PRESETS.map((value) => (
+                      <button
+                        aria-pressed={prize.trim() === value}
+                        className={`type-segment${prize.trim() === value ? " type-segment-active" : ""}`}
+                        key={value}
+                        onClick={() => setPrize(value)}
+                        type="button"
+                      >
                         {value} KAS
-                      </label>
+                      </button>
                     ))}
-                  </fieldset>
+                  </div>
                   {allowedCaps.length > 1 ? (
                     <fieldset className="studio-prizes">
                       <legend>Maximum participants</legend>
@@ -876,14 +893,16 @@ export function GiveawayV6Studio({
                       Unused execution reserve can return only to this committed address.
                     </small>
                   </label>
-                  <FundingCostExplanation
-                    budget={budget}
-                    participantCap={participantCap}
-                    prize={prize}
-                  />
+                  {budget && prizeCheck.ok ? (
+                    <FundingCostExplanation
+                      budget={budget}
+                      participantCap={participantCap}
+                      prize={formatGiveawayV6Prize(prizeCheck.sompi)}
+                    />
+                  ) : null}
                   <button
                     className="btn btn-primary studio-primary"
-                    disabled={loading || !title.trim() || !chosenSlot}
+                    disabled={loading || !title.trim() || !chosenSlot || !prizeCheck.ok}
                     type="submit"
                   >
                     {loading ? "Preparing…" : "Review and create"}

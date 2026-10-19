@@ -117,8 +117,9 @@ export function parseTelegramCommand(text: string): TelegramCommand | null {
     if (!amountKas) {
       throw new TelegramCommandError("Use /giveaway <KAS> <title>.");
     }
-    if (amountKas !== "0.2" && amountKas !== "0.5" && amountKas !== "1") {
-      throw new TelegramCommandError("Giveaway prize must be 0.2, 0.5 or 1 KAS.");
+    // Any prize from 0.2 KAS; the Mini App and the server check it again.
+    if (parseKaspaAmountToSompi(amountKas) < 20_000_000n) {
+      throw new TelegramCommandError("Giveaway prize must be at least 0.2 KAS.");
     }
     // Giveaways end at fixed draw times chosen in the Mini App. An old-style
     // duration would otherwise silently become the start of the title.

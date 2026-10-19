@@ -64,7 +64,7 @@ describe("parseTelegramCommand", () => {
 
   it.each([
     "/giveaway soon Weekend",
-    "/giveaway 10 Unsupported prize",
+    "/giveaway 0.1 Too small",
     "/giveaway 0 Empty reward",
     "/giveaway 0.5",
   ])("rejects invalid giveaway setup in %s", (text) => {
@@ -122,5 +122,16 @@ describe("telegramUpdateLabel", () => {
     expect(telegramUpdateLabel({ callbackData: "watch:on:g1" })).toBe("button:watch");
     expect(telegramUpdateLabel({ callbackData: "custom:1" })).toBe("button:other");
     expect(telegramUpdateLabel({ text: "  " })).toBeNull();
+  });
+});
+
+describe("giveaway prizes", () => {
+  it("accepts any prize from 0.2 KAS, also large ones", () => {
+    expect(parseTelegramCommand("/giveaway 100000 Big drop")).toEqual({
+      amountKas: "100000",
+      kind: "prepare_giveaway",
+      title: "Big drop",
+    });
+    expect(parseTelegramCommand("/giveaway 0,2 Small")).toMatchObject({ amountKas: "0.2" });
   });
 });

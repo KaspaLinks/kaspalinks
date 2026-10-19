@@ -208,6 +208,16 @@ describe("Toccata SDK capabilities", () => {
       );
     });
 
+    it("fits 8 links of 100,000 KAS each within the 520-byte limit", () => {
+      const allocator = buildToccataBatchAllocatorLabScript({
+        activationPublicKey,
+        autoReturn,
+        outputs: outputs.map((output) => ({ ...output, amountSompi: "10000000200000" })),
+        refundLockTime: "123456789",
+      });
+      expect(allocator.redeemScriptHex.length / 2).toBeLessThanOrEqual(520);
+    });
+
     it("needs exactly one of a refund key and an auto-return address", () => {
       expect(() =>
         buildToccataBatchAllocatorLabScript({ activationPublicKey, outputs, refundLockTime: "1" }),

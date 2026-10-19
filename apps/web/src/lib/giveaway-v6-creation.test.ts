@@ -112,7 +112,7 @@ describe("Giveaway V6 creator terms", () => {
     },
   );
 
-  it("accepts only the reviewed prize choices and rejects extra recovery material", () => {
+  it("accepts any prize from 0.2 KAS and rejects extra recovery material", () => {
     const base = {
       amountKas: "1",
       participantCap: 8,
@@ -128,7 +128,13 @@ describe("Giveaway V6 creator terms", () => {
     expect(createGiveawayV6InputSchema.safeParse({ ...base, durationSeconds: 3_600 }).success).toBe(
       false,
     );
-    expect(createGiveawayV6InputSchema.safeParse({ ...base, amountKas: "2" }).success).toBe(false);
+    expect(createGiveawayV6InputSchema.parse({ ...base, amountKas: "100000" }).amountKas).toBe(
+      "100000",
+    );
+    expect(createGiveawayV6InputSchema.parse({ ...base, amountKas: "2,50" }).amountKas).toBe("2.5");
+    expect(createGiveawayV6InputSchema.safeParse({ ...base, amountKas: "0.1" }).success).toBe(
+      false,
+    );
     expect(createGiveawayV6InputSchema.safeParse({ ...base, participantCap: 12 }).success).toBe(
       false,
     );

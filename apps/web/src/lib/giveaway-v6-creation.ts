@@ -15,15 +15,26 @@ import {
   GIVEAWAY_V6_PARTICIPANT_CAPS,
   type GiveawayV6ParticipantCap,
 } from "./giveaway-v6-budget";
+import { formatGiveawayV6Prize, parseGiveawayV6Prize } from "./giveaway-v6-prize";
 import type { GiveawayV6SlotTerms } from "./giveaway-v6-slots";
 
 export const GIVEAWAY_V6_TREE_DEPTH = 10;
 
-const SUPPORTED_PRIZES_KAS = ["0.2", "0.5", "1"] as const;
-
 export const createGiveawayV6InputSchema = z
   .object({
-    amountKas: z.enum(SUPPORTED_PRIZES_KAS),
+    // Any prize from 0.2 KAS; normalized to the canonical KAS string.
+    amountKas: z
+      .string()
+      .trim()
+      .max(32)
+      .transform((value, context) => {
+        const prize = parseGiveawayV6Prize(value);
+        if (!prize.ok) {
+          context.addIssue({ code: z.ZodIssueCode.custom, message: prize.reason });
+          return z.NEVER;
+        }
+        return formatGiveawayV6Prize(prize.sompi);
+      }),
     description: z.string().trim().max(280).optional().nullable(),
     participantCap: z.union([
       z.literal(GIVEAWAY_V6_PARTICIPANT_CAPS[0]),

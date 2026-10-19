@@ -217,7 +217,7 @@ const helpText = [
   "/giveaway <KAS prize> <title> — open setup; choose the draw time in the Mini App",
   "",
   "SilverScript Mini App: set up → choose return wallet → fund → share.",
-  "A KaspaLinks account is optional in Telegram. Prizes: 0.2, 0.5 or 1 KAS.",
+  "A KaspaLinks account is optional in Telegram. Prize: any amount from 0.2 KAS.",
   "Giveaways end at 00:00, 06:00, 12:00 or 18:00 UTC, up to 24h ahead; the winner is paid about 30 minutes later.",
   "Example: /giveaway 0.5 Weekend KAS",
   "Example: /link 5.5 Design payment",
