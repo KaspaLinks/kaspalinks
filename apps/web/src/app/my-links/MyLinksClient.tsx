@@ -729,6 +729,8 @@ function computeClaimableStats(
       if (record.status === "claimed") claimed += 1;
       continue;
     }
+    // Never paid: nothing is locked and nothing can come back.
+    if (record.status === "awaiting_funding") continue;
     const amount = Number.parseFloat(record.amountKas);
     if (Number.isFinite(amount)) locked += amount;
     const expiry = estimateClaimableExpiry({
@@ -1154,7 +1156,10 @@ export function MyLinksClient() {
         refundLockTime: record.refundLockTime,
       });
       const terminal = isClaimableTerminal(record.status);
-      const refundable = !terminal && (record.status === "refundable" || expiry?.expired === true);
+      const refundable =
+        !terminal &&
+        record.status !== "awaiting_funding" &&
+        (record.status === "refundable" || expiry?.expired === true);
       const matchesStatus =
         claimableStatusFilter === "all" ||
         (claimableStatusFilter === "available" && !terminal && !refundable) ||
@@ -3487,8 +3492,13 @@ export function MyLinksClient() {
                   // link may be opened long after it was claimed, but it must
                   // still read "Claimed", never "Expired".
                   const terminal = isClaimableTerminal(record.status);
+                  // Expired before any payment arrived: there is nothing to refund or return.
+                  const closedUnpaid =
+                    record.status === "awaiting_funding" && expiry?.expired === true;
                   const expired =
-                    !terminal && (record.status === "refundable" || expiry?.expired === true);
+                    !terminal &&
+                    !closedUnpaid &&
+                    (record.status === "refundable" || expiry?.expired === true);
                   const versionedClaimUrl = record.claimUrl
                     ? buildCompactClaimUrl(record.claimUrl)
                     : "";
@@ -3539,16 +3549,20 @@ export function MyLinksClient() {
                             <strong>{record.title}</strong>
                             <span
                               className={`status-pill ${
-                                expired ? "status-expired" : claimableStatusPillClass(record.status)
+                                expired || closedUnpaid
+                                  ? "status-expired"
+                                  : claimableStatusPillClass(record.status)
                               }`}
                             >
-                              {expired
-                                ? record.autoReturn
-                                  ? "Returning"
-                                  : "Ready to refund"
-                                : record.autoReturn && record.status === "refunded"
-                                  ? "Returned"
-                                  : humanClaimableStatus(record.status)}
+                              {closedUnpaid
+                                ? "Not paid"
+                                : expired
+                                  ? record.autoReturn
+                                    ? "Returning"
+                                    : "Ready to refund"
+                                  : record.autoReturn && record.status === "refunded"
+                                    ? "Returned"
+                                    : humanClaimableStatus(record.status)}
                             </span>
                           </div>
                           <p className="muted claimable-mylinks-meta">
@@ -3561,6 +3575,10 @@ export function MyLinksClient() {
                               <span>Claim completed</span>
                             ) : record.status === "spent_unknown" ? (
                               <span>Output spent on-chain</span>
+                            ) : closedUnpaid ? (
+                              <span>
+                                Claim window closed · no payment arrived, nothing to return
+                              </span>
                             ) : expired ? (
                               <span className="claimable-mylinks-expired">
                                 {record.autoReturn
@@ -3593,7 +3611,7 @@ export function MyLinksClient() {
                           ) : null}
                         </div>
                         <div className="claimable-mylinks-actions claimable-mylinks-primary-actions">
-                          {versionedClaimUrl && !expired ? (
+                          {versionedClaimUrl && !expired && !closedUnpaid ? (
                             <a
                               className="btn btn-primary"
                               href={versionedClaimUrl}
@@ -3603,7 +3621,7 @@ export function MyLinksClient() {
                               Open claim
                             </a>
                           ) : null}
-                          {versionedClaimUrl && !expired ? (
+                          {versionedClaimUrl && !expired && !closedUnpaid ? (
                             <button
                               className="btn"
                               onClick={() =>
@@ -3614,7 +3632,7 @@ export function MyLinksClient() {
                               {copied === `${record.linkKey}-claim` ? "Copied!" : "Copy claim link"}
                             </button>
                           ) : null}
-                          {versionedClaimUrl && !expired ? (
+                          {versionedClaimUrl && !expired && !closedUnpaid ? (
                             <button
                               aria-expanded={claimableQr?.linkKey === record.linkKey}
                               className="btn"
@@ -3718,7 +3736,7 @@ export function MyLinksClient() {
                             </p>
                           ) : null}
                           <div className="claimable-mylinks-actions">
-                            {versionedClaimUrl && !expired ? (
+                            {versionedClaimUrl && !expired && !closedUnpaid ? (
                               <button
                                 className="btn"
                                 onClick={async () => {
@@ -3801,6 +3819,7 @@ export function MyLinksClient() {
                   group.records.length > 0 && group.records.every((record) => record.autoReturn);
                 const refundableCount = group.records.filter((record) => {
                   if (isClaimableTerminal(record.status)) return false;
+                  if (record.status === "awaiting_funding") return false;
                   const expiry = estimateClaimableExpiry({
                     currentDaaScore: claimableDaaScore,
                     daaLoadedAtMs: claimableDaaLoadedAtMs,
