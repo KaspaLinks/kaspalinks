@@ -211,7 +211,7 @@ The app container is healthy with zero restarts. Runtime flags remain enabled wi
 `ESCROW_LINKS_PROTOTYPE_CREATORS=example`. No database migrations, wallet interactions or
 escrow broadcasts occurred; the UI still uses fixtures.
 
-The release snapshot is preserved on branch `codex/escrow-v1-private-release-20260919`.
+The release snapshot is preserved on a private release branch (2026-09-19).
 All 601 baseline source files matched before staging. Docker production build passed.
 Public health reports the exact release; missing and invalid creator credentials return 401. The browser shows the not-found view to an anonymous visitor on the new build. The
 signed-in `example` view was not exercised because no authenticated session was available

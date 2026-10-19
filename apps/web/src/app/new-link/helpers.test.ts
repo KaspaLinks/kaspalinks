@@ -23,7 +23,7 @@ describe("new-link helpers", () => {
 
 it("shows the giveaway template to any signed-in creator the server lets in", () => {
   expect(canShowGiveawayTemplate("example", true)).toBe(true);
-  expect(canShowGiveawayTemplate("franklobster", true)).toBe(true);
+  expect(canShowGiveawayTemplate("alice", true)).toBe(true);
   expect(canShowGiveawayTemplate("example", false)).toBe(false);
   expect(canShowGiveawayTemplate("", true)).toBe(false);
 });
