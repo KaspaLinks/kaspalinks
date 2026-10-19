@@ -13,7 +13,10 @@ const { Resolver, RpcClient, Transaction, version } = require("kaspa-wasm");
 const HOST = process.env.HOST ?? "0.0.0.0";
 const PORT = Number(process.env.PORT ?? process.env.TOCCATA_RELAY_PORT ?? "3010");
 const NETWORK_ID = "mainnet";
-const BODY_LIMIT_BYTES = 250_000;
+// Toccata caps a transaction at 1,000,000 transient mass (about 250 KB of bytes),
+// which is about 500 KB as SafeJSON hex. A 4-shard Giveaway V6 freeze is already
+// ~325 KB; the former 250 KB limit silently refused it before any submit.
+const BODY_LIMIT_BYTES = 1_000_000;
 const SUBMIT_TIMEOUT_MS = Number(process.env.TOCCATA_RELAY_SUBMIT_TIMEOUT_MS ?? "20000");
 const READ_TIMEOUT_MS = Number(process.env.TOCCATA_RELAY_READ_TIMEOUT_MS ?? "30000");
 const CONNECT_TIMEOUT_MS = Number(process.env.TOCCATA_RELAY_CONNECT_TIMEOUT_MS ?? "30000");
@@ -104,6 +107,11 @@ const server = createServer(async (request, response) => {
   } catch (error) {
     const message = error instanceof Error && error.message ? error.message : String(error);
     const timedOut = message.toLowerCase().includes("timed out");
+    // Public chain data only; without this a refused request left no trace at all.
+    console.warn("[kaspa-wrpc-relay] request failed", {
+      message: message.slice(0, 500),
+      path: request.url,
+    });
     writeJson(response, timedOut ? 504 : 400, {
       error: {
         code: timedOut ? "UPSTREAM_TIMEOUT" : "INVALID_RELAY_REQUEST",

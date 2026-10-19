@@ -259,7 +259,14 @@ async function executeOne(
       expectedTransactionId: prepared.transactionId,
       transactionSafeJson: prepared.transactionSafeJson,
     });
-  } catch {
+  } catch (error) {
+    // The relay's reason is public chain feedback; keep it, or a stuck
+    // settlement retries forever without saying why.
+    console.warn("[giveaway-v6] settlement submit refused", {
+      kind: prepared.kind,
+      message: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+      transactionId: prepared.transactionId,
+    });
     await prisma.giveawayV6TransitionDelivery.update({
       data: {
         lastAttemptAt: now,
