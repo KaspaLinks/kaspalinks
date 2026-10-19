@@ -312,11 +312,14 @@ model TelegramConnection {
   supporterDetailsEnabled Boolean          @default(false)
   blockedAt               DateTime?
   disabledReason          String?
+  // Last bot message, button or Mini App request from this chat (usage stats).
+  lastActiveAt            DateTime?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
   outboxDeliveries        TelegramOutbox[]
 
   @@index([blockedAt])
+  @@index([lastActiveAt])
 }
 
 model TelegramConnectCode {
@@ -345,6 +348,8 @@ model TelegramConnectAttempt {
 model TelegramUpdate {
   id           String    @id @default(cuid())
   updateId     String    @unique
+  // Coarse usage label ("/claim", "button:menu", "text"), never message text.
+  label        String?
   receivedAt   DateTime  @default(now())
   processingAt DateTime?
   attempts     Int       @default(0)

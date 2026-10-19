@@ -5,6 +5,7 @@ import { loadActivationFunnel } from "@/lib/activation-funnel";
 import { resolveClaimableOnChain } from "@/lib/claimable-onchain";
 import type { RankedMetric } from "@/lib/operator-stats";
 import { loadPersistentOperatorStatsFromAccessLogs } from "@/lib/operator-stats";
+import { loadTelegramBotStats, type TelegramBotStats } from "@/lib/telegram-bot-stats";
 
 import { ActivationSection } from "./ActivationSection";
 import { MetricCard } from "./MetricCard";
@@ -77,6 +78,108 @@ function sompiToKas(sompi: bigint): string {
   const whole = sompi / 100000000n;
   const frac = (sompi % 100000000n).toString().padStart(8, "0").replace(/0+$/, "");
   return frac ? `${whole.toString()}.${frac}` : whole.toString();
+}
+
+// Labels are fixed by telegramUpdateLabel; this only makes them readable.
+const TELEGRAM_LABELS: Record<string, string> = {
+  "/other": "Other command",
+  "button:draft": "Button: giveaway setup",
+  "button:menu": "Button: menu",
+  "button:notify": "Button: alerts on/off",
+  "button:other": "Button: other",
+  "button:watch": "Button: result reminder",
+  text: "Free text",
+};
+
+const TELEGRAM_MESSAGE_KINDS: Record<string, string> = {
+  "claimable.status": "Claim link claimed / returned",
+  "giveaway.result": "Giveaway result",
+  "payment.confirmed": "Payment received",
+};
+
+function TelegramBotSection({ stats }: { stats: TelegramBotStats }) {
+  return (
+    <section className="card">
+      <div className="section-heading-row">
+        <div>
+          <span className="label">Telegram bot</span>
+          <h2>Bot usage</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            Counted from chats, update timestamps with a fixed label and Mini App page views.
+            {stats.interactions.since
+              ? ` Interactions since ${formatDateTime(stats.interactions.since.toISOString())}.`
+              : ""}
+          </p>
+        </div>
+      </div>
+      <div className="metric-grid">
+        <MetricCard
+          detail={`${formatNumber(stats.chats.withoutAccount)} without account · ${formatNumber(stats.chats.withAccount)} with · +${formatNumber(stats.chats.new7d)} in 7d`}
+          label="Chats"
+          value={formatNumber(stats.chats.total)}
+        />
+        <MetricCard
+          detail={`${formatNumber(stats.activeChats.last24h)} in 24h · ${formatNumber(stats.activeChats.last30d)} in 30d`}
+          label="Active chats 7d"
+          value={formatNumber(stats.activeChats.last7d)}
+        />
+        <MetricCard
+          detail={`${formatNumber(stats.interactions.last24h)} in 24h · ${formatNumber(stats.interactions.last30d)} in 30d · ${formatNumber(stats.interactions.total)} total`}
+          label="Commands & taps 7d"
+          value={formatNumber(stats.interactions.last7d)}
+        />
+        <MetricCard
+          detail={`${formatNumber(stats.miniAppViews.last30d)} in 30d`}
+          label="Mini App opens 7d"
+          value={formatNumber(stats.miniAppViews.last7d)}
+        />
+        <MetricCard
+          detail={`+${formatNumber(stats.created.paymentLinks7d)} in 7d`}
+          label="Payment links via bot"
+          value={formatNumber(stats.created.paymentLinks)}
+        />
+        <MetricCard
+          detail={`+${formatNumber(stats.created.claimLinks7d)} in 7d`}
+          label="Claim links via bot"
+          value={formatNumber(stats.created.claimLinks)}
+        />
+        <MetricCard
+          detail={`${formatNumber(stats.messagesSent.last7d)} in 7d`}
+          label="Messages sent"
+          value={formatNumber(stats.messagesSent.total)}
+        />
+        <MetricCard
+          detail="Chats that blocked the bot"
+          label="Blocked"
+          value={formatNumber(stats.chats.blocked)}
+        />
+      </div>
+      <div className="operator-grid">
+        <article>
+          <span className="label">Last 30 days</span>
+          <h3>Commands and buttons</h3>
+          <RankedList
+            empty="No labelled bot updates yet. Counting starts with this release."
+            rows={stats.topActions30d.map((row) => ({
+              count: row.count,
+              label: TELEGRAM_LABELS[row.label] ?? row.label,
+            }))}
+          />
+        </article>
+        <article>
+          <span className="label">All time</span>
+          <h3>Messages the bot sent</h3>
+          <RankedList
+            empty="The bot has not sent any notifications yet."
+            rows={stats.messagesSent.byKind.map((row) => ({
+              count: row.count,
+              label: TELEGRAM_MESSAGE_KINDS[row.kind] ?? row.kind,
+            }))}
+          />
+        </article>
+      </div>
+    </section>
+  );
 }
 
 function RankedList({ empty, rows }: { empty: string; rows: RankedMetric[] }) {
@@ -158,6 +261,10 @@ export default async function OperatorStatsPage() {
     return null;
   });
   await refreshClaimableStatsSnapshot();
+  const telegram = await loadTelegramBotStats(prisma).catch((error: unknown) => {
+    console.error("Telegram bot stats unavailable", error);
+    return null;
+  });
 
   // Links the creator removed from My Links stay in the table for the audit
   // trail, but counting them here inflated every tile — most deleted links are
@@ -236,6 +343,8 @@ export default async function OperatorStatsPage() {
       </section>
 
       <ActivationSection funnel={activation} />
+
+      {telegram ? <TelegramBotSection stats={telegram} /> : null}
 
       <section className="card">
         <div className="section-heading-row">

@@ -2,6 +2,7 @@ import { ActionType, PaymentRequestStatus, prisma } from "@kaspa-actions/db";
 import { formatSompiToKaspa } from "@kaspa-actions/kaspa";
 
 import { requireCreator } from "@/lib/creator-guard";
+import { touchTelegramActivity } from "@/lib/telegram-activity";
 import { apiJson, apiMethodNotAllowed } from "@/lib/errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import { telegramActionPath } from "@/lib/telegram-links";
@@ -28,6 +29,7 @@ export async function GET(request: Request) {
     allowTelegramOnly: true,
   });
   if (!guard.ok) return guard.response;
+  await touchTelegramActivity(prisma, { creatorId: guard.creator.id });
   const limited = enforceRateLimit(RateBuckets.TOCCATA_LAB_FUNDING_STATUS, guard.creator.id);
   if (!limited.allowed) return limited.response;
 

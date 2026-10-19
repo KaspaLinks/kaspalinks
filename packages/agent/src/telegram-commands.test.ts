@@ -4,6 +4,7 @@ import {
   TelegramCommandError,
   parseTelegramCommand,
   slugifyAgentTitle,
+  telegramUpdateLabel,
 } from "./telegram-commands.ts";
 
 describe("parseTelegramCommand", () => {
@@ -104,5 +105,22 @@ describe("slugifyAgentTitle", () => {
   it("creates stable ASCII URL candidates", () => {
     expect(slugifyAgentTitle("Kaffee für Änne")).toBe("kaffee-fur-anne");
     expect(slugifyAgentTitle("$KAS")).toBe("kas");
+  });
+});
+
+describe("telegramUpdateLabel", () => {
+  it("labels commands from a fixed list and never keeps their arguments", () => {
+    expect(telegramUpdateLabel({ text: "/claim 5 Coffee for Ada" })).toBe("/claim");
+    expect(telegramUpdateLabel({ text: "/START@KaspaLinksBot g_abc" })).toBe("/start");
+    expect(telegramUpdateLabel({ text: "/wallet kaspa:qpauqsvk7yf9" })).toBe("/wallet");
+    expect(telegramUpdateLabel({ text: "/whatever secret" })).toBe("/other");
+  });
+
+  it("keeps free text and buttons coarse", () => {
+    expect(telegramUpdateLabel({ text: "hello, my name is Ada" })).toBe("text");
+    expect(telegramUpdateLabel({ callbackData: "menu:links" })).toBe("button:menu");
+    expect(telegramUpdateLabel({ callbackData: "watch:on:g1" })).toBe("button:watch");
+    expect(telegramUpdateLabel({ callbackData: "custom:1" })).toBe("button:other");
+    expect(telegramUpdateLabel({ text: "  " })).toBeNull();
   });
 });

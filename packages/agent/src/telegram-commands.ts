@@ -42,6 +42,45 @@ export function slugifyAgentTitle(title: string): string {
   return `link-${slug || "kas"}`.slice(0, 64);
 }
 
+// Usage stats keep only a coarse label from these fixed lists, never the text
+// someone typed, so the stored value can't carry titles, addresses or names.
+const COUNTED_COMMANDS = new Set([
+  "claim",
+  "connect",
+  "disconnect",
+  "donation",
+  "giveaway",
+  "giveaways",
+  "goal",
+  "help",
+  "invoice",
+  "link",
+  "links",
+  "payments",
+  "start",
+  "stats",
+  "stop",
+  "tip",
+  "wallet",
+]);
+const COUNTED_BUTTONS = new Set(["draft", "menu", "notify", "watch"]);
+
+/** The stats label of one bot update, e.g. "/claim", "button:menu" or "text". */
+export function telegramUpdateLabel(input: {
+  callbackData?: null | string;
+  text?: null | string;
+}): null | string {
+  if (input.callbackData !== undefined && input.callbackData !== null) {
+    const prefix = input.callbackData.split(":")[0] ?? "";
+    return COUNTED_BUTTONS.has(prefix) ? `button:${prefix}` : "button:other";
+  }
+  const text = input.text?.trim() ?? "";
+  if (!text) return null;
+  if (!text.startsWith("/")) return "text";
+  const name = text.slice(1).split(/\s/)[0]?.split("@")[0]?.toLowerCase() ?? "";
+  return COUNTED_COMMANDS.has(name) ? `/${name}` : "/other";
+}
+
 export function parseTelegramCommand(text: string): TelegramCommand | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith("/")) return null;

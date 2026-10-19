@@ -8,6 +8,7 @@ import {
   parseAiPrice,
   parseTelegramCommand,
   slugifyAgentTitle,
+  telegramUpdateLabel,
   giveawayCardText,
   telegramGiveawayIdSchema,
   type InterpretedIntent,
@@ -46,6 +47,7 @@ import { getTelegramGiveawayCard } from "@/lib/telegram-giveaway";
 import { giveawayV6AccessFor, isGiveawayV6CreationEnabled } from "@/lib/giveaway-v6-creation";
 import { isGiveawayLabEnabled } from "@/lib/giveaway-lab";
 import { isClaimableAnonymousEnabled } from "@/lib/claimable-flags";
+import { touchTelegramActivity } from "@/lib/telegram-activity";
 import { telegramActionPath } from "@/lib/telegram-links";
 import { isToccataLabEnabled } from "@/lib/toccata-lab";
 
@@ -934,7 +936,15 @@ export async function POST(request: Request) {
   const processingAt = new Date();
   try {
     await prisma.telegramUpdate.create({
-      data: { attempts: 1, processingAt, updateId },
+      data: {
+        attempts: 1,
+        label: telegramUpdateLabel({
+          callbackData: update.callback_query?.data,
+          text: update.message?.text,
+        }),
+        processingAt,
+        updateId,
+      },
     });
   } catch (error) {
     if (!isUniqueUpdateError(error)) throw error;
@@ -958,6 +968,7 @@ export async function POST(request: Request) {
       const limited = enforceRateLimit(RateBuckets.AGENT_MUTATION, `telegram:${userId}`);
       if (!limited.allowed)
         throw new ApplicationError("RATE_LIMITED", "Too many commands. Please wait a minute.", 429);
+      await touchTelegramActivity(prisma, { telegramUserId: String(userId) }, processingAt);
     }
     if (update.callback_query) await handleCallback(client, update.callback_query);
     else if (update.message) await handleMessage(client, update.message, updateId);

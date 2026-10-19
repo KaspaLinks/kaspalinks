@@ -9,6 +9,7 @@ import { slugifyAgentTitle } from "@kaspa-actions/agent";
 import { z } from "zod";
 
 import { requireCreator } from "@/lib/creator-guard";
+import { touchTelegramActivity } from "@/lib/telegram-activity";
 import { apiError, apiJson, apiMethodNotAllowed, ErrorCodes } from "@/lib/errors";
 import { normalizeKaspaAddressInput } from "@/lib/kaspa-address-input";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
     allowTelegramOnly: true,
   });
   if (!guard.ok) return guard.response;
+  await touchTelegramActivity(prisma, { creatorId: guard.creator.id });
   const limited = enforceRateLimit(RateBuckets.CREATOR_ACTION_CREATE, guard.creator.id);
   if (!limited.allowed) return limited.response;
 

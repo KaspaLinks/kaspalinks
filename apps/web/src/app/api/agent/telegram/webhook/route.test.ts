@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   createUpdate: vi.fn(),
   consumeTelegramConnectCode: vi.fn(),
   findConnection: vi.fn(),
+  touchConnection: vi.fn(),
   sendMessage: vi.fn(),
   updateMany: vi.fn(),
   updateUpdate: vi.fn(),
@@ -62,7 +63,7 @@ vi.mock("@kaspa-actions/db", () => {
     Prisma: { PrismaClientKnownRequestError },
     prisma: {
       giveaway: { findMany: mocks.giveawayList },
-      telegramConnection: { findUnique: mocks.findConnection },
+      telegramConnection: { findUnique: mocks.findConnection, updateMany: mocks.touchConnection },
       telegramUpdate: {
         create: mocks.createUpdate,
         update: mocks.updateUpdate,
@@ -158,6 +159,14 @@ describe("Telegram Agent webhook", () => {
     );
 
     expect(response.status).toBe(200);
+    // Usage stats: a fixed label, never the text, and the chat's last activity.
+    expect(mocks.createUpdate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ label: "/help", updateId: "20" }),
+    });
+    expect(mocks.touchConnection).toHaveBeenCalledWith({
+      data: { lastActiveAt: expect.any(Date) },
+      where: { telegramUserId: "123" },
+    });
     expect(mocks.ensureWorkspace).toHaveBeenCalledTimes(1);
     expect(mocks.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
