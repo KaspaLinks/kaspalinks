@@ -381,6 +381,8 @@ export function ActionPaymentFlow({
   const [openingMobileWallet, setOpeningMobileWallet] = useState(false);
   const [supporterAmountKas, setSupporterAmountKas] = useState("");
   const [supporterMessage, setSupporterMessage] = useState("");
+  // The optional note stays one tap away so the pay button sits near the top.
+  const [noteOpen, setNoteOpen] = useState(false);
   const [supporterName, setSupporterName] = useState("");
   const [supporterPublic, setSupporterPublic] = useState(false);
   const [supporterMessageSaveState, setSupporterMessageSaveState] =
@@ -1166,414 +1168,429 @@ export function ActionPaymentFlow({
             </div>
           ) : null}
 
-          {/* Amount */}
-          <div className="pay-amount">
-            {!isVariableAmount ? (
-              <>
-                <span className="label">Amount</span>
-                <div className="amount-display amount-display-large">
-                  <span className="amount-main">{action.amountKas}</span>
-                  <span className="amount-unit">KAS</span>
-                </div>
-                {effectiveAmountUsdEstimate ? (
-                  <p className="amount-usd-estimate">
-                    {effectiveAmountUsdEstimate} at current KAS price
-                  </p>
-                ) : null}
-              </>
-            ) : paymentRequest ? (
-              <>
-                <span className="label">Amount</span>
-                <div className="amount-display amount-display-large">
-                  <span className="amount-main">{paymentRequest.amountKas ?? "Any amount"}</span>
-                  {paymentRequest.amountKas ? <span className="amount-unit">KAS</span> : null}
-                </div>
-                {effectiveAmountUsdEstimate ? (
-                  <p className="amount-usd-estimate">
-                    {effectiveAmountUsdEstimate} at current KAS price
-                  </p>
-                ) : null}
-                {!paymentRequest.amountKas ? (
-                  <p className="muted" style={{ margin: "2px 0 0", fontSize: "0.82rem" }}>
-                    Choose inside your wallet
-                  </p>
-                ) : null}
-              </>
-            ) : goalIsClosed ? (
-              <>
-                <span className="label">Amount</span>
-                <p className="muted" style={{ margin: "6px 0 0" }}>
-                  This goal reached its target, so new contributions are closed.
-                </p>
-              </>
-            ) : (
-              <>
-                <label className="label" htmlFor="pay-amount-input">
-                  Pick an amount
-                </label>
-                <input
-                  aria-label="Amount in KAS"
-                  id="pay-amount-input"
-                  inputMode="decimal"
-                  onChange={(event) => setSupporterAmountKas(event.target.value)}
-                  placeholder="e.g. 10"
-                  type="text"
-                  value={supporterAmountKas}
-                />
-                <p className="muted" style={{ margin: "8px 0 0", fontSize: "0.85rem" }}>
-                  The creator left the amount open. Pick a value, or leave blank to set it in your
-                  wallet.
-                </p>
-                {supporterAmountUsdEstimate ? (
-                  <p className="amount-usd-estimate pay-amount-usd">
-                    {amountUsdMeta}: {supporterAmountUsdEstimate}
-                  </p>
-                ) : null}
-                {variablePreview?.error === "TOO_SMALL" ? (
+          {/* Desktop: what and how much on the left, how to pay on the right. */}
+          <div className="pay-card-columns">
+            <div className="pay-card-main">
+              {/* Amount */}
+              <div className="pay-amount">
+                {!isVariableAmount ? (
+                  <>
+                    <span className="label">Amount</span>
+                    <div className="amount-display amount-display-large">
+                      <span className="amount-main">{action.amountKas}</span>
+                      <span className="amount-unit">KAS</span>
+                    </div>
+                    {effectiveAmountUsdEstimate ? (
+                      <p className="amount-usd-estimate">
+                        {effectiveAmountUsdEstimate} at current KAS price
+                      </p>
+                    ) : null}
+                  </>
+                ) : paymentRequest ? (
+                  <>
+                    <span className="label">Amount</span>
+                    <div className="amount-display amount-display-large">
+                      <span className="amount-main">
+                        {paymentRequest.amountKas ?? "Any amount"}
+                      </span>
+                      {paymentRequest.amountKas ? <span className="amount-unit">KAS</span> : null}
+                    </div>
+                    {effectiveAmountUsdEstimate ? (
+                      <p className="amount-usd-estimate">
+                        {effectiveAmountUsdEstimate} at current KAS price
+                      </p>
+                    ) : null}
+                    {!paymentRequest.amountKas ? (
+                      <p className="muted" style={{ margin: "2px 0 0", fontSize: "0.82rem" }}>
+                        Choose inside your wallet
+                      </p>
+                    ) : null}
+                  </>
+                ) : goalIsClosed ? (
+                  <>
+                    <span className="label">Amount</span>
+                    <p className="muted" style={{ margin: "6px 0 0" }}>
+                      This goal reached its target, so new contributions are closed.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <label className="label" htmlFor="pay-amount-input">
+                      Pick an amount
+                    </label>
+                    <input
+                      aria-label="Amount in KAS"
+                      id="pay-amount-input"
+                      inputMode="decimal"
+                      onChange={(event) => setSupporterAmountKas(event.target.value)}
+                      placeholder="e.g. 10"
+                      type="text"
+                      value={supporterAmountKas}
+                    />
+                    <p className="muted" style={{ margin: "8px 0 0", fontSize: "0.85rem" }}>
+                      The creator left the amount open. Pick a value, or leave blank to set it in
+                      your wallet.
+                    </p>
+                    {supporterAmountUsdEstimate ? (
+                      <p className="amount-usd-estimate pay-amount-usd">
+                        {amountUsdMeta}: {supporterAmountUsdEstimate}
+                      </p>
+                    ) : null}
+                    {variablePreview?.error === "TOO_SMALL" ? (
+                      <p className="form-field-help form-field-warn" style={{ marginTop: 8 }}>
+                        {getMainnetOutputMinimumMessage("Payment amount")}
+                      </p>
+                    ) : null}
+                  </>
+                )}
+                {walletLaunchAmountTooSmall && variablePreview?.error !== "TOO_SMALL" ? (
                   <p className="form-field-help form-field-warn" style={{ marginTop: 8 }}>
                     {getMainnetOutputMinimumMessage("Payment amount")}
                   </p>
                 ) : null}
-              </>
-            )}
-            {walletLaunchAmountTooSmall && variablePreview?.error !== "TOO_SMALL" ? (
-              <p className="form-field-help form-field-warn" style={{ marginTop: 8 }}>
-                {getMainnetOutputMinimumMessage("Payment amount")}
-              </p>
-            ) : null}
-          </div>
+              </div>
 
-          {isPending && !goalIsClosed ? (
-            <div
-              className={`pay-supporter-note${noteRequired ? " pay-supporter-note-required" : ""}`}
-            >
-              <label className="label" htmlFor="supporter-message">
-                {noteRequired ? (
-                  <>
-                    Note to creator <span className="pay-supporter-note-required-mark">*</span>
-                  </>
-                ) : (
-                  "Optional note to creator"
-                )}
-              </label>
-              <textarea
-                aria-required={noteRequired || undefined}
-                id="supporter-message"
-                maxLength={280}
-                onChange={(event) => {
-                  setSupporterMessage(event.target.value);
-                  setSupporterMessageSaveState("idle");
-                }}
-                onBlur={() => void syncSupporterMessage()}
-                placeholder={
-                  noteRequired
-                    ? `Required — at least ${MIN_REQUIRED_NOTE_LENGTH} characters describing what this payment is for`
-                    : "Thanks for the stream"
-                }
-                required={noteRequired}
-                rows={3}
-                value={supporterMessage}
-              />
-              {/* Account-free links have no profile, so there is no supporter wall to join. */}
-              {createdWithoutAccount ? null : (
-                <div className="supporter-wall-opt-in">
-                  <label className="supporter-wall-checkbox">
-                    <input
-                      checked={supporterPublic}
-                      onChange={(event) => {
-                        setSupporterPublic(event.target.checked);
-                        setSupporterMessageSaveState("idle");
-                      }}
-                      type="checkbox"
-                    />
-                    <span>
-                      Show this on the creator&apos;s public supporter wall after confirmation
-                    </span>
-                  </label>
-                  <p className="muted">
-                    Public wall entries show your display name, amount, and note. Wallet addresses
-                    are never shown.
-                  </p>
-                  {supporterPublic ? (
-                    <div className="supporter-wall-name-field">
-                      <label className="label" htmlFor="supporter-name">
-                        Display name
-                      </label>
-                      <input
-                        id="supporter-name"
-                        maxLength={40}
-                        onBlur={() => void syncSupporterMessage()}
-                        onChange={(event) => {
-                          setSupporterName(event.target.value);
-                          setSupporterMessageSaveState("idle");
-                        }}
-                        placeholder="Anonymous"
-                        type="text"
-                        value={supporterName}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              )}
-              {noteRequired ? (
-                <p
-                  aria-live="polite"
-                  className={`pay-supporter-note-counter${
-                    noteMissing ? "" : " pay-supporter-note-counter-ok"
-                  }`}
-                >
-                  {noteMissing
-                    ? `${noteCharsRemaining} more character${noteCharsRemaining === 1 ? "" : "s"} to unlock the Pay button`
-                    : `Looks good — note is long enough (${noteTrimmedLength} characters)`}
-                </p>
+              {isPending && !goalIsClosed && !noteRequired && !noteOpen && !supporterMessage ? (
+                <button className="pay-note-toggle" onClick={() => setNoteOpen(true)} type="button">
+                  + Add a note for the creator
+                </button>
               ) : null}
-              <div className="pay-supporter-note-footer">
-                <p className="muted">
-                  {noteRequired
-                    ? "The creator requires a note with this payment — they'll see it after confirmation. Off-chain only, not written into the Kaspa transaction."
-                    : "Off-chain only. This note is shown to the creator after confirmation and is not written into the Kaspa transaction."}
-                </p>
-                {supporterMessageSaveState !== "idle" ? (
-                  <span
-                    className={`supporter-note-save-status supporter-note-save-status-${supporterMessageSaveState}`}
-                    role="status"
+
+              {isPending && !goalIsClosed && (noteRequired || noteOpen || supporterMessage) ? (
+                <div
+                  className={`pay-supporter-note${noteRequired ? " pay-supporter-note-required" : ""}`}
+                >
+                  <label className="label" htmlFor="supporter-message">
+                    {noteRequired ? (
+                      <>
+                        Note to creator <span className="pay-supporter-note-required-mark">*</span>
+                      </>
+                    ) : (
+                      "Optional note to creator"
+                    )}
+                  </label>
+                  <textarea
+                    aria-required={noteRequired || undefined}
+                    id="supporter-message"
+                    maxLength={280}
+                    onChange={(event) => {
+                      setSupporterMessage(event.target.value);
+                      setSupporterMessageSaveState("idle");
+                    }}
+                    onBlur={() => void syncSupporterMessage()}
+                    placeholder={
+                      noteRequired
+                        ? `Required — at least ${MIN_REQUIRED_NOTE_LENGTH} characters describing what this payment is for`
+                        : "Thanks for the stream"
+                    }
+                    required={noteRequired}
+                    rows={3}
+                    value={supporterMessage}
+                  />
+                  {/* Account-free links have no profile, so there is no supporter wall to join. */}
+                  {createdWithoutAccount ? null : (
+                    <div className="supporter-wall-opt-in">
+                      <label className="supporter-wall-checkbox">
+                        <input
+                          checked={supporterPublic}
+                          onChange={(event) => {
+                            setSupporterPublic(event.target.checked);
+                            setSupporterMessageSaveState("idle");
+                          }}
+                          type="checkbox"
+                        />
+                        <span>
+                          Show this on the creator&apos;s public supporter wall after confirmation
+                        </span>
+                      </label>
+                      <p className="muted">
+                        Public wall entries show your display name, amount, and note. Wallet
+                        addresses are never shown.
+                      </p>
+                      {supporterPublic ? (
+                        <div className="supporter-wall-name-field">
+                          <label className="label" htmlFor="supporter-name">
+                            Display name
+                          </label>
+                          <input
+                            id="supporter-name"
+                            maxLength={40}
+                            onBlur={() => void syncSupporterMessage()}
+                            onChange={(event) => {
+                              setSupporterName(event.target.value);
+                              setSupporterMessageSaveState("idle");
+                            }}
+                            placeholder="Anonymous"
+                            type="text"
+                            value={supporterName}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                  {noteRequired ? (
+                    <p
+                      aria-live="polite"
+                      className={`pay-supporter-note-counter${
+                        noteMissing ? "" : " pay-supporter-note-counter-ok"
+                      }`}
+                    >
+                      {noteMissing
+                        ? `${noteCharsRemaining} more character${noteCharsRemaining === 1 ? "" : "s"} to unlock the Pay button`
+                        : `Looks good — note is long enough (${noteTrimmedLength} characters)`}
+                    </p>
+                  ) : null}
+                  <div className="pay-supporter-note-footer">
+                    <p className="muted">
+                      {noteRequired
+                        ? "The creator requires a note with this payment — they'll see it after confirmation. Off-chain only, not written into the Kaspa transaction."
+                        : "Off-chain only. This note is shown to the creator after confirmation and is not written into the Kaspa transaction."}
+                    </p>
+                    {supporterMessageSaveState !== "idle" ? (
+                      <span
+                        className={`supporter-note-save-status supporter-note-save-status-${supporterMessageSaveState}`}
+                        role="status"
+                      >
+                        {supporterMessageSaveState === "saving"
+                          ? "Saving..."
+                          : supporterMessageSaveState === "saved"
+                            ? "Saved"
+                            : "Save failed"}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Recipient — compact, inline copy */}
+              <div className="pay-recipient">
+                <span className="label">To</span>
+                <div className="pay-recipient-row">
+                  <p
+                    className={`value-mono pay-recipient-address${
+                      showFullRecipientAddress ? " is-expanded" : ""
+                    }`}
                   >
-                    {supporterMessageSaveState === "saving"
-                      ? "Saving..."
-                      : supporterMessageSaveState === "saved"
-                        ? "Saved"
-                        : "Save failed"}
-                  </span>
-                ) : null}
+                    {showFullRecipientAddress
+                      ? action.recipientAddress
+                      : compactAddress(action.recipientAddress)}
+                  </p>
+                  <div className="pay-recipient-actions">
+                    <button
+                      aria-expanded={showFullRecipientAddress}
+                      className="link-card-inline-btn"
+                      onClick={() => setShowFullRecipientAddress((current) => !current)}
+                      type="button"
+                    >
+                      {showFullRecipientAddress ? "Hide full" : "Show full"}
+                    </button>
+                    <button
+                      className="link-card-inline-btn"
+                      onClick={() => copy("address", action.recipientAddress)}
+                      type="button"
+                    >
+                      {copied?.key === "address" ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                </div>
+                <p className="muted" style={{ margin: "6px 0 0", fontSize: "0.78rem" }}>
+                  Always verify this address in your wallet before signing.
+                </p>
               </div>
             </div>
-          ) : null}
 
-          {/* Recipient — compact, inline copy */}
-          <div className="pay-recipient">
-            <span className="label">To</span>
-            <div className="pay-recipient-row">
-              <p
-                className={`value-mono pay-recipient-address${
-                  showFullRecipientAddress ? " is-expanded" : ""
-                }`}
-              >
-                {showFullRecipientAddress
-                  ? action.recipientAddress
-                  : compactAddress(action.recipientAddress)}
-              </p>
-              <div className="pay-recipient-actions">
-                <button
-                  aria-expanded={showFullRecipientAddress}
-                  className="link-card-inline-btn"
-                  onClick={() => setShowFullRecipientAddress((current) => !current)}
-                  type="button"
-                >
-                  {showFullRecipientAddress ? "Hide full" : "Show full"}
-                </button>
-                <button
-                  className="link-card-inline-btn"
-                  onClick={() => copy("address", action.recipientAddress)}
-                  type="button"
-                >
-                  {copied?.key === "address" ? "Copied" : "Copy"}
-                </button>
-              </div>
-            </div>
-            <p className="muted" style={{ margin: "6px 0 0", fontSize: "0.78rem" }}>
-              Always verify this address in your wallet before signing.
-            </p>
-          </div>
+            <div className="pay-card-side">
+              {/* Wallet connection helper (desktop only) */}
+              {!isTouchOnly ? (
+                <WalletConnectCard
+                  expectedNetwork={action.network}
+                  onStateChange={setKaswareConnection}
+                />
+              ) : null}
 
-          <div className="pay-divider" />
-
-          {/* Wallet connection helper (desktop only) */}
-          {!isTouchOnly ? (
-            <WalletConnectCard
-              expectedNetwork={action.network}
-              onStateChange={setKaswareConnection}
-            />
-          ) : null}
-
-          {/* Primary CTA — adapts to device + state. Note: once KasWare
+              {/* Primary CTA — adapts to device + state. Note: once KasWare
               accepts the send flow, the parent conditional
               swaps this whole pay-card for the waiting hero, so this
               branch only runs while the user is still in "choose how to
               pay" mode. */}
-          {isPending && !goalIsClosed ? (
-            <div className="pay-actions">
-              {/* Mobile: deep-link */}
-              {isTouchOnly ? (
-                noteMissing ? (
-                  /* Mobile: same note-required gate as desktop. The Pay-link
+              {isPending && !goalIsClosed ? (
+                <div className="pay-actions">
+                  {/* Mobile: deep-link */}
+                  {isTouchOnly ? (
+                    noteMissing ? (
+                      /* Mobile: same note-required gate as desktop. The Pay-link
                      CTA is replaced by a disabled cousin until the supporter
                      writes a note above. */
-                  <button className="btn btn-primary btn-block btn-pay" disabled type="button">
-                    Add a note to pay
-                  </button>
-                ) : walletLaunchUri ? (
-                  <button
-                    className="btn btn-primary btn-block btn-pay"
-                    disabled={openingMobileWallet || creating}
-                    onClick={() => void openMobileWallet()}
-                    type="button"
-                  >
-                    {openingMobileWallet || creating ? "Opening wallet…" : "Open in wallet"}
-                  </button>
-                ) : (
-                  <button className="btn btn-primary btn-block btn-pay" disabled type="button">
-                    {getAmountInputPrompt(variablePreview, walletLaunchAmountTooSmall)}
-                  </button>
-                )
-              ) : null}
+                      <button className="btn btn-primary btn-block btn-pay" disabled type="button">
+                        Add a note to pay
+                      </button>
+                    ) : walletLaunchUri ? (
+                      <button
+                        className="btn btn-primary btn-block btn-pay"
+                        disabled={openingMobileWallet || creating}
+                        onClick={() => void openMobileWallet()}
+                        type="button"
+                      >
+                        {openingMobileWallet || creating ? "Opening wallet…" : "Open in wallet"}
+                      </button>
+                    ) : (
+                      <button className="btn btn-primary btn-block btn-pay" disabled type="button">
+                        {getAmountInputPrompt(variablePreview, walletLaunchAmountTooSmall)}
+                      </button>
+                    )
+                  ) : null}
 
-              {/* Mobile fallback — only show after the user has tried Open-in-wallet
+                  {/* Mobile fallback — only show after the user has tried Open-in-wallet
                   at least once. Walks through the manual paste path when the deep
                   link gets swallowed by a backgrounded wallet (common on iOS). */}
-              {isTouchOnly && walletOpenAttempted && walletLaunchUri ? (
-                <div className="mobile-fallback">
-                  <span className="label">Didn&apos;t the wallet pre-fill?</span>
-                  <p style={{ margin: "6px 0 8px" }}>
-                    We copied the address + amount to your clipboard. If Kaspium opened blank:
-                  </p>
-                  <ol className="mobile-fallback-steps">
-                    <li>Long-press the recipient field in Kaspium → Paste</li>
-                    <li>Check the amount matches</li>
-                    <li>Tap Send</li>
-                  </ol>
-                  <div className="row mobile-fallback-actions">
-                    <a className="btn" href={walletLaunchUri} onClick={rememberWalletOpen}>
-                      Reopen in wallet
-                    </a>
-                    <button className="btn" onClick={copyEverythingBundle} type="button">
-                      {copied?.key === "bundle" ? "Copied" : "Copy everything"}
+                  {isTouchOnly && walletOpenAttempted && walletLaunchUri ? (
+                    <div className="mobile-fallback">
+                      <span className="label">Didn&apos;t the wallet pre-fill?</span>
+                      <p style={{ margin: "6px 0 8px" }}>
+                        We copied the address + amount to your clipboard. If Kaspium opened blank:
+                      </p>
+                      <ol className="mobile-fallback-steps">
+                        <li>Long-press the recipient field in Kaspium → Paste</li>
+                        <li>Check the amount matches</li>
+                        <li>Tap Send</li>
+                      </ol>
+                      <div className="row mobile-fallback-actions">
+                        <a className="btn" href={walletLaunchUri} onClick={rememberWalletOpen}>
+                          Reopen in wallet
+                        </a>
+                        <button className="btn" onClick={copyEverythingBundle} type="button">
+                          {copied?.key === "bundle" ? "Copied" : "Copy everything"}
+                        </button>
+                      </div>
+                      <p
+                        className="muted"
+                        style={{ fontSize: "0.78rem", marginTop: 10, marginBottom: 0 }}
+                      >
+                        Mobile browsers sometimes drop the wallet handoff when Kaspium is sleeping
+                        in the background. If &ldquo;Reopen&rdquo; keeps failing, fully close
+                        Kaspium from the app switcher and try again — or paste from clipboard.
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {/* Desktop: KasWare button when connected */}
+                  {showKaswarePay && kaswareConnection.connected ? (
+                    <button
+                      className="btn btn-primary btn-block btn-pay"
+                      disabled={
+                        paying ||
+                        creating ||
+                        kaswareNeedsAmount ||
+                        // After a successful broadcast, lock the button until the
+                        // indexer flips status to CONFIRMED (or it expires/fails).
+                        // Without this guard a second click would open KasWare
+                        // again for the same PaymentRequest — a real foot-gun
+                        // because the user'd be signing twice for one intent.
+                        waitingForKaswareConfirmation ||
+                        noteMissing
+                      }
+                      onClick={payWithKasware}
+                      type="button"
+                    >
+                      {paying ? (
+                        <span className="btn-pay-with-spinner">
+                          <span className="btn-pay-spinner" aria-hidden="true" />
+                          Confirm in KasWare…
+                        </span>
+                      ) : creating ? (
+                        "Creating payment request…"
+                      ) : waitingForKaswareConfirmation ? (
+                        <span className="btn-pay-with-spinner">
+                          <span className="btn-pay-spinner" aria-hidden="true" />
+                          Waiting for confirmation…
+                        </span>
+                      ) : kaswareNeedsAmount ? (
+                        getAmountInputPrompt(variablePreview, walletLaunchAmountTooSmall)
+                      ) : noteMissing ? (
+                        "Add a note to pay"
+                      ) : (
+                        "Pay with KasWare"
+                      )}
                     </button>
+                  ) : null}
+
+                  {/* QR — always visible while pending, smaller on desktop */}
+                  {qrDataUrl ? (
+                    <div className="pay-qr-block">
+                      <span className="label">Or scan with a Kaspa wallet</span>
+                      <div className="branded-qr-shell">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img alt="Kaspa payment QR code" className="qr" src={qrDataUrl} />
+                        <span className="branded-qr-mark" aria-hidden="true">
+                          <LogoMark size={34} title={undefined} variant="solid" />
+                        </span>
+                      </div>
+                    </div>
+                  ) : isVariableAmount && !paymentRequest ? (
+                    <div className="pay-qr-block">
+                      <span className="label">Or scan with a Kaspa wallet</span>
+                      <div className="qr qr-placeholder" aria-hidden>
+                        <span>
+                          {getAmountInputPrompt(variablePreview, walletLaunchAmountTooSmall)}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Manual copy fallback */}
+                  <div className="pay-copy-row">
+                    {effectiveAmountKas ? (
+                      <button
+                        className="btn"
+                        onClick={() => copy("amount", effectiveAmountKas)}
+                        type="button"
+                      >
+                        {copied?.key === "amount" ? "Amount copied" : "Copy amount"}
+                      </button>
+                    ) : null}
+                    {walletLaunchUri ? (
+                      <button
+                        className="btn"
+                        onClick={() => copy("uri", walletLaunchUri)}
+                        type="button"
+                      >
+                        {copied?.key === "uri" ? "URI copied" : "Copy URI"}
+                      </button>
+                    ) : null}
                   </div>
-                  <p
-                    className="muted"
-                    style={{ fontSize: "0.78rem", marginTop: 10, marginBottom: 0 }}
-                  >
-                    Mobile browsers sometimes drop the wallet handoff when Kaspium is sleeping in
-                    the background. If &ldquo;Reopen&rdquo; keeps failing, fully close Kaspium from
-                    the app switcher and try again — or paste from clipboard.
-                  </p>
-                </div>
-              ) : null}
 
-              {/* Desktop: KasWare button when connected */}
-              {showKaswarePay && kaswareConnection.connected ? (
-                <button
-                  className="btn btn-primary btn-block btn-pay"
-                  disabled={
-                    paying ||
-                    creating ||
-                    kaswareNeedsAmount ||
-                    // After a successful broadcast, lock the button until the
-                    // indexer flips status to CONFIRMED (or it expires/fails).
-                    // Without this guard a second click would open KasWare
-                    // again for the same PaymentRequest — a real foot-gun
-                    // because the user'd be signing twice for one intent.
-                    waitingForKaswareConfirmation ||
-                    noteMissing
-                  }
-                  onClick={payWithKasware}
-                  type="button"
-                >
-                  {paying ? (
-                    <span className="btn-pay-with-spinner">
-                      <span className="btn-pay-spinner" aria-hidden="true" />
-                      Confirm in KasWare…
-                    </span>
-                  ) : creating ? (
-                    "Creating payment request…"
-                  ) : waitingForKaswareConfirmation ? (
-                    <span className="btn-pay-with-spinner">
-                      <span className="btn-pay-spinner" aria-hidden="true" />
-                      Waiting for confirmation…
-                    </span>
-                  ) : kaswareNeedsAmount ? (
-                    getAmountInputPrompt(variablePreview, walletLaunchAmountTooSmall)
-                  ) : noteMissing ? (
-                    "Add a note to pay"
-                  ) : (
-                    "Pay with KasWare"
-                  )}
-                </button>
-              ) : null}
+                  {/* Status line — small, contextual */}
+                  {paymentRequest ? (
+                    <div className="pay-status-row">
+                      <span className={statusClass(currentStatus)}>{currentStatus}</span>
+                      <span className="muted" style={{ fontSize: "0.82rem" }}>
+                        Status refreshes every few seconds.
+                      </span>
+                    </div>
+                  ) : null}
 
-              {/* QR — always visible while pending, smaller on desktop */}
-              {qrDataUrl ? (
-                <div className="pay-qr-block">
-                  <span className="label">Or scan with a Kaspa wallet</span>
-                  <div className="branded-qr-shell">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img alt="Kaspa payment QR code" className="qr" src={qrDataUrl} />
-                    <span className="branded-qr-mark" aria-hidden="true">
-                      <LogoMark size={34} title={undefined} variant="solid" />
-                    </span>
-                  </div>
-                </div>
-              ) : isVariableAmount && !paymentRequest ? (
-                <div className="pay-qr-block">
-                  <span className="label">Or scan with a Kaspa wallet</span>
-                  <div className="qr qr-placeholder" aria-hidden>
-                    <span>{getAmountInputPrompt(variablePreview, walletLaunchAmountTooSmall)}</span>
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Manual copy fallback */}
-              <div className="pay-copy-row">
-                {effectiveAmountKas ? (
-                  <button
-                    className="btn"
-                    onClick={() => copy("amount", effectiveAmountKas)}
-                    type="button"
-                  >
-                    {copied?.key === "amount" ? "Amount copied" : "Copy amount"}
-                  </button>
-                ) : null}
-                {walletLaunchUri ? (
-                  <button
-                    className="btn"
-                    onClick={() => copy("uri", walletLaunchUri)}
-                    type="button"
-                  >
-                    {copied?.key === "uri" ? "URI copied" : "Copy URI"}
-                  </button>
-                ) : null}
-              </div>
-
-              {/* Status line — small, contextual */}
-              {paymentRequest ? (
-                <div className="pay-status-row">
-                  <span className={statusClass(currentStatus)}>{currentStatus}</span>
-                  <span className="muted" style={{ fontSize: "0.82rem" }}>
-                    Status refreshes every few seconds.
-                  </span>
-                </div>
-              ) : null}
-
-              {/* Inline status messages from the pay flow. Once we've
+                  {/* Inline status messages from the pay flow. Once we've
                   broadcast, the prominent banner at the top of the pay
                   actions block already shows the same info — so suppress
                   the small redundant "broadcasted: <txid>" line and the
                   twin success-text duplicate to keep the surface calm. */}
-              {payStatus && !sentTxId ? (
-                <p className="muted" style={{ fontSize: "0.85rem", marginTop: 4 }}>
-                  {payStatus}
+                  {payStatus && !sentTxId ? (
+                    <p className="muted" style={{ fontSize: "0.85rem", marginTop: 4 }}>
+                      {payStatus}
+                    </p>
+                  ) : null}
+                </div>
+              ) : goalIsClosed ? (
+                <p className="muted" style={{ margin: 0 }}>
+                  This goal has reached its target and is closed for new contributions.
                 </p>
-              ) : null}
+              ) : (
+                <p className="muted" style={{ margin: 0 }}>
+                  This payment request is no longer accepting payments.
+                </p>
+              )}
             </div>
-          ) : goalIsClosed ? (
-            <p className="muted" style={{ margin: 0 }}>
-              This goal has reached its target and is closed for new contributions.
-            </p>
-          ) : (
-            <p className="muted" style={{ margin: 0 }}>
-              This payment request is no longer accepting payments.
-            </p>
-          )}
+          </div>
 
           {error ? (
             <p className="error-text" style={{ marginTop: 8 }}>

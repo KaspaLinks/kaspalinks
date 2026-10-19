@@ -73,7 +73,7 @@ export function ClaimableCreateChooser({
       <main className="main-wide claimable-create-entry">
         <CreatorSignInGate
           description="A creator profile is required before you configure a Claimable Link or Claim Drop. No email is required."
-          label="Claimable rewards"
+          label="Claim links"
           nextPath={`/claim/create?count=${count}`}
           title="Sign in to create claimable rewards"
         />
@@ -84,7 +84,7 @@ export function ClaimableCreateChooser({
   return (
     <main className="main-wide claimable-create-entry">
       <section className="hero claimable-create-entry-hero">
-        <span className="hero-eyebrow">Claimable rewards</span>
+        <span className="hero-eyebrow">Claim links</span>
         <h1 className="hero-title">How many claim links do you need?</h1>
         <p className="hero-sub">
           Create one reward for one recipient, or prepare a Claim Drop with several individual

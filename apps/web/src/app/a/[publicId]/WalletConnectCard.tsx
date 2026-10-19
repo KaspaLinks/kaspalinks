@@ -241,12 +241,6 @@ export function WalletConnectCard({ expectedNetwork, onStateChange }: WalletConn
     [expectedNetwork, wallet.installed, wallet.network],
   );
   const connected = connectedAccount !== null;
-  const walletStatus = !wallet.checked ? "CHECKING" : connected ? "CONNECTED" : "DISCONNECTED";
-  const walletStatusClass = !wallet.checked
-    ? "status-pill status-pending"
-    : connected
-      ? "status-pill status-confirmed"
-      : "status-pill status-failed";
 
   useEffect(() => {
     onStateChange?.({
@@ -274,76 +268,65 @@ export function WalletConnectCard({ expectedNetwork, onStateChange }: WalletConn
     return null;
   }
 
-  return (
-    <section className="card wallet-card hide-on-touch">
-      <span className="label">Wallet adapter</span>
-      <div className="wallet-card-header">
-        <h2>KasWare connect</h2>
-        <span className={walletStatusClass}>{walletStatus}</span>
-      </div>
-      <p className="muted">
-        Connect is client-only. Sending happens only from the explicit Pay with KasWare button.
-        Kaspa Links does not request seed phrases, private keys, server signing, or custodial
-        access.
+  // Compact on purpose: on desktop this is the first pay step (connect, then
+  // "Pay with KasWare" appears below), so it reads as one action, not a panel.
+  if (!wallet.checked) {
+    return (
+      <p className="wallet-line muted hide-on-touch" role="status">
+        Checking for KasWare in this browser…
       </p>
+    );
+  }
 
+  if (!wallet.installed) {
+    return (
+      <p className="wallet-line muted hide-on-touch">
+        Scan the QR code below with a Kaspa wallet, or install{" "}
+        <a href="https://kasware.xyz" rel="noreferrer" target="_blank">
+          KasWare
+        </a>{" "}
+        to pay in one click.
+      </p>
+    );
+  }
+
+  return (
+    <section className="wallet-line-card hide-on-touch" aria-label="KasWare wallet">
       {connectedAccount ? (
-        <div className="wallet-grid">
-          <div>
-            <span className="label">Connected account</span>
-            <p className="value-mono">{connectedAccount}</p>
-          </div>
-          <div>
-            <span className="label">Wallet network</span>
-            <p className="wallet-value">{wallet.network}</p>
-          </div>
-          {wallet.balance ? (
-            <div>
-              <span className="label">Wallet balance</span>
-              <p className="wallet-value">{formatWalletBalance(wallet.balance.total)}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <p className="muted">
-          {!wallet.checked
-            ? "Checking for KasWare in this browser."
-            : wallet.installed
-              ? "KasWare is available. Connect to show the selected account and network before using the wallet link."
-              : "KasWare is not available in this browser. QR, copy, and open-wallet URI flows still work."}
-        </p>
-      )}
-
-      {networkMessage ? <p className={networkMessage.className}>{networkMessage.text}</p> : null}
-      {wallet.error ? <p className="error-text">{wallet.error}</p> : null}
-      {wallet.notice ? <p className="muted">{wallet.notice}</p> : null}
-
-      <div className="row">
-        <button
-          type="button"
-          className="btn"
-          disabled={wallet.connecting || wallet.disconnecting}
-          onClick={connect}
-        >
-          {wallet.connecting
-            ? "Connecting..."
-            : connectedAccount
-              ? "Reconnect KasWare"
-              : "Connect KasWare"}
-        </button>
-        {connectedAccount ? (
+        <div className="wallet-line-connected">
+          <span className="status-dot-ok" aria-hidden="true" />
+          <span>
+            KasWare connected · <span className="value-mono">{shortAccount(connectedAccount)}</span>
+            {wallet.balance ? ` · ${formatWalletBalance(wallet.balance.total)}` : ""}
+          </span>
           <button
             type="button"
-            className="btn"
+            className="link-card-inline-btn"
             disabled={wallet.connecting || wallet.disconnecting}
             onClick={disconnect}
           >
-            {wallet.disconnecting ? "Disconnecting..." : "Disconnect"}
+            {wallet.disconnecting ? "Disconnecting…" : "Disconnect"}
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="btn btn-primary btn-block btn-pay"
+          disabled={wallet.connecting || wallet.disconnecting}
+          onClick={connect}
+        >
+          {wallet.connecting ? "Connecting…" : "Connect KasWare to pay"}
+        </button>
+      )}
+      {networkMessage ? <p className={networkMessage.className}>{networkMessage.text}</p> : null}
+      {wallet.error ? <p className="error-text">{wallet.error}</p> : null}
+      {wallet.notice ? <p className="muted">{wallet.notice}</p> : null}
     </section>
   );
+}
+
+function shortAccount(address: string): string {
+  return address.length > 24 ? `${address.slice(0, 14)}…${address.slice(-6)}` : address;
 }
 
 function formatWalletBalance(totalSompi: string): string {

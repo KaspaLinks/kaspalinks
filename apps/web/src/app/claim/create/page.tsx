@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     follow: false,
     index: false,
   },
-  title: "Create Claimable Rewards",
+  title: "Create Claim Links",
 };
 
 function parseInitialCount(value: string | string[] | undefined): number {

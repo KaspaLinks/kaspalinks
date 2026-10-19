@@ -99,9 +99,9 @@ export default function TryItOutPage() {
           Your first Kaspa Link, step by step.
         </h1>
         <p className="hero-sub">
-          Create a public profile, make your first payment link, share it, and test a real
-          wallet-to-wallet payment. Kaspa Links shows the payment clearly before anyone opens a
-          wallet, and the KAS goes straight to the recipient address.
+          Make your first payment link, share it, and test a real wallet-to-wallet payment. No
+          account needed. Kaspa Links shows the payment clearly before anyone opens a wallet, and
+          the KAS goes straight to the recipient address.
         </p>
       </section>
 
@@ -157,12 +157,15 @@ export default function TryItOutPage() {
               chosen by the supporter.
             </p>
             <p className="muted" style={{ marginTop: 0 }}>
-              Sign in with your creator token, or create a new profile in seconds — no email, no
-              password.
+              No account needed: the link is yours through a private manage link. Want a public
+              profile with all your links on one page? Create one in seconds, no email, no password.
             </p>
             <div className="row">
-              <Link href="/dashboard" className="btn btn-primary">
-                Sign in or create profile
+              <Link href="/new-link" className="btn btn-primary">
+                Create a link
+              </Link>
+              <Link href="/create-profile" className="btn">
+                Create a profile
               </Link>
             </div>
           </div>
@@ -173,7 +176,7 @@ export default function TryItOutPage() {
             <WalkthroughIcon name="profile" />
           </div>
           <div className="walkthrough-body">
-            <h2>Shape your public profile</h2>
+            <h2>Optional: a public profile</h2>
             <p style={{ marginBottom: 8 }}>
               Your profile lives at <code>/u/yourname</code>. Think of it as your Kaspa support
               page: one main payment card at the top, plus extra links below for invoices, goals, or

@@ -133,17 +133,24 @@ export default function RootLayout({
             </span>
           </div>
           <div className="app-footer-links">
-            <Link href="/roadmap">Roadmap</Link>
-            <Link href="/try-it-out">Try it out</Link>
+            <Link href="/try-it-out">How it works</Link>
             <Link href="/faq">FAQ</Link>
+            <Link href="/stats">Stats</Link>
+            <Link href="/roadmap">Roadmap</Link>
+            <Link href="/deck">Pitch</Link>
             <a href={X_PROFILE_URL} rel="noreferrer" target="_blank">
               X
             </a>
             <a href={GITHUB_REPOSITORY_URL} rel="noreferrer" target="_blank">
               GitHub
             </a>
-            <span className="app-footer-status">Status: live</span>
-            {commit ? <span className="app-footer-build">Build {commit.slice(0, 7)}</span> : null}
+            {/* The build id stays reachable (hover) without showing every visitor. */}
+            <span
+              className="app-footer-status"
+              title={commit ? `Build ${commit.slice(0, 7)}` : undefined}
+            >
+              Status: live
+            </span>
           </div>
         </footer>
       </body>

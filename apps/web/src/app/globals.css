@@ -415,13 +415,6 @@ ul li {
   margin-bottom: 14px;
 }
 
-.hero-brand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 16px;
-}
-
 .hero-eyebrow {
   display: inline-block;
   font-size: 0.75rem;
@@ -437,7 +430,7 @@ ul li {
 }
 
 .hero-title {
-  font-size: 2.4rem;
+  font-size: 2rem;
   font-weight: 800;
   margin: 0 0 12px;
   letter-spacing: -0.02em;
@@ -458,6 +451,68 @@ ul li {
 /* Newcomer link under the hero CTAs. Smaller and quieter than the
    buttons so it doesn't compete — the dotted underline + accent color
    on hover read as "you can click this" without screaming for attention. */
+.hero-actions {
+  justify-content: center;
+}
+
+.hero-no-account {
+  margin: 12px 0 0;
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+}
+
+/* Home: the four things Kaspa Links does, like the Telegram start screen. */
+.home-start {
+  margin: 0 0 32px;
+}
+
+.home-start-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+.home-start-tile {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--fg);
+  text-decoration: none;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.home-start-tile:hover {
+  border-color: var(--accent);
+  background: var(--bg-card-hover);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.home-start-tile strong {
+  color: var(--fg-strong);
+  font-size: 1.08rem;
+}
+
+.home-start-tile > span {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.home-start-tile .home-start-cta {
+  margin-top: 4px;
+  color: var(--accent-bright);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
 .hero-newcomer-link {
   margin: 18px 0 0;
   font-size: 0.9rem;
@@ -1843,6 +1898,51 @@ textarea {
 
 /* Wallet card — used by WalletConnectCard */
 
+/* Pay page: the KasWare step as one line or one button, not a panel. */
+.wallet-line {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.wallet-line-card {
+  display: grid;
+  gap: 8px;
+}
+
+.wallet-line-connected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-muted);
+  font-size: 0.86rem;
+}
+
+.status-dot-ok {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px rgba(92, 228, 173, 0.55);
+}
+
+.pay-note-toggle {
+  align-self: flex-start;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--accent-bright);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pay-note-toggle:hover {
+  text-decoration: underline;
+}
+
 .wallet-card {
   background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-elev) 100%);
 }
@@ -1887,6 +1987,15 @@ textarea {
   padding: 14px 18px;
   max-width: 640px;
   margin: 0 auto;
+}
+
+/* On desktop the bar shows the inline links and the Create button, which do
+   not fit 640px; every page uses the same 1100px frame, so the chrome never
+   jumps or crowds between narrow and wide pages. */
+@media (min-width: 1024px) {
+  .brand-bar {
+    max-width: 1100px;
+  }
 }
 
 .brand-mark {
@@ -2001,6 +2110,44 @@ textarea {
     margin-right: 4px;
   }
   .brand-bar-actions .nav-menu {
+    display: none;
+  }
+  /* Signed in, the menu holds Stats, FAQ and Sign out, so desktop keeps it. */
+  .brand-bar-actions .nav-menu.nav-menu-account {
+    display: block;
+  }
+  .nav-menu-account .nav-dropdown-item-mobile,
+  .nav-menu-account .nav-dropdown-create {
+    display: none;
+  }
+}
+
+/* The one primary action in the bar: create a link. */
+.brand-bar-create {
+  display: none;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 140ms ease;
+}
+
+.brand-bar-create:hover {
+  background: var(--accent-bright);
+  color: var(--accent-fg);
+  text-decoration: none;
+}
+
+@media (min-width: 640px) {
+  .brand-bar-create {
+    display: inline-flex;
+  }
+  .nav-dropdown-create {
     display: none;
   }
 }
@@ -3417,6 +3564,29 @@ body:has(main.overlay-page) > footer.app-footer {
   box-shadow: var(--shadow-glow);
 }
 
+/* One column on phones (amount → note → recipient → pay); two on desktop so
+   the pay button and QR sit next to the amount instead of below the fold. */
+.pay-card-columns,
+.pay-card-main,
+.pay-card-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+@media (min-width: 900px) {
+  .pay-card-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+    align-items: start;
+    gap: 24px;
+  }
+  .pay-card-side {
+    padding-left: 24px;
+    border-left: 1px solid var(--border);
+  }
+}
+
 .pay-amount {
   display: flex;
   flex-direction: column;
@@ -4170,6 +4340,36 @@ a.type-segment:hover {
 .new-link-grid {
   display: grid;
   gap: 0;
+}
+
+.new-link-more > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.new-link-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.new-link-more > summary::before {
+  content: "▸";
+  color: var(--accent);
+}
+
+.new-link-more[open] > summary::before {
+  content: "▾";
+}
+
+.new-link-more > summary .form-section-heading {
+  margin: 0;
+}
+
+.new-link-more[open] > summary {
+  margin-bottom: 14px;
 }
 
 /* Mobile order: form first, then preview (so the supporter reviews the

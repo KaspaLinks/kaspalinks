@@ -1,16 +1,40 @@
 import Link from "next/link";
 
-import { BrandLogo } from "./BrandLogo";
-
 export const dynamic = "force-dynamic";
 
+// The same four jobs as the Telegram Mini App start screen, so the web and the
+// bot read as one product.
+const START_TILES = [
+  {
+    body: "Tips, donations, goals or invoices, paid straight to your wallet.",
+    cta: "Create a payment link",
+    href: "/new-link",
+    title: "Get paid",
+  },
+  {
+    body: "A claim link for one person, or a drop of up to 8. Unclaimed KAS comes back by itself.",
+    cta: "Create a claim link",
+    href: "/claim/create",
+    title: "Send KAS",
+  },
+  {
+    body: "Fund a prize, share one link, and a fair on-chain draw picks the winner.",
+    cta: "Start a giveaway",
+    href: "/giveaway/new",
+    title: "Run a giveaway",
+  },
+] as const;
+
+function telegramBotUrl(): null | string {
+  const username = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, "") ?? "";
+  return /^[A-Za-z0-9_]{5,32}$/.test(username) ? `https://t.me/${username}` : null;
+}
+
 export default function Home() {
+  const botUrl = telegramBotUrl();
   return (
     <main className="main-wide">
       <section className="hero">
-        <div className="hero-brand">
-          <BrandLogo variant="hero" />
-        </div>
         <span className="hero-eyebrow">Shareable Kaspa payment links</span>
         <h1 className="hero-title">
           Turn Kaspa payments
@@ -18,17 +42,18 @@ export default function Home() {
           into shareable links.
         </h1>
         <p className="hero-sub">
-          Tip a creator, crowdfund a goal, pay an invoice, or share one reward — or a whole claim
-          drop. Non-custodial by design. Your wallet, your keys, your funds.
+          Get paid, send KAS with a link, or run a giveaway. Non-custodial by design: your wallet,
+          your keys, your funds.
         </p>
-        <div className="row" style={{ justifyContent: "center" }}>
-          <Link href="/try-it-out" className="btn btn-primary">
-            Try it out
+        <div className="row hero-actions">
+          <Link href="/new-link" className="btn btn-primary">
+            Create a link
           </Link>
-          <Link href="/deck" className="btn">
-            Read the pitch →
+          <Link href="/try-it-out" className="btn">
+            How it works
           </Link>
         </div>
+        <p className="hero-no-account">No account, no email, no platform fee.</p>
         {/* Newcomer escape hatch — anyone who landed here from a shared
             link without knowing what Kaspa is gets a clear way out to a
             60-second intro. Kept understated on purpose so it doesn't
@@ -36,6 +61,25 @@ export default function Home() {
         <p className="hero-newcomer-link">
           <Link href="/what-is-kaspa">New to Kaspa? See what makes it fast →</Link>
         </p>
+      </section>
+
+      <section aria-label="What you can do" className="home-start">
+        <div className="home-start-grid">
+          {START_TILES.map((tile) => (
+            <Link className="home-start-tile" href={tile.href} key={tile.href}>
+              <strong>{tile.title}</strong>
+              <span>{tile.body}</span>
+              <span className="home-start-cta">{tile.cta} →</span>
+            </Link>
+          ))}
+          {botUrl ? (
+            <a className="home-start-tile" href={botUrl} rel="noreferrer" target="_blank">
+              <strong>Use it in Telegram</strong>
+              <span>The same links and giveaways from a chat, without leaving Telegram.</span>
+              <span className="home-start-cta">Open the bot →</span>
+            </a>
+          ) : null}
+        </div>
       </section>
 
       {/* Landing demo — a visual mockup of an actual Kaspa Links pay-page.
@@ -165,7 +209,7 @@ export default function Home() {
             </div>
           </div>
         </div>
-        <span className="landing-demo-cta">Try it yourself →</span>
+        <span className="landing-demo-cta">How it works →</span>
       </Link>
 
       <section className="why">
@@ -353,7 +397,7 @@ export default function Home() {
             <h3 className="use-case-title">Claimable links &amp; drops</h3>
             <p className="use-case-body">
               Create one reward or a drop of up to 8 separate claim links. Fund a drop once, share
-              every link individually, and privately recover any KAS left unclaimed after expiry.
+              every link individually. Unclaimed KAS goes back to your wallet by itself.
             </p>
           </Link>
         </div>
@@ -362,10 +406,10 @@ export default function Home() {
       <section className="card card-muted">
         <h2 style={{ marginBottom: 6 }}>What this is not</h2>
         <p className="muted" style={{ margin: 0 }}>
-          Not a wallet. Not custody. Not a payment processor in the legal sense. Payment links and
-          real on-chain detection are live today. Claimable links and multi-link claim drops are
-          live too, while splits and advanced covenant features stay on the roadmap.
-          <Link href="/roadmap"> See the full roadmap →</Link>
+          Not a wallet. Not custody. Not a payment processor in the legal sense. Payment links,
+          claim links, Claim Drops and on-chain giveaways are live today; splits and more covenant
+          features are on the roadmap. <Link href="/roadmap">See the full roadmap →</Link>{" "}
+          <Link href="/deck">Read the pitch →</Link>
         </p>
       </section>
     </main>

@@ -80,19 +80,20 @@ export function BrandNav() {
   // Primary links shown inline in the bar on desktop (≥1024px, where the bar
   // widens to match the content). On smaller screens these collapse into the
   // hamburger dropdown below.
+  // Signed in: only the creator's own pages inline; public pages and sign-out
+  // live in the account menu, which stays available on desktop too.
   const inlineLinks = signedIn
     ? [
         { href: "/dashboard", label: "Dashboard" },
         { href: "/my-links", label: "My links" },
-        { href: "/my-profile", label: "My profile" },
-        { href: "/agent", label: "Agent" },
-        { href: "/stats", label: "Stats" },
+        { href: "/my-profile", label: "Profile" },
+        { href: "/agent", label: "Telegram" },
       ]
     : [
         { href: "/what-is-kaspa", label: "What is Kaspa?" },
         { href: "/stats", label: "Stats" },
         { href: "/faq", label: "FAQ" },
-        { href: "/try-it-out", label: "Try it out" },
+        { href: "/try-it-out", label: "How it works" },
       ];
 
   function signOut() {
@@ -122,12 +123,10 @@ export function BrandNav() {
             </Link>
           );
         })}
-        {signedIn ? (
-          <button className="brand-bar-link brand-bar-link-signout" onClick={signOut} type="button">
-            Sign out
-          </button>
-        ) : null}
       </nav>
+      <Link className="brand-bar-create" href="/new-link">
+        {signedIn ? "+ Create" : "Create a link"}
+      </Link>
       {signedIn ? (
         <Link className="signed-in-pill" href="/dashboard" title="Dashboard">
           <span className="signed-in-dot" aria-hidden="true" />
@@ -139,7 +138,7 @@ export function BrandNav() {
           Sign in
         </Link>
       )}
-      <div className="nav-menu" ref={containerRef}>
+      <div className={`nav-menu${signedIn ? " nav-menu-account" : ""}`} ref={containerRef}>
         <button
           type="button"
           className="nav-toggle"
@@ -154,6 +153,14 @@ export function BrandNav() {
         </button>
         {open ? (
           <div className="nav-dropdown" role="menu">
+            <Link
+              className="nav-dropdown-item nav-dropdown-item-accent nav-dropdown-create"
+              href="/new-link"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+            >
+              {signedIn ? "+ Create a link" : "Create a link"}
+            </Link>
             {!signedIn ? (
               <>
                 <Link
@@ -170,7 +177,7 @@ export function BrandNav() {
                   role="menuitem"
                   onClick={() => setOpen(false)}
                 >
-                  Agent
+                  Telegram bot
                 </Link>
                 <Link
                   className="nav-dropdown-item"
@@ -185,16 +192,17 @@ export function BrandNav() {
             ) : null}
             {signedIn ? (
               <>
+                {/* Inline on desktop already; the menu repeats them for small screens. */}
                 <Link
-                  className="nav-dropdown-item"
-                  href="/my-profile"
+                  className="nav-dropdown-item nav-dropdown-item-mobile"
+                  href="/dashboard"
                   role="menuitem"
                   onClick={() => setOpen(false)}
                 >
-                  My profile
+                  Dashboard
                 </Link>
                 <Link
-                  className="nav-dropdown-item"
+                  className="nav-dropdown-item nav-dropdown-item-mobile"
                   href="/my-links"
                   role="menuitem"
                   onClick={() => setOpen(false)}
@@ -202,13 +210,22 @@ export function BrandNav() {
                   My links
                 </Link>
                 <Link
-                  className="nav-dropdown-item"
-                  href="/dashboard"
+                  className="nav-dropdown-item nav-dropdown-item-mobile"
+                  href="/my-profile"
                   role="menuitem"
                   onClick={() => setOpen(false)}
                 >
-                  Dashboard
+                  Profile
                 </Link>
+                <Link
+                  className="nav-dropdown-item nav-dropdown-item-mobile"
+                  href="/agent"
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                >
+                  Telegram
+                </Link>
+                <div className="nav-dropdown-divider nav-dropdown-item-mobile" role="separator" />
               </>
             ) : null}
             <Link

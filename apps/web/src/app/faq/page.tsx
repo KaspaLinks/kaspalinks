@@ -77,24 +77,24 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     answer:
-      "You choose an amount and a claim window, then download the private recovery bundle before funding a fresh one-time Kaspa address. Only after funding is detected do you share the claim link. The recipient enters their own Kaspa address and claims the KAS. When the timer ends, import your recovery bundle or open the private refund link to recover an unclaimed output. The output closes when either a claim or refund is confirmed on-chain.",
+      "You choose an amount, a claim window and your own wallet, then pay once to a fresh one-time Kaspa address. As soon as the payment is detected you share the claim link. The recipient opens it and claims the KAS to their own wallet. If nobody claims it in time, the KAS goes back to your wallet by itself: the on-chain script allows no other destination. No account and no recovery file needed.",
     link: { href: "/claim/create", label: "Create a claimable link" },
     question: "How does a claimable link work?",
   },
   {
     answer:
-      "A Claim Drop creates 2 to 8 independent Claimable links with the same amount and expiry. First save the private recovery bundle, then fund one batch address once. Your browser signs the activation transaction that creates a separate on-chain output for every link. Each link can be shared, claimed, tracked, and refunded individually. Kaspa Links cannot recreate the private recovery bundle for you.",
+      "A Claim Drop creates 2 to 8 separate claim links with the same amount and expiry. You enter your wallet and pay one address once; your browser then creates a separate on-chain output for every link. Each link is shared and claimed on its own, and every link still unclaimed after the claim window goes back to your wallet by itself. Claim Drops need a free profile.",
     link: { href: "/claim/create?count=2", label: "Create a claim drop" },
     question: "Can I create several claimable links at once?",
   },
   {
     answer:
-      "The browser creates separate claim and refund codes. The claim code is kept after the # in the claim URL, which browsers do not send to our server. A single-link recovery bundle contains only its refund code and public contract data; it does not contain the claim code. For a Claim Drop, every link gets its own private codes and the batch recovery bundle stays with you. The server stores public metadata and relays already signed transaction JSON, but it never stores claim/refund private keys and cannot claim or refund for you.",
+      "Your browser creates the claim code for every link. It sits after the # in the claim URL, which browsers never send to our server. The way back needs no key at all: the on-chain script only lets unclaimed KAS return to the wallet you entered. Kaspa Links stores public metadata and relays transactions, but it can neither claim your KAS nor send it anywhere else. Links created before automatic returns use a private refund link or recovery bundle instead.",
     question: "How does the claimable link stay non-custodial?",
   },
   {
     answer:
-      "The prize and its private claim/refund keys stay with the creator's browser, so Kaspa Links never holds or controls the funds. In the current Lab protocol, entry hashes are frozen into a Merkle root after entries close, before a preselected future Kaspa chain block exists. The confirmed block hash then supplies entropy for the draw. Entrants can verify their receipt, the frozen root, committed seed, block hash, digest, and winner directly in their browser. This makes post-freeze changes detectable, but it does not prove that different Kaspa addresses belong to different people or prevent a dishonest operator from adding addresses before the freeze. The draw is non-custodial and tamper-evident, not absolute Sybil-proof identity verification.",
+      "The prize is locked in a SilverScript contract on Kaspa together with the creator's return wallet, so Kaspa Links never holds or controls it. Entries are recorded on-chain. At the fixed draw time the entry list is frozen, a later Kaspa block supplies the randomness, and the contract only pays the winner that this randomness selects. If nobody enters, the prize goes back to the return wallet. Anyone can check the frozen entries, the block and the payout on-chain. This makes the draw non-custodial and tamper-evident, but it does not prove that different Kaspa addresses belong to different people.",
     question: "Are giveaways non-custodial and impossible to manipulate?",
   },
   {

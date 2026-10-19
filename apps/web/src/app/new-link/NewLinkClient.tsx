@@ -835,7 +835,7 @@ export function NewLinkClient({
             <span className="quick-template-title">Claimable reward</span>
             <span className="quick-template-description">
               Create one claimable reward or choose up to 8 separate links for a Claim Drop.
-              Unclaimed KAS remains privately refundable after expiry.
+              Unclaimed KAS comes back to your wallet by itself.
             </span>
             <span className="quick-template-meta">1 to 8 links · non-custodial rewards</span>
           </Link>
@@ -1178,9 +1178,17 @@ export function NewLinkClient({
             </section>
           )}
 
-          {/* Section 4: Wallet note (optional) */}
-          <section className="card">
-            <h2 className="form-section-heading">Wallet note (optional)</h2>
+          {/* Section 4: optional extras, folded away so the form stays short */}
+          <details className="card new-link-more">
+            <summary>
+              <span className="form-section-heading">More options</span>
+              <span className="muted">
+                Wallet note, require a note
+                {isGoalType ? ", auto-close" : ""}
+                {accountFreeMode ? "" : ", profile"}
+                {walletNote.trim() || noteRequired ? " · set" : ""}
+              </span>
+            </summary>
             <div className="form-field">
               <label className="label" htmlFor="action-wallet-note">
                 Wallet note{" "}
@@ -1264,7 +1272,7 @@ export function NewLinkClient({
                 </label>
               </div>
             )}
-          </section>
+          </details>
         </form>
 
         {/* Submit lives OUTSIDE the form element so it's a third grid sibling
