@@ -19,6 +19,7 @@ import {
   signPreparedMediatedEscrow,
   type PreparedMediatedEscrow,
 } from "../../toccata-lab/passkey-signer/mediated-escrow-browser";
+import { kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
 
 type Role = "buyer" | "mediator" | "seller";
 type Mode = PreparedMediatedEscrow["review"]["mode"];
@@ -737,7 +738,7 @@ export function MediatedEscrowClient({ publicId }: { publicId: string }) {
           <code>{escrow.terminal.transactionId}</code>
           <a
             className="btn btn-primary escrow-link-primary"
-            href={`https://explorer.kaspa.org/txs/${escrow.terminal.transactionId}`}
+            href={kaspaStreamTransactionUrl(escrow.terminal.transactionId)}
             rel="noreferrer"
             target="_blank"
           >

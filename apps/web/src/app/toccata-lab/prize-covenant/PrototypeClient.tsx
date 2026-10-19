@@ -15,6 +15,7 @@ import {
   type StudioTrial as Trial,
   type StudioDetail as Detail,
 } from "./studio-state";
+import { kaspaStreamAddressUrl, kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
 const endpoint = "/api/toccata-lab/prize-covenant";
 const kas = (value: string) => {
   const n = BigInt(value);
@@ -462,7 +463,7 @@ export default function PrototypeClient() {
       )}
       {txId && (
         <p className="studio-caption">
-          <a href={`https://explorer.kaspa.org/txs/${txId}`} target="_blank" rel="noreferrer">
+          <a href={kaspaStreamTransactionUrl(txId)} target="_blank" rel="noreferrer">
             View submitted transaction ↗
           </a>
         </p>
@@ -845,7 +846,7 @@ export default function PrototypeClient() {
                 <p className="studio-address">{detail.payout?.winnerAddress}</p>
                 <a
                   className="btn btn-primary"
-                  href={`https://explorer.kaspa.org/txs/${detail.payout?.transactionId}`}
+                  href={kaspaStreamTransactionUrl(detail.payout?.transactionId ?? "")}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -866,7 +867,7 @@ export default function PrototypeClient() {
                 <p className="studio-address">{detail.refund?.address}</p>
                 <a
                   className="btn btn-primary"
-                  href={`https://explorer.kaspa.org/txs/${detail.refund?.transactionId}`}
+                  href={kaspaStreamTransactionUrl(detail.refund?.transactionId ?? "")}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -922,7 +923,7 @@ export default function PrototypeClient() {
                 {detail.payout && (
                   <p>
                     <a
-                      href={`https://explorer.kaspa.org/txs/${detail.payout.transactionId}`}
+                      href={kaspaStreamTransactionUrl(detail.payout.transactionId)}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -940,7 +941,7 @@ export default function PrototypeClient() {
                 <h3>Refund submitted</h3>
                 <p>Waiting for confirmation. Please don’t submit another refund yet.</p>
                 <a
-                  href={`https://explorer.kaspa.org/txs/${detail.refund?.transactionId}`}
+                  href={kaspaStreamTransactionUrl(detail.refund?.transactionId ?? "")}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -964,7 +965,7 @@ export default function PrototypeClient() {
                   refund.
                 </p>
                 <a
-                  href={`https://explorer.kaspa.org/addresses/${detail.terms.open.address}`}
+                  href={kaspaStreamAddressUrl(detail.terms.open.address)}
                   target="_blank"
                   rel="noreferrer"
                 >

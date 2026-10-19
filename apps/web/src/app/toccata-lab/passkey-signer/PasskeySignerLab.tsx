@@ -25,6 +25,7 @@ import {
   type PreparedEscrowCanary,
 } from "./escrow-canary-browser";
 import { MediatedEscrowCreator } from "./MediatedEscrowCreator";
+import { kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
 
 const CREDENTIAL_KEY = "kaspalinks:passkey-lab-credential";
 const EXPECTED_FINGERPRINT_KEY = "kaspalinks:passkey-lab-fingerprint";
@@ -793,7 +794,7 @@ export function PasskeySignerLab() {
                   <code>{canary.submitted.transactionId}</code>
                   <a
                     className="btn"
-                    href={`https://explorer.kaspa.org/txs/${canary.submitted.transactionId}`}
+                    href={kaspaStreamTransactionUrl(canary.submitted.transactionId)}
                     rel="noreferrer"
                     target="_blank"
                   >

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { GrowthPrompt } from "@/app/GrowthPrompt";
 import { TurnstileWidget } from "@/app/toccata-lab/giveaway/[publicId]/TurnstileWidget";
 import { GIVEAWAY_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
+import { kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
 
 type Submission = {
   commitmentHex: string;
@@ -81,7 +82,7 @@ export default function V6EntryClient({
 
   if (submission) {
     const explorerUrl =
-      network === "mainnet" ? `https://explorer.kaspa.org/txs/${submission.transactionId}` : null;
+      network === "mainnet" ? (kaspaStreamTransactionUrl(submission.transactionId) ?? null) : null;
     return (
       <div className="giveaway-entry-success giveaway-v6-entry-success" role="status">
         <span>{chainStatus === "confirmed" ? "✓" : chainStatus === "late" ? "!" : "…"}</span>

@@ -2,6 +2,7 @@
 import { loadPrototypeSdk } from "@/app/toccata-lab/prize-covenant/browser";
 import { useState } from "react";
 import { verifyCovenantDrawProof, type CovenantDrawProof } from "@/lib/covenant-draw-proof";
+import { kaspaStreamBlockUrl } from "@/lib/kaspa-stream";
 export default function DrawProof({ proof }: { proof: CovenantDrawProof }) {
   const [result, setResult] = useState<string | null>(null);
   return (
@@ -14,11 +15,7 @@ export default function DrawProof({ proof }: { proof: CovenantDrawProof }) {
         <li>SilverScript enforces payment to that entry.</li>
       </ol>
       <p>
-        <a
-          href={`https://explorer.kaspa.org/blocks/${proof.blockHash}`}
-          target="_blank"
-          rel="noreferrer"
-        >
+        <a href={kaspaStreamBlockUrl(proof.blockHash)} target="_blank" rel="noreferrer">
           View randomness block
         </a>
       </p>

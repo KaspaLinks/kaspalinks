@@ -37,7 +37,7 @@ export default function V6GiveawayView(props: Props) {
           shard.pendingEntry !== null &&
           shard.pendingEntry.registeredAtDaa > BigInt(props.closesAtDaa),
       ).length;
-  const explorerBase = props.network === "mainnet" ? "https://explorer.kaspa.org" : null;
+  const explorerBase = props.network === "mainnet" ? "https://kaspa.stream" : null;
 
   return (
     <main className="main giveaway-entry-page giveaway-v6-page">
@@ -243,7 +243,7 @@ function PhasePanel({
         {snapshot.terminalTransactionId && explorerBase ? (
           <a
             className="btn btn-primary"
-            href={`${explorerBase}/txs/${snapshot.terminalTransactionId}`}
+            href={`${explorerBase}/transactions/${snapshot.terminalTransactionId}`}
             target="_blank"
             rel="noreferrer"
           >
@@ -263,7 +263,7 @@ function PhasePanel({
       {snapshot.terminalTransactionId && explorerBase ? (
         <a
           className="btn btn-primary"
-          href={`${explorerBase}/txs/${snapshot.terminalTransactionId}`}
+          href={`${explorerBase}/transactions/${snapshot.terminalTransactionId}`}
           target="_blank"
           rel="noreferrer"
         >

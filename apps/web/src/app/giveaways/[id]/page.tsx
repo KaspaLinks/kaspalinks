@@ -20,6 +20,7 @@ import { giveawayV3Draw } from "@/lib/giveaway-prize-v3-proof";
 import { prototypeEntropySchema } from "@/lib/giveaway-prize-v3-prototype";
 import EntryClient from "./EntryClient";
 import V6GiveawayView from "./V6GiveawayView";
+import { kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   return giveawayMetadata((await params).id);
@@ -226,7 +227,7 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
             <p className="covenant-winner-address">{payout.winnerAddress}</p>
             <a
               className="btn btn-primary"
-              href={`https://explorer.kaspa.org/txs/${payout.transactionId}`}
+              href={kaspaStreamTransactionUrl(payout.transactionId)}
               target="_blank"
               rel="noreferrer"
             >

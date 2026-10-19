@@ -107,6 +107,6 @@ describe("V6GiveawayView", () => {
 
     expect(html).toContain("Prize paid automatically");
     expect(html).toContain(`kaspa:${"q".repeat(61)}`);
-    expect(html).toContain(`/txs/${"03".repeat(32)}`);
+    expect(html).toContain(`https://kaspa.stream/transactions/${"03".repeat(32)}`);
   });
 });

@@ -20,6 +20,7 @@ import {
   type PreparedEscrowCanary,
 } from "../../toccata-lab/passkey-signer/escrow-canary-browser";
 import { escrowLinkStage } from "./escrow-link-stage";
+import { kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
 
 type PublicEscrow = {
   activeFundingAddress: null | string;
@@ -550,7 +551,7 @@ export function EscrowLinkClient({ publicId }: { publicId: string }) {
           <code>{escrow.submitted.transactionId}</code>
           <a
             className="btn btn-primary escrow-link-primary"
-            href={`https://explorer.kaspa.org/txs/${escrow.submitted.transactionId}`}
+            href={kaspaStreamTransactionUrl(escrow.submitted.transactionId)}
             rel="noreferrer"
             target="_blank"
           >
