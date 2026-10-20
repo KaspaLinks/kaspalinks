@@ -61,6 +61,7 @@ import {
   type ToccataCanaryExpiryUnit,
 } from "@/lib/toccata-lab-fee";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
+import { KasFiatValue } from "../KasFiatValue";
 import { FundingQrCode } from "@/lib/funding-qr";
 import { parseSignupSource } from "@/lib/signup-source";
 
@@ -2300,6 +2301,10 @@ export function ToccataLabClient({
                         onChange={(event) => setAmountKas(event.target.value.replace(",", "."))}
                         value={amountKas}
                       />
+                      <KasFiatValue
+                        amountKas={amountKas}
+                        className="amount-usd-estimate amount-input-fiat"
+                      />
                     </div>
                     <div>
                       <label className="label" htmlFor="claimable-title">
@@ -2409,6 +2414,7 @@ export function ToccataLabClient({
                     <div className="batch-drop-total" aria-live="polite">
                       <span>You send once</span>
                       <strong>{spendPlan.utxoKas} KAS</strong>
+                      <KasFiatValue amountKas={spendPlan.utxoKas} inline />
                       <small>
                         The recipient gets {spendPlan.netOutputKas} KAS.{" "}
                         {autoReturnEnabled
@@ -2935,6 +2941,7 @@ export function ToccataLabClient({
                 <header className="claim-receive-head">
                   <span className="label">You received</span>
                   <strong className="claim-receive-amount">{labLink.netClaimKas} KAS</strong>
+                  <KasFiatValue amountKas={labLink.netClaimKas} />
                   <h2 className="form-section-heading">{labLink.title}</h2>
                   {labLink.description && labLink.description !== DEFAULT_CLAIMABLE_DESCRIPTION ? (
                     <p className="muted">{labLink.description}</p>
@@ -3066,7 +3073,10 @@ export function ToccataLabClient({
                 <span className="label">Claim code required</span>
                 <strong>{initialPublicLink?.title ?? "This claim link is incomplete"}</strong>
                 {initialPublicLink ? (
-                  <p className="claimable-amount-line">{initialPublicLink.netClaimKas} KAS</p>
+                  <>
+                    <p className="claimable-amount-line">{initialPublicLink.netClaimKas} KAS</p>
+                    <KasFiatValue amountKas={initialPublicLink.netClaimKas} />
+                  </>
                 ) : null}
                 <p>
                   X and some link shorteners remove the private part after <code>#</code>. Enter the
@@ -3110,6 +3120,7 @@ export function ToccataLabClient({
                   <span className="label">Claimable KAS</span>
                   <strong>{labLink.title}</strong>
                   <p className="claimable-amount-line">{labLink.netClaimKas} KAS</p>
+                  <KasFiatValue amountKas={labLink.netClaimKas} />
                   <p className="claimable-link-description">{labLink.description}</p>
                   <p className="muted">
                     Receiver enters a valid mainnet Kaspa address and claims after explicit

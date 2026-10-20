@@ -1896,6 +1896,11 @@ textarea {
   margin-top: 4px;
 }
 
+/* Fiat line directly under a KAS amount input. */
+.amount-input-fiat {
+  margin: 6px 0 0;
+}
+
 /* Wallet card — used by WalletConnectCard */
 
 /* Pay page: the KasWare step as one line or one button, not a panel. */
@@ -12154,6 +12159,17 @@ main.giveaway-guided-page {
   font-size: 1.35rem;
   white-space: nowrap;
 }
+.studio-cost-total-value {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+}
+.studio-cost-fiat {
+  color: var(--fg-muted);
+  font-size: 0.84rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .studio-cost-answer {
   display: grid;
   gap: 3px;
@@ -12615,6 +12631,9 @@ main.giveaway-guided-page {
     align-items: flex-start;
     flex-direction: column;
     gap: 3px;
+  }
+  .studio-cost-total-value {
+    justify-items: start;
   }
   .studio-cost-formula {
     grid-template-columns: 1fr;

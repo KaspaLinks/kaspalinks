@@ -1,11 +1,14 @@
+// One request for both currencies; EUR is optional so a missing quote never
+// hides the USD value.
 const COINGECKO_KAS_USD_URL =
-  "https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_last_updated_at=true";
+  "https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd,eur&include_last_updated_at=true";
 const PRICE_CACHE_TTL_MS = 5 * 60 * 1000;
 const PRICE_FETCH_TIMEOUT_MS = 5_000;
 
 export type KasUsdPrice = {
   approximate: true;
   fetchedAt: string;
+  kasEur: null | string;
   kasUsd: string;
   lastUpdatedAt: null | string;
   source: "coingecko";
@@ -19,6 +22,7 @@ type CacheEntry = {
 
 type CoinGeckoSimplePriceResponse = {
   kaspa?: {
+    eur?: unknown;
     last_updated_at?: unknown;
     usd?: unknown;
   };
@@ -75,6 +79,9 @@ async function fetchKasUsdPrice(fetchImpl: typeof fetch, now: Date): Promise<Kas
     throw new Error("KAS price response did not include a valid USD price.");
   }
 
+  const eur = body.kaspa?.eur;
+  const kasEur = typeof eur === "number" && Number.isFinite(eur) && eur > 0 ? eur.toString() : null;
+
   const updatedAt = body.kaspa?.last_updated_at;
   const lastUpdatedAt =
     typeof updatedAt === "number" && Number.isFinite(updatedAt) && updatedAt > 0
@@ -84,6 +91,7 @@ async function fetchKasUsdPrice(fetchImpl: typeof fetch, now: Date): Promise<Kas
   return {
     approximate: true,
     fetchedAt: now.toISOString(),
+    kasEur,
     kasUsd: usd.toString(),
     lastUpdatedAt,
     source: "coingecko",

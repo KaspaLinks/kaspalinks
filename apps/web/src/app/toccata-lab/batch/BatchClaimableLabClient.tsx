@@ -65,6 +65,7 @@ import { FundingQrCode } from "@/lib/funding-qr";
 
 import { SESSION_EVENT } from "../../BrandNav";
 import { CreatorSignInGate } from "../../CreatorSignInGate";
+import { KasFiatValue } from "../../KasFiatValue";
 
 import {
   buildBatchActivationSpendInBrowser,
@@ -2105,6 +2106,10 @@ export function BatchClaimableLabClient({
                     onChange={(event) => setAmountKas(event.target.value.replace(",", "."))}
                     value={amountKas}
                   />
+                  <KasFiatValue
+                    amountKas={amountKas}
+                    className="amount-usd-estimate amount-input-fiat"
+                  />
                 </div>
               </div>
               <div>
@@ -2212,6 +2217,7 @@ export function BatchClaimableLabClient({
                 <div className="batch-drop-total" aria-live="polite">
                   <span>You send once</span>
                   <strong>{batchCreationPreview.exactTotalKas} KAS</strong>
+                  <KasFiatValue amountKas={batchCreationPreview.exactTotalKas} inline />
                   <small>
                     Each person receives {batchCreationPreview.netClaimKas} KAS. Network fees are
                     included.

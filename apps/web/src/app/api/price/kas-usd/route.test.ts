@@ -13,7 +13,7 @@ describe("GET /api/price/kas-usd", () => {
   it("returns a cached server-side KAS/USD price payload", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ kaspa: { usd: 0.034 } }))),
+      vi.fn(async () => new Response(JSON.stringify({ kaspa: { eur: 0.029, usd: 0.034 } }))),
     );
 
     const response = await GET();
@@ -22,6 +22,7 @@ describe("GET /api/price/kas-usd", () => {
     expect(response.status).toBe(200);
     expect(body.price).toMatchObject({
       approximate: true,
+      kasEur: "0.029",
       kasUsd: "0.034",
       source: "coingecko",
       stale: false,

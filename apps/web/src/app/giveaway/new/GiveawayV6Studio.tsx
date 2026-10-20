@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { CreatorSignInGate } from "../../CreatorSignInGate";
+import { KasFiatValue } from "../../KasFiatValue";
 import { useCreatorSession } from "../../use-creator-session";
 import { FundingQrCode } from "@/lib/funding-qr";
 import {
@@ -145,7 +146,14 @@ function FundingCostExplanation({
     <section aria-label="Funding cost explanation" className="studio-cost">
       <div className="studio-cost-total">
         <span>Total to fund</span>
-        <strong>{formatSompi(budget.expectedFundingSompi)} KAS</strong>
+        <span className="studio-cost-total-value">
+          <strong>{formatSompi(budget.expectedFundingSompi)} KAS</strong>
+          <KasFiatValue
+            amountKas={formatSompi(budget.expectedFundingSompi)}
+            className="studio-cost-fiat"
+            inline
+          />
+        </span>
       </div>
       <p className="studio-cost-answer">
         <strong>Why more than the prize?</strong>
@@ -811,6 +819,11 @@ export function GiveawayV6Studio({
                       placeholder="1"
                       required
                       value={prize}
+                    />
+                    <KasFiatValue
+                      amountKas={prizeCheck.ok ? prize : null}
+                      className="amount-usd-estimate"
+                      inline
                     />
                     <small className={prizeCheck.ok ? undefined : "error-text"}>
                       {prizeCheck.ok ? "Any amount from 0.2 KAS." : prizeCheck.reason}

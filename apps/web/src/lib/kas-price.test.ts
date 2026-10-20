@@ -19,7 +19,7 @@ describe("getKasUsdPrice", () => {
 
   it("fetches and serializes the KAS/USD price without exposing floats in JSON callers", async () => {
     const fetchImpl = vi.fn(async () =>
-      jsonResponse({ kaspa: { last_updated_at: 1_779_301_084, usd: 0.0347763 } }),
+      jsonResponse({ kaspa: { eur: 0.0298, last_updated_at: 1_779_301_084, usd: 0.0347763 } }),
     ) as unknown as typeof fetch;
 
     const price = await getKasUsdPrice({ fetchImpl, now: NOW });
@@ -27,12 +27,25 @@ describe("getKasUsdPrice", () => {
     expect(price).toEqual({
       approximate: true,
       fetchedAt: "2026-05-20T12:00:00.000Z",
+      kasEur: "0.0298",
       kasUsd: "0.0347763",
       lastUpdatedAt: "2026-05-20T18:18:04.000Z",
       source: "coingecko",
       stale: false,
     });
     expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(String(vi.mocked(fetchImpl).mock.calls[0]?.[0])).toContain("vs_currencies=usd,eur");
+  });
+
+  it("keeps the USD price when the EUR quote is missing or invalid", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ kaspa: { eur: "n/a", usd: 0.03 } }),
+    ) as unknown as typeof fetch;
+
+    const price = await getKasUsdPrice({ fetchImpl, now: NOW });
+
+    expect(price.kasUsd).toBe("0.03");
+    expect(price.kasEur).toBeNull();
   });
 
   it("uses the in-memory cache inside the TTL", async () => {

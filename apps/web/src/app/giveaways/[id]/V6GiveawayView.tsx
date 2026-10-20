@@ -3,6 +3,8 @@ import React from "react";
 
 import { GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES } from "@/lib/giveaway-v6-slots";
 
+import { KasFiatValue } from "../../KasFiatValue";
+
 import V6EntryClient from "./V6EntryClient";
 import { V6SlotTime } from "./V6SlotTime";
 
@@ -47,6 +49,7 @@ export default function V6GiveawayView(props: Props) {
         <div className="giveaway-hero-prize">
           <span className="label">Prize</span>
           <strong>{props.amountKas} KAS</strong>
+          <KasFiatValue amountKas={props.amountKas} />
         </div>
       </section>
 

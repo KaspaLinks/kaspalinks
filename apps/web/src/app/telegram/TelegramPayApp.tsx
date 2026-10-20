@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { KASPA_ADDRESS_INPUT_PROPS } from "@/lib/kaspa-address-input";
 import type { TelegramPaymentLinkType } from "@/lib/telegram-links";
 
+import { KasFiatValue } from "../KasFiatValue";
+
 import { readApiError, shareInTelegram, telegramAuthHeaders } from "./telegram-mini-app";
 
 const TYPES: {
@@ -186,6 +188,7 @@ export function TelegramPayApp() {
               required={selected.amount !== "optional"}
               value={amountKas}
             />
+            <KasFiatValue amountKas={amountKas} className="amount-usd-estimate amount-input-fiat" />
           </div>
           <div>
             <label className="label" htmlFor="telegram-pay-wallet">
