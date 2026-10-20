@@ -62,6 +62,44 @@ export function formatApproxUsdValue(
 /** Same as formatApproxUsdValue; the name says it covers USD and EUR. */
 export const formatApproxFiatValue = formatApproxUsdValue;
 
+export type AmountUnit = "EUR" | "KAS" | "USD";
+
+const PLAIN_DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+function positiveRate(rate: null | string | undefined): null | number {
+  const value = Number(rate ?? "");
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function positiveAmount(input: string): null | number {
+  const normalized = normalizeLocalizedKasAmountInput(input.trim());
+  if (!PLAIN_DECIMAL.test(normalized)) return null;
+  const value = Number(normalized);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * KAS for a USD or EUR amount at the given KAS rate, rounded to 2 decimals
+ * ("316.36", "300"). The link then holds this KAS amount; its fiat value moves
+ * with the price afterwards.
+ */
+export function fiatToKas(fiatInput: string, kasRate: null | string | undefined): null | string {
+  const fiat = positiveAmount(fiatInput);
+  const rate = positiveRate(kasRate);
+  if (fiat === null || rate === null) return null;
+  const kas = Math.round((fiat / rate) * 100) / 100;
+  if (!Number.isFinite(kas) || kas <= 0) return null;
+  return kas.toFixed(2).replace(/\.?0+$/, "");
+}
+
+/** The USD or EUR amount for a KAS amount, as plain input text ("3.16"). */
+export function kasToFiat(kasInput: string, kasRate: null | string | undefined): null | string {
+  const kas = positiveAmount(kasInput);
+  const rate = positiveRate(kasRate);
+  if (kas === null || rate === null) return null;
+  return (kas * rate).toFixed(2);
+}
+
 export function formatApproxUsdMeta(price: KasUsdPriceView | null): string {
   if (!price) return "Approx. USD value unavailable";
   const what = price.kasEur ? "value" : "USD value";

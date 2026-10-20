@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { CreatorSignInGate } from "../../CreatorSignInGate";
+import { KasAmountInput } from "../../KasAmountInput";
 import { KasFiatValue } from "../../KasFiatValue";
 import { useCreatorSession } from "../../use-creator-session";
 import { FundingQrCode } from "@/lib/funding-qr";
@@ -810,20 +811,15 @@ export function GiveawayV6Studio({
                     />
                   </label>
                   <label className="field">
-                    Prize (KAS)
-                    <input
+                    Prize
+                    <KasAmountInput
                       aria-invalid={!prizeCheck.ok || undefined}
-                      inputMode="decimal"
+                      aria-label="Prize"
                       maxLength={24}
-                      onChange={(event) => setPrize(event.target.value)}
+                      onChange={setPrize}
                       placeholder="1"
                       required
                       value={prize}
-                    />
-                    <KasFiatValue
-                      amountKas={prizeCheck.ok ? prize : null}
-                      className="amount-usd-estimate"
-                      inline
                     />
                     <small className={prizeCheck.ok ? undefined : "error-text"}>
                       {prizeCheck.ok ? "Any amount from 0.2 KAS." : prizeCheck.reason}

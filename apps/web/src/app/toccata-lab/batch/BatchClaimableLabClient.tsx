@@ -65,6 +65,7 @@ import { FundingQrCode } from "@/lib/funding-qr";
 
 import { SESSION_EVENT } from "../../BrandNav";
 import { CreatorSignInGate } from "../../CreatorSignInGate";
+import { KasAmountInput } from "../../KasAmountInput";
 import { KasFiatValue } from "../../KasFiatValue";
 
 import {
@@ -2098,17 +2099,12 @@ export function BatchClaimableLabClient({
                 </div>
                 <div>
                   <label className="label" htmlFor="batch-amount">
-                    KAS per link
+                    Amount per link
                   </label>
-                  <input
+                  <KasAmountInput
                     id="batch-amount"
-                    inputMode="decimal"
-                    onChange={(event) => setAmountKas(event.target.value.replace(",", "."))}
+                    onChange={(nextKas) => setAmountKas(nextKas.replace(",", "."))}
                     value={amountKas}
-                  />
-                  <KasFiatValue
-                    amountKas={amountKas}
-                    className="amount-usd-estimate amount-input-fiat"
                   />
                 </div>
               </div>

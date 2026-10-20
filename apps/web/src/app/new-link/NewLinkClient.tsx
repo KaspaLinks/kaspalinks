@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 
 import { SESSION_EVENT } from "../BrandNav";
 import { CreatorSignInGate } from "../CreatorSignInGate";
+import { KasAmountInput } from "../KasAmountInput";
 import { useEscrowAccess } from "../escrow/_lib/use-escrow-access";
 import { TurnstileWidget } from "../toccata-lab/giveaway/[publicId]/TurnstileWidget";
 import {
@@ -17,7 +18,7 @@ import {
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import { KASPA_ADDRESS_INPUT_PROPS } from "@/lib/kaspa-address-input";
 import { MIN_RELIABLE_MAINNET_OUTPUT_KAS } from "@/lib/mainnet-amount-policy";
-import { formatApproxUsdMeta, formatApproxUsdValue } from "@/lib/price-display";
+import { formatApproxUsdValue } from "@/lib/price-display";
 import { parseSignupSource } from "@/lib/signup-source";
 import { ACCOUNT_FREE_LINK_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
 import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
@@ -448,7 +449,6 @@ export function NewLinkClient({
     () => formatApproxUsdValue(amountKas, kasUsdPrice),
     [amountKas, kasUsdPrice],
   );
-  const amountUsdMeta = formatApproxUsdMeta(kasUsdPrice);
 
   const authHeaders = useMemo(
     () => ({
@@ -1000,19 +1000,14 @@ export function NewLinkClient({
 
             <div className="form-field">
               <label className="label" htmlFor="action-amount">
-                {isGoalType
-                  ? "Goal target (KAS)"
-                  : amountIsRequired
-                    ? "Amount (KAS)"
-                    : "Suggested amount (KAS)"}
+                {isGoalType ? "Goal target" : amountIsRequired ? "Amount" : "Suggested amount"}
                 {!amountIsRequired && !isGoalType ? (
                   <span className="form-field-meta"> — optional</span>
                 ) : null}
               </label>
-              <input
+              <KasAmountInput
                 id="action-amount"
-                inputMode="decimal"
-                onChange={(event) => setAmountKas(event.target.value)}
+                onChange={setAmountKas}
                 placeholder={
                   isGoalType
                     ? "e.g. 1000"
@@ -1020,7 +1015,6 @@ export function NewLinkClient({
                       ? "e.g. 10"
                       : "Leave blank for pay-what-you-want"
                 }
-                type="text"
                 value={amountKas}
               />
               <p
@@ -1036,11 +1030,6 @@ export function NewLinkClient({
                       : `The supporter has to match this amount exactly. Use at least ${MIN_RELIABLE_MAINNET_OUTPUT_KAS} KAS for reliable wallet sending.`
                     : `Leave blank to let the supporter pick. Set a value of at least ${MIN_RELIABLE_MAINNET_OUTPUT_KAS} KAS to pre-fill the wallet.`}
               </p>
-              {amountUsdEstimate ? (
-                <p className="form-field-help form-field-price">
-                  {amountUsdMeta}: <strong>{amountUsdEstimate}</strong>
-                </p>
-              ) : null}
             </div>
           </section>
 

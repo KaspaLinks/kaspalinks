@@ -1,5 +1,7 @@
 "use client";
 
+import React from "react";
+
 import { formatApproxFiatValue } from "@/lib/price-display";
 import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
 

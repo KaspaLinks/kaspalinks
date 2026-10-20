@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { KASPA_ADDRESS_INPUT_PROPS } from "@/lib/kaspa-address-input";
 import type { TelegramPaymentLinkType } from "@/lib/telegram-links";
 
-import { KasFiatValue } from "../KasFiatValue";
+import { KasAmountInput } from "../KasAmountInput";
 
 import { readApiError, shareInTelegram, telegramAuthHeaders } from "./telegram-mini-app";
 
@@ -175,20 +175,18 @@ export function TelegramPayApp() {
           <div>
             <label className="label" htmlFor="telegram-pay-amount">
               {selected.amount === "target"
-                ? "Goal (KAS)"
+                ? "Goal"
                 : selected.amount === "optional"
-                  ? "Amount (KAS), optional"
-                  : "Amount (KAS)"}
+                  ? "Amount, optional"
+                  : "Amount"}
             </label>
-            <input
+            <KasAmountInput
               id="telegram-pay-amount"
-              inputMode="decimal"
-              onChange={(event) => setAmountKas(event.target.value)}
+              onChange={setAmountKas}
               placeholder={selected.amount === "optional" ? "Any amount" : "10"}
               required={selected.amount !== "optional"}
               value={amountKas}
             />
-            <KasFiatValue amountKas={amountKas} className="amount-usd-estimate amount-input-fiat" />
           </div>
           <div>
             <label className="label" htmlFor="telegram-pay-wallet">

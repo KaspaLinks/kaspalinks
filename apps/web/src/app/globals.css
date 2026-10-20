@@ -1901,6 +1901,56 @@ textarea {
   margin: 6px 0 0;
 }
 
+/* Amount field with a KAS / $ / € switch (KasAmountInput). */
+.kas-amount-field {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  min-width: 0;
+}
+.kas-amount-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.kas-amount-units {
+  display: inline-flex;
+  flex: none;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+.kas-amount-units button {
+  min-width: 36px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.kas-amount-units button:hover:not(:disabled) {
+  color: var(--fg);
+}
+.kas-amount-units button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.kas-amount-units button[aria-pressed="true"] {
+  background: rgba(73, 234, 203, 0.14);
+  color: var(--accent-bright);
+}
+.kas-amount-units button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.kas-amount-estimate {
+  display: block;
+}
+
 /* Wallet card — used by WalletConnectCard */
 
 /* Pay page: the KasWare step as one line or one button, not a panel. */
@@ -4144,11 +4194,6 @@ body:has(main.overlay-page) > footer.app-footer {
   margin: 4px 0 0;
   font-size: 0.82rem;
   color: var(--fg-muted);
-}
-
-.form-field-price strong {
-  color: var(--accent-bright);
-  font-weight: 700;
 }
 
 .form-field-warn {

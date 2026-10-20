@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { formatApproxFiatValue, formatApproxUsdMeta, formatApproxUsdValue } from "./price-display";
+import {
+  fiatToKas,
+  formatApproxFiatValue,
+  formatApproxUsdMeta,
+  formatApproxUsdValue,
+  kasToFiat,
+} from "./price-display";
 
 describe("price display helpers", () => {
   it("formats approximate USD values from KAS strings", () => {
@@ -31,5 +37,31 @@ describe("price display helpers", () => {
       "Approx. USD value from latest cached KAS price",
     );
     expect(formatApproxUsdMeta({ kasEur: "0.025", kasUsd: "0.03" })).toBe("Approx. value");
+  });
+
+  it("converts a USD or EUR amount to KAS, rounded to 2 decimals", () => {
+    expect(fiatToKas("10", "0.0316")).toBe("316.46");
+    expect(fiatToKas("10,50", "0.0316")).toBe("332.28");
+    expect(fiatToKas("3", "0.03")).toBe("100");
+    expect(fiatToKas("1000", "0.0316")).toBe("31645.57");
+    expect(fiatToKas(".5", "0.05")).toBe("10");
+  });
+
+  it("refuses fiat amounts it cannot convert", () => {
+    expect(fiatToKas("", "0.03")).toBeNull();
+    expect(fiatToKas("0", "0.03")).toBeNull();
+    expect(fiatToKas("1.2.3", "0.03")).toBeNull();
+    expect(fiatToKas("abc", "0.03")).toBeNull();
+    expect(fiatToKas("10", null)).toBeNull();
+    expect(fiatToKas("10", "0")).toBeNull();
+    // Too small to round to a cent of KAS.
+    expect(fiatToKas("0.0001", "0.03")).toBeNull();
+  });
+
+  it("shows a KAS amount in USD or EUR for the input field", () => {
+    expect(kasToFiat("100", "0.0316")).toBe("3.16");
+    expect(kasToFiat("316.46", "0.0316")).toBe("10.00");
+    expect(kasToFiat("", "0.0316")).toBeNull();
+    expect(kasToFiat("10", undefined)).toBeNull();
   });
 });

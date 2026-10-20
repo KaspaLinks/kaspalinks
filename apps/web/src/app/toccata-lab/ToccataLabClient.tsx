@@ -61,6 +61,7 @@ import {
   type ToccataCanaryExpiryUnit,
 } from "@/lib/toccata-lab-fee";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
+import { KasAmountInput } from "../KasAmountInput";
 import { KasFiatValue } from "../KasFiatValue";
 import { FundingQrCode } from "@/lib/funding-qr";
 import { parseSignupSource } from "@/lib/signup-source";
@@ -2292,18 +2293,13 @@ export function ToccataLabClient({
                   <div className="grid-two">
                     <div>
                       <label className="label" htmlFor="claimable-amount">
-                        KAS for the recipient
+                        Amount for the recipient
                       </label>
-                      <input
+                      <KasAmountInput
                         id="claimable-amount"
-                        inputMode="decimal"
                         min={TOCCATA_LAB_MIN_KAS}
-                        onChange={(event) => setAmountKas(event.target.value.replace(",", "."))}
+                        onChange={(nextKas) => setAmountKas(nextKas.replace(",", "."))}
                         value={amountKas}
-                      />
-                      <KasFiatValue
-                        amountKas={amountKas}
-                        className="amount-usd-estimate amount-input-fiat"
                       />
                     </div>
                     <div>

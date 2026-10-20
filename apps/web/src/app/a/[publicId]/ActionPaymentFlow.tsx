@@ -15,7 +15,7 @@ import type { PublicActionMetadata } from "@/lib/action-serializer";
 import type { GoalProgress } from "@/lib/goal-progress";
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import type { SerializedPaymentRequest } from "@/lib/payment-request-serializer";
-import { formatApproxUsdMeta, formatApproxUsdValue } from "@/lib/price-display";
+import { formatApproxUsdValue } from "@/lib/price-display";
 import {
   getMainnetOutputMinimumMessage,
   MIN_RELIABLE_MAINNET_OUTPUT_KAS,
@@ -26,6 +26,7 @@ import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 
 import { GrowthPrompt } from "../../GrowthPrompt";
+import { KasAmountInput } from "../../KasAmountInput";
 import { LogoMark } from "../../LogoMark";
 import { PayShareActions } from "./PayShareActions";
 import { WalletConnectCard } from "./WalletConnectCard";
@@ -899,8 +900,6 @@ export function ActionPaymentFlow({
   const effectiveAmountKas =
     paymentRequest?.amountKas ?? action.amountKas ?? variablePreview?.amountKas ?? null;
   const effectiveAmountUsdEstimate = formatApproxUsdValue(effectiveAmountKas, kasUsdPrice);
-  const supporterAmountUsdEstimate = formatApproxUsdValue(supporterAmountKas, kasUsdPrice);
-  const amountUsdMeta = formatApproxUsdMeta(kasUsdPrice);
   const showKaswarePay = isPending && !goalIsClosed && !isTouchOnly;
   const paymentRequestExplorerUrl = kaspaStreamTransactionUrl(
     paymentRequest?.txId ?? null,
@@ -1218,24 +1217,17 @@ export function ActionPaymentFlow({
                     <label className="label" htmlFor="pay-amount-input">
                       Pick an amount
                     </label>
-                    <input
-                      aria-label="Amount in KAS"
+                    <KasAmountInput
+                      aria-label="Amount"
                       id="pay-amount-input"
-                      inputMode="decimal"
-                      onChange={(event) => setSupporterAmountKas(event.target.value)}
+                      onChange={setSupporterAmountKas}
                       placeholder="e.g. 10"
-                      type="text"
                       value={supporterAmountKas}
                     />
                     <p className="muted" style={{ margin: "8px 0 0", fontSize: "0.85rem" }}>
                       The creator left the amount open. Pick a value, or leave blank to set it in
                       your wallet.
                     </p>
-                    {supporterAmountUsdEstimate ? (
-                      <p className="amount-usd-estimate pay-amount-usd">
-                        {amountUsdMeta}: {supporterAmountUsdEstimate}
-                      </p>
-                    ) : null}
                     {variablePreview?.error === "TOO_SMALL" ? (
                       <p className="form-field-help form-field-warn" style={{ marginTop: 8 }}>
                         {getMainnetOutputMinimumMessage("Payment amount")}
