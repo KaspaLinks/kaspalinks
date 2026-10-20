@@ -3,6 +3,8 @@
 const COINGECKO_KAS_USD_URL =
   "https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd,eur&include_last_updated_at=true";
 const PRICE_CACHE_TTL_MS = 5 * 60 * 1000;
+// While CoinGecko is down the last price is served marked stale, but not forever.
+const PRICE_MAX_STALE_MS = 24 * 60 * 60 * 1000;
 const PRICE_FETCH_TIMEOUT_MS = 5_000;
 
 export type KasUsdPrice = {
@@ -49,7 +51,7 @@ export async function getKasUsdPrice(options?: {
     };
     return price;
   } catch (error) {
-    if (cache) {
+    if (cache && nowMs - Date.parse(cache.price.fetchedAt) <= PRICE_MAX_STALE_MS) {
       return { ...cache.price, stale: true };
     }
     throw error;

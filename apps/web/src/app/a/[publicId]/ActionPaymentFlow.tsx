@@ -15,7 +15,7 @@ import type { PublicActionMetadata } from "@/lib/action-serializer";
 import type { GoalProgress } from "@/lib/goal-progress";
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import type { SerializedPaymentRequest } from "@/lib/payment-request-serializer";
-import { formatApproxUsdValue } from "@/lib/price-display";
+import { formatApproxUsdValue, formatPriceTime } from "@/lib/price-display";
 import {
   getMainnetOutputMinimumMessage,
   MIN_RELIABLE_MAINNET_OUTPUT_KAS,
@@ -900,6 +900,9 @@ export function ActionPaymentFlow({
   const effectiveAmountKas =
     paymentRequest?.amountKas ?? action.amountKas ?? variablePreview?.amountKas ?? null;
   const effectiveAmountUsdEstimate = formatApproxUsdValue(effectiveAmountKas, kasUsdPrice);
+  const priceSuffix = kasUsdPrice?.old
+    ? ` at the KAS price from ${formatPriceTime(kasUsdPrice.pricedAtMs)}`
+    : " at current KAS price";
   const showKaswarePay = isPending && !goalIsClosed && !isTouchOnly;
   const paymentRequestExplorerUrl = kaspaStreamTransactionUrl(
     paymentRequest?.txId ?? null,
@@ -997,7 +1000,8 @@ export function ActionPaymentFlow({
             )}
             {successAmountUsdEstimate ? (
               <p className="amount-usd-estimate pay-amount-usd">
-                {successAmountUsdEstimate} at current KAS price
+                {successAmountUsdEstimate}
+                {priceSuffix}
               </p>
             ) : null}
             <p className="muted" style={{ margin: "4px 0 18px" }}>
@@ -1066,7 +1070,8 @@ export function ActionPaymentFlow({
           )}
           {successAmountUsdEstimate ? (
             <p className="amount-usd-estimate pay-amount-usd">
-              {successAmountUsdEstimate} at current KAS price
+              {successAmountUsdEstimate}
+              {priceSuffix}
             </p>
           ) : null}
           <p className="muted pay-waiting-hint">
@@ -1181,7 +1186,8 @@ export function ActionPaymentFlow({
                     </div>
                     {effectiveAmountUsdEstimate ? (
                       <p className="amount-usd-estimate">
-                        {effectiveAmountUsdEstimate} at current KAS price
+                        {effectiveAmountUsdEstimate}
+                        {priceSuffix}
                       </p>
                     ) : null}
                   </>
@@ -1196,7 +1202,8 @@ export function ActionPaymentFlow({
                     </div>
                     {effectiveAmountUsdEstimate ? (
                       <p className="amount-usd-estimate">
-                        {effectiveAmountUsdEstimate} at current KAS price
+                        {effectiveAmountUsdEstimate}
+                        {priceSuffix}
                       </p>
                     ) : null}
                     {!paymentRequest.amountKas ? (

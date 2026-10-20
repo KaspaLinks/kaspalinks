@@ -75,6 +75,21 @@ describe("getKasUsdPrice", () => {
     expect(stale.stale).toBe(true);
   });
 
+  it("stops serving the stale price after a day without a fresh one", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ kaspa: { usd: 0.03 } }))
+      .mockRejectedValue(new Error("network down")) as unknown as typeof fetch;
+
+    await getKasUsdPrice({ fetchImpl, now: NOW });
+    await expect(
+      getKasUsdPrice({ fetchImpl, now: new Date("2026-05-21T11:59:00.000Z") }),
+    ).resolves.toMatchObject({ stale: true });
+    await expect(
+      getKasUsdPrice({ fetchImpl, now: new Date("2026-05-21T12:01:00.000Z") }),
+    ).rejects.toThrow("network down");
+  });
+
   it("rejects invalid upstream responses", async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({ kaspa: { usd: 0 } }),

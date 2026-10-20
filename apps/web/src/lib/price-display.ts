@@ -62,6 +62,11 @@ export function formatApproxUsdValue(
 /** Same as formatApproxUsdValue; the name says it covers USD and EUR. */
 export const formatApproxFiatValue = formatApproxUsdValue;
 
+/** "13:05" in the viewer's own clock format; only call it in the browser. */
+export function formatPriceTime(pricedAtMs: number): string {
+  return new Date(pricedAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 export type AmountUnit = "EUR" | "KAS" | "USD";
 
 const PLAIN_DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)$/;

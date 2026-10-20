@@ -2,10 +2,13 @@
 
 import React from "react";
 
-import { formatApproxFiatValue } from "@/lib/price-display";
+import { formatApproxFiatValue, formatPriceTime } from "@/lib/price-display";
 import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
 
-/** "≈ $3.60 · €3.10" under a KAS amount, or nothing while no price is known. */
+/**
+ * "≈ $3.60 · €3.10" under a KAS amount, or nothing while no price is known.
+ * An old price says when it is from.
+ */
 export function KasFiatValue({
   amountKas,
   className = "amount-usd-estimate",
@@ -16,7 +19,8 @@ export function KasFiatValue({
   inline?: boolean;
 }) {
   const price = useKasUsdPrice();
-  const value = formatApproxFiatValue(amountKas, price);
-  if (!value) return null;
+  const approx = formatApproxFiatValue(amountKas, price);
+  if (!approx) return null;
+  const value = price?.old ? `${approx} · price from ${formatPriceTime(price.pricedAtMs)}` : approx;
   return inline ? <span className={className}>{value}</span> : <p className={className}>{value}</p>;
 }

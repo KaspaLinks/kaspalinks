@@ -2,7 +2,13 @@
 
 import React, { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 
-import { fiatToKas, formatApproxFiatValue, kasToFiat, type AmountUnit } from "@/lib/price-display";
+import {
+  fiatToKas,
+  formatApproxFiatValue,
+  formatPriceTime,
+  kasToFiat,
+  type AmountUnit,
+} from "@/lib/price-display";
 import { normalizeLocalizedKasAmountInput } from "@/lib/amount-input";
 import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
 
@@ -42,7 +48,7 @@ type KasAmountInputProps = Omit<
 /**
  * Amount field that accepts KAS, $ or €. A fiat amount is converted to KAS at
  * the current price as the person types; the form only ever sees KAS. Without
- * a price it is a plain KAS field.
+ * a recent price it is a plain KAS field.
  */
 export function KasAmountInput({
   onChange,
@@ -56,9 +62,17 @@ export function KasAmountInput({
   // The KAS value this field last produced from fiat text. Any other value came
   // from outside (a preset, a reset) and the fiat text follows it.
   const producedKas = useRef<null | string>(null);
+  const lastQuote = useRef<{ rate: null | string | undefined; unit: AmountUnit } | null>(null);
 
+  // An old price is still shown as an estimate but never converts input.
   const rateFor = (option: AmountUnit) =>
-    option === "EUR" ? price?.kasEur : option === "USD" ? price?.kasUsd : null;
+    !price || price.old
+      ? null
+      : option === "EUR"
+        ? price.kasEur
+        : option === "USD"
+          ? price.kasUsd
+          : null;
   const activeUnit = unit === "KAS" || rateFor(unit) ? unit : "KAS";
   const rate = rateFor(activeUnit);
 
@@ -67,10 +81,27 @@ export function KasAmountInput({
   }, []);
 
   useEffect(() => {
-    if (activeUnit === "KAS" || value === producedKas.current) return;
-    producedKas.current = value;
-    setFiatText(value.trim() ? (kasToFiat(value, rate) ?? "") : "");
-  }, [activeUnit, rate, value]);
+    const previous = lastQuote.current;
+    lastQuote.current = { rate, unit: activeUnit };
+    if (activeUnit === "KAS") return;
+
+    if (value !== producedKas.current) {
+      // The KAS value came from outside (a preset, a reset): the fiat text follows.
+      producedKas.current = value;
+      setFiatText(value.trim() ? (kasToFiat(value, rate) ?? "") : "");
+      return;
+    }
+
+    // A newer price for the same currency: what the person typed is the amount
+    // they mean, so it is converted again.
+    if (previous?.unit === activeUnit && previous.rate !== rate) {
+      const amountKas = fiatToKas(fiatText, rate);
+      if (amountKas && amountKas !== value) {
+        producedKas.current = amountKas;
+        onChange(amountKas);
+      }
+    }
+  }, [activeUnit, fiatText, onChange, rate, value]);
 
   function chooseUnit(next: AmountUnit) {
     setUnit(next);
@@ -92,12 +123,16 @@ export function KasAmountInput({
     onChange(amountKas);
   }
 
+  const approx = activeUnit === "KAS" ? formatApproxFiatValue(value, price) : null;
   const estimate =
-    activeUnit === "KAS"
-      ? formatApproxFiatValue(value, price)
-      : fiatToKas(fiatText, rate)
-        ? `= ${value} KAS at today's price`
-        : null;
+    activeUnit !== "KAS"
+      ? fiatToKas(fiatText, rate) && price
+        ? `= ${value} KAS · price from ${formatPriceTime(price.pricedAtMs)}`
+        : null
+      : approx && price?.old
+        ? `${approx} · price from ${formatPriceTime(price.pricedAtMs)}`
+        : approx;
+  const unavailableTitle = price?.old ? "The last KAS price is too old" : "Price not available";
 
   return (
     <>
@@ -120,7 +155,7 @@ export function KasAmountInput({
               disabled={option !== "KAS" && !rateFor(option)}
               key={option}
               onClick={() => chooseUnit(option)}
-              title={option !== "KAS" && !rateFor(option) ? "Price not available" : undefined}
+              title={option !== "KAS" && !rateFor(option) ? unavailableTitle : undefined}
               type="button"
             >
               {UNIT_LABELS[option]}
