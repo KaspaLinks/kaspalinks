@@ -151,7 +151,7 @@ describe("giveawayV6AccessFor", () => {
     TOCCATA_LAB_ENABLED: "true",
   };
 
-  it("lets allowlisted creators use every size and others only once opened", () => {
+  it("lets allowlisted creators use every size and others once opened", () => {
     for (const [key, value] of Object.entries(enabled)) vi.stubEnv(key, value);
     try {
       expect(giveawayV6AccessFor({ prizeCovenantEnabled: true }, {})).toEqual({
@@ -160,7 +160,7 @@ describe("giveawayV6AccessFor", () => {
       expect(giveawayV6AccessFor({ prizeCovenantEnabled: false }, {})).toBeNull();
       expect(
         giveawayV6AccessFor({ prizeCovenantEnabled: false }, { GIVEAWAY_V6_ALL_CREATORS: "true" }),
-      ).toEqual({ participantCaps: [8] });
+      ).toEqual({ participantCaps: [8, 16, 32] });
     } finally {
       vi.unstubAllEnvs();
     }

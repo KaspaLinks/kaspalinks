@@ -215,7 +215,7 @@ describe("Giveaway V6 creator route", () => {
     expect(mocks.compile).not.toHaveBeenCalled();
   });
 
-  it("opens creation to every creator with the mainnet-proven size only", async () => {
+  it("opens every size to every creator", async () => {
     vi.stubEnv("GIVEAWAY_V6_ALL_CREATORS", "true");
     mocks.guard.mockResolvedValue({
       creator: { id: "creator-id", prizeCovenantEnabled: false },
@@ -223,18 +223,14 @@ describe("Giveaway V6 creator route", () => {
       ok: true,
     });
 
-    const tooLarge = await POST(request(validBody()));
-    expect(tooLarge.status).toBe(400);
-    expect((await tooLarge.json()).error.message).toContain("32 participants");
-    expect(mocks.compile).not.toHaveBeenCalled();
-
-    // Past the access gate; the stub contracts then meet the fee check, not this rule.
-    const proven = await POST(request({ ...validBody(), participantCap: 8 }));
-    expect(proven.status).not.toBe(400);
+    // 32 passes the size rule and reaches the compiler; the stub contracts then
+    // meet the fee check, which is not what this test is about.
+    const largest = await POST(request(validBody()));
+    expect(JSON.stringify(await largest.json())).not.toContain("not available yet");
     expect(mocks.compile).toHaveBeenCalledTimes(1);
 
     const list = await GET(new Request("https://kaspalinks.com/api/creator/giveaways/v6"));
-    expect((await list.json()).participantCaps).toEqual([8]);
+    expect((await list.json()).participantCaps).toEqual([8, 16, 32]);
   });
 
   it("keeps every size for allowlisted creators", async () => {

@@ -63,11 +63,12 @@ export function isGiveawayV6CreationEnabled(): boolean {
 }
 
 /**
- * Sizes every creator may use: only the shard count that has already been drawn
- * and returned on mainnet. Allowlisted creators (prizeCovenantEnabled) keep every
- * size so they can run the first mainnet Giveaway of a new one.
+ * Sizes every creator may use: all of them. Only 8 had been drawn with real
+ * entries on mainnet when 16 and 32 were opened; allowlisted creators
+ * (prizeCovenantEnabled) get the same sizes without GIVEAWAY_V6_ALL_CREATORS.
  */
-export const GIVEAWAY_V6_PUBLIC_PARTICIPANT_CAPS: readonly GiveawayV6ParticipantCap[] = [8];
+export const GIVEAWAY_V6_PUBLIC_PARTICIPANT_CAPS: readonly GiveawayV6ParticipantCap[] =
+  GIVEAWAY_V6_PARTICIPANT_CAPS;
 
 /** Unfunded Giveaways one creator may hold open at a time. */
 export const GIVEAWAY_V6_MAX_UNFUNDED_PER_CREATOR = 3;
