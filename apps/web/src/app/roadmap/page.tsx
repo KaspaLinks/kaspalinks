@@ -4,7 +4,7 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 const ROADMAP_DESCRIPTION =
-  "Kaspa Links roadmap — what's live and what's next: claimable links, claim drops, multi-recipient splits, time-locked refunds, and recurring subscriptions.";
+  "Kaspa Links roadmap: what's live and what's next. Payment links, claim links and Claim Drops that return unclaimed KAS, on-chain giveaways, a Telegram bot, escrow links, splits and recurring support.";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/roadmap" },
@@ -29,51 +29,72 @@ export default function RoadmapPage() {
       <section className="hero" style={{ paddingTop: 8, paddingBottom: 12 }}>
         <span className="hero-eyebrow">Roadmap</span>
         <h1 className="hero-title" style={{ fontSize: "2rem" }}>
-          What&apos;s coming next.
+          What&apos;s live, and what&apos;s next.
         </h1>
         <p className="hero-sub">
-          Today Kaspa Links does payment links, creator profiles, real on-chain detection, and
-          claimable links — including multi-link Claim Drops. The next features build on the same
-          non-custodial idea: clear payment intent first, wallet-controlled execution second.
+          Kaspa Links does payment links, claim links, Claim Drops, on-chain giveaways and a
+          Telegram bot, most of it without an account. Everything new follows the same idea: a clear
+          payment intent first, wallet-controlled execution second, and no custody.
         </p>
       </section>
 
-      {/* Live today — shipped feature list paired with the rollout note so the
-          reader gets both "this works" and "here's how the next batch joins"
-          on the same screen. */}
       <section className="roadmap-section">
         <header className="roadmap-section-header">
           <span className="roadmap-section-eyebrow roadmap-section-eyebrow-live">Live today</span>
           <h2 className="roadmap-section-title">Already shipped</h2>
         </header>
-        <div className="roadmap-section-grid roadmap-section-grid-live">
-          <article className="card card-accent">
-            <h3 className="roadmap-feature-title">What works right now</h3>
+        <div className="roadmap-section-grid roadmap-section-grid-2">
+          <article className="card card-accent roadmap-feature">
+            <h3 className="roadmap-feature-title">Payment links</h3>
             <ul style={{ margin: 0 }}>
-              <li>Tip, donation, invoice and transfer links</li>
-              <li>Fixed-amount and variable-amount (&ldquo;pay what you want&rdquo;) flows</li>
-              <li>Real on-chain detection — status flips to CONFIRMED automatically</li>
-              <li>KasWare extension pay on desktop</li>
-              <li>Mobile deep-links + QR for Kaspium and other wallets</li>
-              <li>Single Claimable links with a private refund path if they expire unclaimed</li>
-              <li>Claim Drops with up to 8 individually shareable and refundable links</li>
-              <li>Embed-button package and a kaspa-actions SDK</li>
-              <li>Self-hostable on a single VPS via Docker Compose</li>
+              <li>Tip, donation, invoice, transfer and goal links</li>
+              <li>Fixed or open amounts, entered in KAS, $ or €</li>
+              <li>On-chain detection: the payer and the creator see the payment within seconds</li>
+              <li>KasWare on desktop, Kaspium and other wallets by deep link and QR</li>
+              <li>No account needed to create a link</li>
             </ul>
           </article>
 
-          <article className="card card-muted roadmap-rollout">
-            <h3 className="roadmap-feature-title">How we&apos;ll roll it out</h3>
-            <p className="muted" style={{ margin: 0 }}>
-              Claimable links and Claim Drops are the first on-chain programmable link types. Future
-              features ship into the existing creator workflow as they clear testing - same
-              dashboard, same account, and no parallel app. Existing links keep working unchanged.
-            </p>
+          <article className="card card-accent roadmap-feature">
+            <h3 className="roadmap-feature-title">Claim links &amp; Claim Drops</h3>
+            <ul style={{ margin: 0 }}>
+              <li>Send KAS with a link: the first valid claim gets it</li>
+              <li>Claim Drops: up to 8 separate claim links, funded in one payment</li>
+              <li>Unclaimed KAS comes back to you automatically after the claim window</li>
+              <li>No recovery file, no account, no key held by Kaspa Links</li>
+            </ul>
+          </article>
+
+          <article className="card card-accent roadmap-feature">
+            <h3 className="roadmap-feature-title">On-chain giveaways</h3>
+            <ul style={{ margin: 0 }}>
+              <li>Any prize from 0.2 KAS, up to 32 participants</li>
+              <li>Free to join with any Kaspa address</li>
+              <li>Kaspa locks the list, a random block picks the winner</li>
+              <li>Winner paid automatically by SilverScript, every step verifiable on-chain</li>
+              <li>If nobody joins, the prize goes back to you</li>
+            </ul>
+          </article>
+
+          <article className="card card-accent roadmap-feature">
+            <h3 className="roadmap-feature-title">Telegram &amp; tools</h3>
+            <ul style={{ margin: 0 }}>
+              <li>@kaspalinksbot: create payment links, claim links and giveaways in a Mini App</li>
+              <li>Payment and claim notices right in the chat</li>
+              <li>Creator profiles with a public supporter wall and an OBS overlay for streams</li>
+              <li>Embed button and SDK, open source, self-hostable with Docker Compose</li>
+            </ul>
           </article>
         </div>
+        <article className="card card-muted roadmap-rollout" style={{ marginTop: 12 }}>
+          <h3 className="roadmap-feature-title">How new features roll out</h3>
+          <p className="muted" style={{ margin: 0 }}>
+            New link types run privately on mainnet first, then open to everyone in the same
+            dashboard and the same bot. Existing links keep working unchanged.
+          </p>
+        </article>
       </section>
 
-      {/* Next — covenant-backed primitives that are not live yet. */}
       <section className="roadmap-section">
         <header className="roadmap-section-header">
           <span className="roadmap-section-eyebrow roadmap-section-eyebrow-next">Next</span>
@@ -81,35 +102,31 @@ export default function RoadmapPage() {
         </header>
         <div className="roadmap-section-grid roadmap-section-grid-2">
           <article className="card roadmap-feature">
-            <h3 className="roadmap-feature-title">Splits &amp; multi-recipient</h3>
+            <h3 className="roadmap-feature-title">Escrow links · in private testing</h3>
             <p>
-              One payment, multiple recipients. Set fixed shares (e.g. 60% / 30% / 10%) or fixed KAS
-              amounts per recipient. The chain handles the split atomically, no off-chain
-              coordination needed.
+              Agree on a deal anywhere, then pay into an escrow only the buyer and seller can move.
+              The buyer releases the KAS, the seller can refund it, and a deadline keeps it from
+              getting stuck. Kaspa Links holds no key and takes no fee.
             </p>
             <p className="muted roadmap-feature-usecase">
-              Use cases: team tipping (3 devs share royalties), collaboration payouts, donation
-              splits between charity + project.
+              Use cases: private sales, freelance jobs, paying someone you have not met.
             </p>
           </article>
 
           <article className="card roadmap-feature">
-            <h3 className="roadmap-feature-title">Advanced recovery rules</h3>
+            <h3 className="roadmap-feature-title">Splits &amp; multi-recipient</h3>
             <p>
-              Claimable links already unlock a private, browser-signed refund after expiry. The next
-              step is more flexible recovery windows and wallet-controlled recovery policies without
-              introducing custody.
+              One payment, several recipients. Set shares (e.g. 60% / 30% / 10%) or fixed KAS
+              amounts per recipient, and the chain does the split in one transaction.
             </p>
             <p className="muted roadmap-feature-usecase">
-              Use cases: time-limited bounties, event prizes, and longer-running reward campaigns.
+              Use cases: team tips, collaboration payouts, donations shared between a charity and a
+              project.
             </p>
           </article>
         </div>
       </section>
 
-      {/* Later — bigger features that need more design + research. Kept
-          deliberately sparse on use-case detail because the shape is still
-          fluid. */}
       <section className="roadmap-section">
         <header className="roadmap-section-header">
           <span className="roadmap-section-eyebrow roadmap-section-eyebrow-later">Later</span>
@@ -117,18 +134,18 @@ export default function RoadmapPage() {
         </header>
         <div className="roadmap-section-grid roadmap-section-grid-2">
           <article className="card roadmap-feature">
-            <h3 className="roadmap-feature-title">Recurring &amp; subscriptions</h3>
+            <h3 className="roadmap-feature-title">Recurring support</h3>
             <p>
-              Set up a link that pulls a fixed amount on a schedule — Patreon-style support that
-              runs entirely on-chain, no platform between supporter and creator.
+              Support a creator every month, Patreon-style, straight from wallet to wallet with no
+              platform in between.
             </p>
           </article>
 
           <article className="card roadmap-feature">
-            <h3 className="roadmap-feature-title">Conditional release &amp; escrow</h3>
+            <h3 className="roadmap-feature-title">Milestones &amp; conditional payouts</h3>
             <p>
-              Multi-sig approvals, milestones, oracle-gated payouts. Use Kaspa covenants as
-              programmable money primitives — release on signature, on time, or on external proof.
+              Release KAS in steps, on several signatures or on an external proof, built on the same
+              covenants as escrow links.
             </p>
           </article>
         </div>

@@ -7,7 +7,7 @@ import { Slide } from "./Slide";
 export const dynamic = "force-dynamic";
 
 const DECK_DESCRIPTION =
-  "Kaspa Links explained in 10 slides — how shareable, non-custodial Kaspa payment links work and why they beat traditional crypto payment processors.";
+  "Kaspa Links explained in 10 slides: non-custodial Kaspa payment links, claim links, on-chain giveaways and a Telegram bot, and why they beat traditional crypto payment processors.";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/deck" },
@@ -131,7 +131,7 @@ export default function DeckPage() {
             <li>
               Paid <strong>wallet-to-wallet</strong>. Confirmed on-chain in seconds.
             </li>
-            <li>No supporter account. No checkout. No middleman.</li>
+            <li>No account needed, for the creator or the supporter. No checkout. No middleman.</li>
           </ul>
         </article>
       </Slide>
@@ -145,7 +145,8 @@ export default function DeckPage() {
               <span className="deck-step-num">1</span>
               <div>
                 <strong>Creator</strong> drops their <code>kaspa:</code> address into{" "}
-                <code>/new-link</code> → gets a shareable URL.
+                <code>/new-link</code> or asks <strong>@kaspalinksbot</strong> in Telegram → gets a
+                shareable URL. Amounts can be typed in KAS, $ or €.
               </div>
             </li>
             <li>
@@ -214,12 +215,14 @@ export default function DeckPage() {
             <span className="deck-title-accent">Can&apos;t freeze. Can&apos;t reverse.</span>
           </h2>
           <ul className="deck-list deck-list-check">
-            <li>The tx is broadcast by the supporter&apos;s wallet, not ours.</li>
+            <li>Payments are broadcast by the supporter&apos;s wallet, not ours.</li>
             <li>
               Funds go straight to your <code>kaspa:</code> address.
             </li>
-            <li>Kaspa Links has no signing key, no custody, no admin override.</li>
-            <li>Self-hostable on a single VPS via Docker Compose.</li>
+            <li>
+              Claim links and giveaways are enforced by SilverScript covenants on Kaspa itself.
+            </li>
+            <li>Kaspa Links holds no key to your KAS: no custody, no admin override.</li>
           </ul>
           <p className="deck-takeaway">
             Payments are wallet-standard URIs underneath. Your funds never depend on our custody,
@@ -239,11 +242,17 @@ export default function DeckPage() {
             </div>
             <div className="deck-audience">
               <span className="deck-audience-tag">Freelancers</span>
-              <p>One link, fixed amount, on-chain proof of payment. Beats invoicing software.</p>
+              <p>
+                One link, a fixed amount in KAS, $ or €, on-chain proof of payment. Beats invoicing
+                software.
+              </p>
             </div>
             <div className="deck-audience">
-              <span className="deck-audience-tag">Communities &amp; DAOs</span>
-              <p>Pooled donations, treasury contributions, transparent flows.</p>
+              <span className="deck-audience-tag">Communities</span>
+              <p>
+                On-chain giveaways for up to 32 people, Claim Drops for rewards, goals for pooled
+                donations.
+              </p>
             </div>
             <div className="deck-audience">
               <span className="deck-audience-tag">Developers</span>
@@ -260,21 +269,27 @@ export default function DeckPage() {
             On-chain rewards are <span className="deck-title-accent">live</span>.
           </h2>
           <p className="deck-sub">
-            Claimable links and multi-link Claim Drops add wallet-to-wallet rewards without turning
-            Kaspa Links into a custodian.
+            Claim links, Claim Drops and giveaways run as SilverScript covenants on Kaspa. Kaspa
+            Links never becomes a custodian.
           </p>
           <ul className="deck-list deck-list-arrow">
             <li>
-              <strong>Claimable links</strong> — One reward, first valid claim wins.
+              <strong>Claim links</strong> — Send KAS with a link. Unclaimed, it comes back by
+              itself.
             </li>
             <li>
-              <strong>Claim Drops</strong> — Up to 8 separate rewards, funded in one batch.
+              <strong>Claim Drops</strong> — Up to 8 separate rewards, funded in one payment.
             </li>
             <li>
-              <strong>Private recovery</strong> — Refund each unclaimed link after expiry.
+              <strong>Giveaways</strong> — Up to 32 people join free, a random block picks the
+              winner, payout is automatic.
             </li>
             <li>
-              <strong>Next</strong> — Splits, pay-to-unlock, and recurring support.
+              <strong>Telegram</strong> — Create all of it in @kaspalinksbot, get notified in the
+              chat.
+            </li>
+            <li>
+              <strong>Next</strong> — Escrow links, splits and recurring support.
             </li>
           </ul>
         </article>
@@ -294,6 +309,16 @@ export default function DeckPage() {
               <span className="deck-cta-label">Try a link</span>
               <span className="deck-cta-url">kaspalinks.com/try-it-out</span>
             </Link>
+            <a
+              className="deck-cta"
+              href="https://t.me/kaspalinksbot"
+              rel="noreferrer"
+              target="_blank"
+            >
+              <span className="deck-cta-arrow">→</span>
+              <span className="deck-cta-label">Open the Telegram bot</span>
+              <span className="deck-cta-url">t.me/kaspalinksbot</span>
+            </a>
             <Link className="deck-cta" href="/roadmap">
               <span className="deck-cta-arrow">→</span>
               <span className="deck-cta-label">Read the roadmap</span>
