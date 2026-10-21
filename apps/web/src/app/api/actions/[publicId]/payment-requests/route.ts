@@ -2,7 +2,7 @@ import {
   lockActionPaymentLifecycle,
   lockRecipientPaymentLifecycle,
 } from "@kaspa-actions/application";
-import { prisma } from "@kaspa-actions/db";
+import { prisma, type Prisma } from "@kaspa-actions/db";
 import { ActionType, AuditActorType, PaymentRequestStatus } from "@kaspa-actions/db";
 import { buildKaspaPaymentUri, parseKaspaAmountToSompi } from "@kaspa-actions/kaspa";
 
@@ -144,6 +144,12 @@ export async function POST(request: Request, context: RouteContext) {
   });
 
   const expiresAt = new Date(Date.now() + PAYMENT_REQUEST_LIFETIME_MS);
+  const requestedMessage = parsed.data.requestedMessage ?? null;
+  const supporterMessage = parsed.data.supporterMessage ?? null;
+  // A request that only carries the amount is the same payment intent as an
+  // open one from the same payer, so it may be handed back instead.
+  const plainRequest = supporterMessage === null && supporterName === null && !supporterPublic;
+  let reused = false;
 
   const paymentRequest = await prisma.$transaction(async (tx) => {
     await lockActionPaymentLifecycle(tx, action.id);
@@ -155,6 +161,26 @@ export async function POST(request: Request, context: RouteContext) {
       });
       if (invoice?.invoicePaidAt) return null;
     }
+    // A reload or the wallet app sending the browser back asks again. A second
+    // open request for the same address and amount would leave the payment
+    // ambiguous and unconfirmed, so the payer's open request is extended
+    // instead.
+    const reusableId =
+      plainRequest && ipHash
+        ? await findReusableRequestId(tx, {
+            actionId: action.id,
+            amountSompi,
+            ipHash,
+            requestedMessage,
+          })
+        : null;
+    if (reusableId) {
+      reused = true;
+      return tx.paymentRequest.update({
+        data: { detectionAttempts: 0, expiresAt, nextDetectionAt: new Date() },
+        where: { id: reusableId },
+      });
+    }
     return tx.paymentRequest.create({
       data: {
         actionId: action.id,
@@ -163,8 +189,8 @@ export async function POST(request: Request, context: RouteContext) {
         network: action.network,
         paymentUri,
         recipientAddress: action.recipientAddress,
-        requestedMessage: parsed.data.requestedMessage ?? null,
-        supporterMessage: parsed.data.supporterMessage ?? null,
+        requestedMessage,
+        supporterMessage,
         supporterName,
         supporterPublic,
       },
@@ -181,7 +207,7 @@ export async function POST(request: Request, context: RouteContext) {
   await writeAuditLog(prisma, {
     actionId: action.id,
     actorType: AuditActorType.PUBLIC,
-    event: "payment_request.created",
+    event: reused ? "payment_request.reused" : "payment_request.created",
     ipHash,
     metadata: {
       publicId: action.publicId,
@@ -190,7 +216,45 @@ export async function POST(request: Request, context: RouteContext) {
     paymentRequestId: paymentRequest.id,
   });
 
-  return apiJson({ paymentRequest: serializePaymentRequest(paymentRequest) }, 201);
+  return apiJson({ paymentRequest: serializePaymentRequest(paymentRequest) }, reused ? 200 : 201);
+}
+
+/** The newest open plain request for this link and amount that the same client created. */
+async function findReusableRequestId(
+  tx: Prisma.TransactionClient,
+  input: {
+    actionId: string;
+    amountSompi: bigint | null;
+    ipHash: string;
+    requestedMessage: null | string;
+  },
+): Promise<null | string> {
+  const open = await tx.paymentRequest.findMany({
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+    take: 10,
+    where: {
+      actionId: input.actionId,
+      amountSompi: input.amountSompi,
+      expiresAt: { gt: new Date() },
+      requestedMessage: input.requestedMessage,
+      status: PaymentRequestStatus.PENDING,
+      supporterMessage: null,
+      supporterName: null,
+      supporterPublic: false,
+    },
+  });
+  if (open.length === 0) return null;
+  const sameClient = await tx.auditLog.findFirst({
+    orderBy: { createdAt: "desc" },
+    select: { paymentRequestId: true },
+    where: {
+      event: "payment_request.created",
+      ipHash: input.ipHash,
+      paymentRequestId: { in: open.map((request) => request.id) },
+    },
+  });
+  return sameClient?.paymentRequestId ?? null;
 }
 
 const methodNotAllowed = () => apiMethodNotAllowed(["POST"]);

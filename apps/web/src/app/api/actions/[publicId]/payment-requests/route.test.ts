@@ -7,6 +7,7 @@ const { mockPrisma } = vi.hoisted(() => ({
     $transaction: vi.fn(),
     auditLog: {
       create: vi.fn(),
+      findFirst: vi.fn(),
     },
     action: {
       findUnique: vi.fn(),
@@ -14,6 +15,8 @@ const { mockPrisma } = vi.hoisted(() => ({
     paymentRequest: {
       aggregate: vi.fn(),
       create: vi.fn(),
+      findMany: vi.fn(),
+      update: vi.fn(),
     },
   },
 }));
@@ -36,6 +39,7 @@ vi.mock("@kaspa-actions/db", () => ({
   },
   PaymentRequestStatus: {
     CONFIRMED: "CONFIRMED",
+    PENDING: "PENDING",
   },
   Prisma: {},
   prisma: mockPrisma,
@@ -125,6 +129,68 @@ describe("POST /api/actions/:publicId/payment-requests", () => {
     mockPrisma.$transaction.mockImplementation(
       async (callback: (tx: typeof mockPrisma) => unknown) => callback(mockPrisma),
     );
+    mockPrisma.paymentRequest.findMany.mockResolvedValue([]);
+    mockPrisma.auditLog.findFirst.mockResolvedValue(null);
+  });
+
+  it("hands the same payer their open request back instead of creating a second one", async () => {
+    mockPrisma.action.findUnique.mockResolvedValue(action());
+    mockPrisma.paymentRequest.findMany.mockResolvedValue([{ id: "payment-request-1" }]);
+    mockPrisma.auditLog.findFirst.mockResolvedValue({ paymentRequestId: "payment-request-1" });
+    mockPrisma.paymentRequest.update.mockResolvedValue(paymentRequest({ supporterMessage: null }));
+
+    const response = await POST(request({}), routeContext());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.paymentRequest.id).toBe("payment-request-1");
+    expect(mockPrisma.paymentRequest.create).not.toHaveBeenCalled();
+    expect(mockPrisma.paymentRequest.update).toHaveBeenCalledWith({
+      data: expect.objectContaining({ detectionAttempts: 0, expiresAt: expect.any(Date) }),
+      where: { id: "payment-request-1" },
+    });
+    expect(mockPrisma.paymentRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          actionId: "action-1",
+          amountSompi: 1_000_000_000n,
+          status: "PENDING",
+          supporterMessage: null,
+        }),
+      }),
+    );
+    expect(mockPrisma.auditLog.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          event: "payment_request.created",
+          ipHash: expect.any(String),
+        }),
+      }),
+    );
+  });
+
+  it("creates a new request when the open one belongs to someone else", async () => {
+    mockPrisma.action.findUnique.mockResolvedValue(action());
+    mockPrisma.paymentRequest.findMany.mockResolvedValue([{ id: "someone-elses-request" }]);
+    mockPrisma.auditLog.findFirst.mockResolvedValue(null);
+    mockPrisma.paymentRequest.create.mockResolvedValue(
+      paymentRequest({ id: "payment-request-2", supporterMessage: null }),
+    );
+
+    const response = await POST(request({}), routeContext());
+
+    expect(response.status).toBe(201);
+    expect(mockPrisma.paymentRequest.update).not.toHaveBeenCalled();
+  });
+
+  it("never reuses a request when the supporter adds a note", async () => {
+    mockPrisma.action.findUnique.mockResolvedValue(action());
+    mockPrisma.paymentRequest.create.mockResolvedValue(paymentRequest());
+
+    const response = await POST(request({ supporterMessage: "Great stream" }), routeContext());
+
+    expect(response.status).toBe(201);
+    expect(mockPrisma.paymentRequest.findMany).not.toHaveBeenCalled();
   });
 
   it("stores optional supporter messages separately from wallet URI messages", async () => {

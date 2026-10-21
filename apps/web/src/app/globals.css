@@ -4717,6 +4717,23 @@ a.type-segment:hover {
 
 /* Growth Prompt — one invitation shown only after a completed payment or claim
    (docs/adr/0005). Quiet card under the success state, never inside it. */
+.pay-start-over {
+  display: block;
+  margin: 14px auto 0;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.86rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pay-start-over:hover {
+  color: var(--fg);
+}
+
 .pay-share-actions {
   display: flex;
   flex-wrap: wrap;

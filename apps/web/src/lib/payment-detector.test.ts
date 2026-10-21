@@ -19,7 +19,22 @@ const RECIPIENT = "kaspatest:qqnapngv3zxp305qf06w6hpzmyxtx2r99jjhs04lu980xdyd2ul
 type PrismaStub = {
   audits: Array<{ event: string; metadata?: unknown }>;
   client: PrismaClient;
-  control: { expireBeforeUpdate: boolean; possibleRequests: number; countWhere?: unknown };
+  control: {
+    countWhere?: unknown;
+    /** ipHash of the creating client per request id (the payment_request.created audit). */
+    createdBy: Record<string, null | string>;
+    expireBeforeUpdate: boolean;
+    /** Rows for the overlap lookup when more than one request is possible. */
+    overlapping: Array<{
+      actionId: string;
+      id: string;
+      status: PaymentRequestStatus;
+      supporterMessage: null | string;
+      supporterName: null | string;
+      supporterPublic: boolean;
+    }>;
+    possibleRequests: number;
+  };
   events: Array<{ paymentRequestId: string; txId: string }>;
   existingByTxId: Map<string, PaymentRequest>;
   invoicePaidAt: Date | null;
@@ -61,7 +76,12 @@ function buildPrismaStub(
   options: { actionType?: ActionType; telegramConnected?: boolean } = {},
 ): PrismaStub {
   const audits: Array<{ event: string; metadata?: unknown }> = [];
-  const control: PrismaStub["control"] = { expireBeforeUpdate: false, possibleRequests: 1 };
+  const control: PrismaStub["control"] = {
+    createdBy: {},
+    expireBeforeUpdate: false,
+    overlapping: [],
+    possibleRequests: 1,
+  };
   const events: Array<{ paymentRequestId: string; txId: string }> = [];
   const existingByTxId = new Map<string, PaymentRequest>();
   let invoicePaidAt: Date | null = null;
@@ -82,6 +102,10 @@ function buildPrismaStub(
       create: async ({ data }: { data: { event: string; metadata?: unknown } }) => {
         audits.push({ event: data.event, metadata: data.metadata });
       },
+      findMany: async ({ where }: { where: { paymentRequestId: { in: string[] } } }) =>
+        where.paymentRequestId.in
+          .filter((id) => id in control.createdBy)
+          .map((id) => ({ ipHash: control.createdBy[id] ?? null, paymentRequestId: id })),
     },
     paymentEvent: {
       create: async ({ data }: { data: { paymentRequestId: string; txId: string } }) => {
@@ -94,6 +118,7 @@ function buildPrismaStub(
         control.countWhere = where;
         return control.possibleRequests;
       },
+      findMany: async () => control.overlapping,
       findUnique: async ({
         include,
         where,
@@ -255,6 +280,95 @@ describe("detectAndConfirmPayment", () => {
     ).toBe("ambiguous");
     expect(stub.control.countWhere).toMatchObject({ status: { in: ["PENDING", "EXPIRED"] } });
     expect(stub.request.status).toBe("PENDING");
+    expect(stub.events).toHaveLength(0);
+  });
+
+  it("lets the newest of one client's repeated requests take the payment", async () => {
+    const stub = buildPrismaStub({ id: "pr-2" });
+    stub.control.possibleRequests = 2;
+    const repeat = {
+      actionId: "action-1",
+      status: PaymentRequestStatus.PENDING,
+      supporterMessage: null,
+      supporterName: null,
+      supporterPublic: false,
+    };
+    // Newest first, as the lookup orders them.
+    stub.control.overlapping = [
+      { ...repeat, id: "pr-2" },
+      { ...repeat, id: "pr-1" },
+    ];
+    stub.control.createdBy = { "pr-1": "same-phone", "pr-2": "same-phone" };
+    const indexer = buildIndexer({
+      blockTime: Date.parse("2026-05-13T10:00:30Z"),
+      matchedSompi: 1_000_000_000n,
+      outputIndex: 0,
+      transactionId: "reload-tx",
+    });
+
+    const result = await detectAndConfirmPayment(stub.request, indexer, stub.client);
+
+    expect(result.kind).toBe("confirmed");
+    expect(stub.request.txId).toBe("reload-tx");
+    expect(stub.events).toEqual([{ paymentRequestId: "pr-2", txId: "reload-tx" }]);
+  });
+
+  it("leaves the payment to the newest repeated request when checking an older one", async () => {
+    const stub = buildPrismaStub({ id: "pr-1" });
+    stub.control.possibleRequests = 2;
+    const repeat = {
+      actionId: "action-1",
+      status: PaymentRequestStatus.PENDING,
+      supporterMessage: null,
+      supporterName: null,
+      supporterPublic: false,
+    };
+    stub.control.overlapping = [
+      { ...repeat, id: "pr-2" },
+      { ...repeat, id: "pr-1" },
+    ];
+    stub.control.createdBy = { "pr-1": "same-phone", "pr-2": "same-phone" };
+    const indexer = buildIndexer({
+      blockTime: Date.parse("2026-05-13T10:00:30Z"),
+      matchedSompi: 1_000_000_000n,
+      outputIndex: 0,
+      transactionId: "reload-tx",
+    });
+
+    expect((await detectAndConfirmPayment(stub.request, indexer, stub.client)).kind).toBe(
+      "no_match",
+    );
+    expect(stub.request.status).toBe("PENDING");
+    expect(stub.events).toHaveLength(0);
+  });
+
+  it.each([
+    ["two different clients", { "pr-1": "phone-a", "pr-2": "phone-b" }, null],
+    ["a request with a supporter note", { "pr-1": "same-phone", "pr-2": "same-phone" }, "Thanks"],
+  ])("keeps overlapping requests from %s ambiguous", async (_label, createdBy, note) => {
+    const stub = buildPrismaStub({ id: "pr-2" });
+    stub.control.possibleRequests = 2;
+    const repeat = {
+      actionId: "action-1",
+      status: PaymentRequestStatus.PENDING,
+      supporterName: null,
+      supporterPublic: false,
+    };
+    stub.control.overlapping = [
+      { ...repeat, id: "pr-2", supporterMessage: null },
+      { ...repeat, id: "pr-1", supporterMessage: note },
+    ];
+    stub.control.createdBy = createdBy;
+    const indexer = buildIndexer({
+      blockTime: Date.parse("2026-05-13T10:00:30Z"),
+      matchedSompi: 1_000_000_000n,
+      outputIndex: 0,
+      transactionId: "shared-tx",
+    });
+
+    expect((await detectAndConfirmPayment(stub.request, indexer, stub.client)).kind).toBe(
+      "ambiguous",
+    );
     expect(stub.events).toHaveLength(0);
   });
 

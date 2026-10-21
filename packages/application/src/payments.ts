@@ -211,19 +211,22 @@ async function confirmPayment(
         return null;
       // Address/amount matching cannot choose safely between overlapping intents,
       // even when a caller supplies the publicly visible transaction id.
-      const possibleRequests = await tx.paymentRequest.count({
-        where: {
-          network: current.network,
-          recipientAddress: current.recipientAddress,
-          // Expiring another request must not turn an ambiguous historical
-          // payment into a uniquely attributable payment for this request.
-          status: { in: [PaymentRequestStatus.PENDING, PaymentRequestStatus.EXPIRED] },
-          createdAt: { lte: new Date(blockTime) },
-          expiresAt: { gt: new Date(blockTime) },
-          OR: [{ amountSompi: null }, { amountSompi: confirmation.amountSompi }],
-        },
-      });
-      if (possibleRequests !== 1) throw new AmbiguousPaymentError();
+      const overlapping: Prisma.PaymentRequestWhereInput = {
+        network: current.network,
+        recipientAddress: current.recipientAddress,
+        // Expiring another request must not turn an ambiguous historical
+        // payment into a uniquely attributable payment for this request.
+        status: { in: [PaymentRequestStatus.PENDING, PaymentRequestStatus.EXPIRED] },
+        createdAt: { lte: new Date(blockTime) },
+        expiresAt: { gt: new Date(blockTime) },
+        OR: [{ amountSompi: null }, { amountSompi: confirmation.amountSompi }],
+      };
+      const possibleRequests = await tx.paymentRequest.count({ where: overlapping });
+      if (possibleRequests !== 1) {
+        const chosenId = await chosenAmongRepeatedRequests(tx, overlapping);
+        if (chosenId === null) throw new AmbiguousPaymentError();
+        if (chosenId !== current.id) return null;
+      }
     }
 
     const duplicate = confirmation.fakeTxId
@@ -323,6 +326,52 @@ async function confirmPayment(
 
     return tx.paymentRequest.findUnique({ where: { id: current.id } });
   });
+}
+
+/**
+ * Overlapping requests that one client asked for again and again (a reload,
+ * the wallet app sending the browser back) for the same link, without a
+ * supporter note or name, are one payment intent. The newest pending one
+ * takes the payment, so every check picks the same request and the creator is
+ * told about it. Anything else stays ambiguous (null).
+ */
+async function chosenAmongRepeatedRequests(
+  tx: Prisma.TransactionClient,
+  overlapping: Prisma.PaymentRequestWhereInput,
+): Promise<null | string> {
+  const requests = await tx.paymentRequest.findMany({
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: {
+      actionId: true,
+      id: true,
+      status: true,
+      supporterMessage: true,
+      supporterName: true,
+      supporterPublic: true,
+    },
+    where: overlapping,
+  });
+  if (new Set(requests.map((request) => request.actionId)).size !== 1) return null;
+  if (
+    requests.some(
+      (request) =>
+        request.supporterMessage !== null ||
+        request.supporterName !== null ||
+        request.supporterPublic,
+    )
+  ) {
+    return null;
+  }
+  const created = await tx.auditLog.findMany({
+    select: { ipHash: true, paymentRequestId: true },
+    where: {
+      event: "payment_request.created",
+      paymentRequestId: { in: requests.map((request) => request.id) },
+    },
+  });
+  const clients = new Set(created.map((row) => row.ipHash));
+  if (created.length !== requests.length || clients.size !== 1 || clients.has(null)) return null;
+  return requests.find((request) => request.status === PaymentRequestStatus.PENDING)?.id ?? null;
 }
 
 function isUniqueError(error: unknown): boolean {

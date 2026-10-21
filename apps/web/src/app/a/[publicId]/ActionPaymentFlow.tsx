@@ -57,6 +57,38 @@ const POLL_INTERVAL_MS = 1_500;
 const POST_BROADCAST_FAST_POLL_MS = 300;
 const SOMPI_PER_KAS = 100_000_000n;
 const MAX_DECIMAL_PLACES = 8;
+// A phone often reloads the page when the payer comes back from the wallet
+// app. The open request is kept in the browser so the reload shows its status
+// instead of asking for a new payment.
+const STORED_REQUEST_MAX_AGE_MS = 60 * 60 * 1000;
+
+type StoredPaymentRequest = { id: string; savedAt: number; walletOpened: boolean };
+
+function storedRequestKey(publicId: string): string {
+  return `kaspalinks.paymentRequest.${publicId}`;
+}
+
+function readStoredPaymentRequest(publicId: string): null | StoredPaymentRequest {
+  try {
+    const raw = window.localStorage.getItem(storedRequestKey(publicId));
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<StoredPaymentRequest>;
+    if (typeof value.id !== "string" || typeof value.savedAt !== "number") return null;
+    if (Date.now() - value.savedAt > STORED_REQUEST_MAX_AGE_MS) return null;
+    return { id: value.id, savedAt: value.savedAt, walletOpened: value.walletOpened === true };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPaymentRequest(publicId: string, value: null | StoredPaymentRequest): void {
+  try {
+    if (value) window.localStorage.setItem(storedRequestKey(publicId), JSON.stringify(value));
+    else window.localStorage.removeItem(storedRequestKey(publicId));
+  } catch {
+    // Storage can be blocked (private windows); the page then works as before.
+  }
+}
 
 class AmountTooSmallError extends Error {
   constructor() {
@@ -371,6 +403,9 @@ export function ActionPaymentFlow({
   paymentUri,
 }: ActionPaymentFlowProps) {
   const [paymentRequest, setPaymentRequest] = useState<null | SerializedPaymentRequest>(null);
+  // False until a request stored by an earlier visit was checked, so the page
+  // does not ask for a second request while the first may already be paid.
+  const [resumeChecked, setResumeChecked] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<null | string>(null);
   const [copied, setCopied] = useState<CopyState>(null);
@@ -521,6 +556,11 @@ export function ActionPaymentFlow({
       }
       const nextPaymentRequest = responseBody.paymentRequest as SerializedPaymentRequest;
       setPaymentRequest(nextPaymentRequest);
+      writeStoredPaymentRequest(action.publicId, {
+        id: nextPaymentRequest.id,
+        savedAt: Date.now(),
+        walletOpened: false,
+      });
       if (nextPaymentRequest.supporterMessage || nextPaymentRequest.supporterPublic) {
         setSupporterMessageSaveState("saved");
       }
@@ -612,12 +652,65 @@ export function ActionPaymentFlow({
   const autoGenerateAttemptedRef = useRef(false);
   useEffect(() => {
     if (autoGenerateAttemptedRef.current) return;
+    if (!resumeChecked) return;
     if (isVariableAmount) return;
     if (paymentRequest) return;
     if (creating) return;
     autoGenerateAttemptedRef.current = true;
     void requestPaymentRequest();
-  }, [creating, isVariableAmount, paymentRequest, requestPaymentRequest]);
+  }, [creating, isVariableAmount, paymentRequest, requestPaymentRequest, resumeChecked]);
+
+  // Pick up the request from an earlier visit: still open, it keeps waiting for
+  // the payment; already paid, the page shows the thank-you screen.
+  useEffect(() => {
+    const stored = readStoredPaymentRequest(action.publicId);
+    if (!stored) {
+      setResumeChecked(true);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/payment-requests/${encodeURIComponent(stored.id)}/status`)
+      .then(async (response) => {
+        const body = response.ok ? await response.json() : null;
+        if (cancelled) return;
+        const resumed = body?.paymentRequest as SerializedPaymentRequest | undefined;
+        if (resumed && (resumed.status === "PENDING" || resumed.status === "CONFIRMED")) {
+          setPaymentRequest(resumed);
+          if (resumed.status === "PENDING" && stored.walletOpened) {
+            setWalletOpenAttempted(true);
+            setAwaitingMobileWalletConfirmation(true);
+          }
+        } else {
+          writeStoredPaymentRequest(action.publicId, null);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setResumeChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [action.publicId]);
+
+  // An expired or failed request is not resumed again.
+  useEffect(() => {
+    if (paymentRequest?.status === "EXPIRED" || paymentRequest?.status === "FAILED") {
+      writeStoredPaymentRequest(action.publicId, null);
+    }
+  }, [action.publicId, paymentRequest?.status]);
+
+  const startNewPayment = useCallback(() => {
+    writeStoredPaymentRequest(action.publicId, null);
+    autoGenerateAttemptedRef.current = false;
+    setPaymentRequest(null);
+    setSentTxId(null);
+    setPayStatus(null);
+    setError(null);
+    setWalletOpenAttempted(false);
+    setAwaitingKaswareConfirmation(false);
+    setAwaitingMobileWalletConfirmation(false);
+  }, [action.publicId]);
 
   const payWithKasware = useCallback(async () => {
     setPayStatus(null);
@@ -743,6 +836,11 @@ export function ActionPaymentFlow({
 
       setWalletOpenAttempted(true);
       setAwaitingMobileWalletConfirmation(true);
+      writeStoredPaymentRequest(action.publicId, {
+        id: request.id,
+        savedAt: Date.now(),
+        walletOpened: true,
+      });
       setPayStatus(
         "Wallet opened. If you send the payment, this page will update automatically after the network sees it.",
       );
@@ -1041,6 +1139,11 @@ export function ActionPaymentFlow({
               </p>
             ) : null}
             {action.network === "mainnet" ? <PayShareActions title={action.title} /> : null}
+            {action.type !== "kaspa.invoice" ? (
+              <button className="pay-start-over" onClick={startNewPayment} type="button">
+                Send another payment
+              </button>
+            ) : null}
           </section>
           {action.network === "mainnet" ? (
             <GrowthPrompt accountFree={paymentLinksAccountFree} source="pay-success" />
