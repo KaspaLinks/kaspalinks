@@ -4647,6 +4647,39 @@ a.type-segment:hover {
   height: 36px;
 }
 
+/* SuccessHero outside the pay page: its own frame, inside or between cards. */
+.success-hero {
+  margin: 0 0 16px;
+  border: 1px solid rgba(92, 228, 173, 0.32);
+  border-radius: var(--radius);
+}
+.success-hero-body {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  margin-top: 14px;
+  max-width: 34rem;
+}
+.success-hero-body p {
+  margin: 0;
+  color: var(--fg-muted);
+}
+.success-hero-compact {
+  padding: 20px 18px 18px;
+}
+.success-hero-compact .pay-success-check {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 10px;
+}
+.success-hero-compact .pay-success-check svg {
+  width: 26px;
+  height: 26px;
+}
+.success-hero-compact .pay-success-title {
+  font-size: 1.3rem;
+}
+
 .pay-success-title {
   margin: 0 0 4px;
   font-size: 1.6rem;

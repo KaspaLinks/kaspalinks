@@ -67,6 +67,7 @@ import { SESSION_EVENT } from "../../BrandNav";
 import { CreatorSignInGate } from "../../CreatorSignInGate";
 import { KasAmountInput } from "../../KasAmountInput";
 import { KasFiatValue } from "../../KasFiatValue";
+import { SuccessHero } from "../../SuccessHero";
 
 import {
   buildBatchActivationSpendInBrowser,
@@ -2616,6 +2617,19 @@ export function BatchClaimableLabClient({
             </div>
           ) : null}
 
+          {stage === "share" && progress.claimed === 0 ? (
+            <SuccessHero
+              amount={{
+                kas: batch.links[0]?.netClaimKas ?? "",
+                label: `KAS in each of ${progress.total} claim links`,
+              }}
+              compact
+              title="Payment received!"
+            >
+              <p>Your links are ready. Send each one privately.</p>
+            </SuccessHero>
+          ) : null}
+
           {stage === "share" ||
           stage === "refund_links" ||
           stage === "done" ||
@@ -2746,14 +2760,22 @@ export function BatchClaimableLabClient({
           ) : null}
 
           {stage === "done" ? (
-            <div className="batch-drop-card batch-drop-done">
-              <strong>
-                {batch.activation.status === "refunded"
-                  ? "This drop was refunded to your wallet"
+            <SuccessHero
+              title={
+                batch.activation.status === "refunded"
+                  ? "Back in your wallet"
                   : progress.refunded > 0
-                    ? `Finished · ${progress.claimed} claimed, ${progress.refunded} ${autoReturnBatch ? "returned" : "refunded"}`
-                    : "Finished · every link was claimed"}
-              </strong>
+                    ? "Drop finished"
+                    : "Every link was claimed!"
+              }
+            >
+              <p>
+                {batch.activation.status === "refunded"
+                  ? "Nobody claimed this drop, so the KAS went back to your wallet."
+                  : progress.refunded > 0
+                    ? `${progress.claimed} claimed, ${progress.refunded} ${autoReturnBatch ? "returned" : "refunded"} to your wallet.`
+                    : `${progress.total} people received ${batch.links[0]?.netClaimKas} KAS each.`}
+              </p>
               <button
                 className="btn btn-primary"
                 onClick={() => setShowClearDialog(true)}
@@ -2761,7 +2783,7 @@ export function BatchClaimableLabClient({
               >
                 Start a new drop
               </button>
-            </div>
+            </SuccessHero>
           ) : null}
 
           <details className="batch-drop-more">

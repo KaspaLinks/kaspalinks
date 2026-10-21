@@ -63,6 +63,7 @@ import {
 import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { KasAmountInput } from "../KasAmountInput";
 import { KasFiatValue } from "../KasFiatValue";
+import { SuccessHero } from "../SuccessHero";
 import { FundingQrCode } from "@/lib/funding-qr";
 import { parseSignupSource } from "@/lib/signup-source";
 
@@ -172,6 +173,41 @@ type ClaimableBroadcast = {
   submittedTransactionId: string;
   transactionId: string;
 };
+
+// The claimer's own success, kept in this browser so a reload still says
+// "You claimed it" instead of "Someone already claimed this link".
+type RememberedClaim = { broadcast: ClaimableBroadcast; destination: string };
+
+function rememberedClaimKey(linkId: string): string {
+  return `kaspalinks.claimed.${linkId}`;
+}
+
+function rememberClaim(linkId: string, claim: RememberedClaim): void {
+  try {
+    window.localStorage.setItem(rememberedClaimKey(linkId), JSON.stringify(claim));
+  } catch {
+    // Storage may be blocked; the success still shows until the page closes.
+  }
+}
+
+function readRememberedClaim(linkId: string): null | RememberedClaim {
+  try {
+    const raw = window.localStorage.getItem(rememberedClaimKey(linkId));
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<RememberedClaim>;
+    const broadcast = value.broadcast;
+    if (
+      typeof value.destination !== "string" ||
+      typeof broadcast?.submittedTransactionId !== "string" ||
+      typeof broadcast.transactionId !== "string"
+    ) {
+      return null;
+    }
+    return { broadcast, destination: value.destination };
+  } catch {
+    return null;
+  }
+}
 
 type ClaimableBroadcastResponse =
   | {
@@ -792,6 +828,15 @@ export function ToccataLabClient({
     labLink?.status === "refunded" ||
     labLink?.status === "spent_unknown";
   const claimWindowExpired = labLink?.status === "refundable";
+
+  // A reload after claiming shows this browser's own success again.
+  useEffect(() => {
+    if (!claimOnlyView || !labLink || labLink.status !== "claimed" || claimBroadcast) return;
+    const remembered = readRememberedClaim(labLink.id);
+    if (!remembered) return;
+    setClaimBroadcast(remembered.broadcast);
+    setClaimDestination(remembered.destination);
+  }, [claimBroadcast, claimOnlyView, labLink]);
 
   useEffect(() => {
     if (
@@ -2021,6 +2066,9 @@ export function ToccataLabClient({
         setUnmatchedRecoveryTxId(body.broadcast.submittedTransactionId);
       } else if (spend.mode === "claim") {
         setClaimBroadcast(body.broadcast);
+        if (labLink) {
+          rememberClaim(labLink.id, { broadcast: body.broadcast, destination: claimDestination });
+        }
         setLabLink((current) => (current ? { ...current, status: "claimed" } : current));
         if (labLink) void updateClaimableStatus(labLink.id, "claimed");
       } else {
@@ -2105,6 +2153,7 @@ export function ToccataLabClient({
       setUnmatchedRecoveryTxId(spend.transactionId);
     } else if (spend.mode === "claim") {
       setClaimBroadcast(broadcast);
+      if (labLink) rememberClaim(labLink.id, { broadcast, destination: claimDestination });
       setClaimSpend(null);
       setLabLink((current) => (current ? { ...current, status: "claimed" } : current));
       if (labLink) void updateClaimableStatus(labLink.id, "claimed");
@@ -2754,6 +2803,24 @@ export function ToccataLabClient({
               ) : null}
 
               {singleStage === "share" ? (
+                <SuccessHero
+                  amount={{ kas: labLink.netClaimKas, label: "KAS ready to claim" }}
+                  compact
+                  title="Payment received!"
+                >
+                  {labLink.fundingMatch ? (
+                    <a
+                      href={kaspaStreamTransactionUrl(labLink.fundingMatch.transactionId)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      View your payment
+                    </a>
+                  ) : null}
+                </SuccessHero>
+              ) : null}
+
+              {singleStage === "share" ? (
                 <div className="batch-drop-card">
                   <strong>Your link is ready</strong>
                   <p className="value-mono claimable-link-preview" title={claimUrl}>
@@ -2861,20 +2928,35 @@ export function ToccataLabClient({
               ) : null}
 
               {singleStage === "done" ? (
-                <div className="batch-drop-card batch-drop-done">
-                  <strong>
-                    {labLink.status === "claimed"
-                      ? `Claimed · the recipient received ${labLink.netClaimKas} KAS`
-                      : labLink.status === "refunded"
-                        ? isAutoReturn
-                          ? "Returned to your wallet"
-                          : "Refunded to your wallet"
-                        : "This link's KAS was spent on-chain"}
-                  </strong>
-                  <button className="btn btn-primary" onClick={startAnotherLink} type="button">
-                    Create another link
-                  </button>
-                </div>
+                labLink.status === "claimed" || labLink.status === "refunded" ? (
+                  <SuccessHero
+                    amount={{
+                      kas: labLink.netClaimKas,
+                      label:
+                        labLink.status === "claimed"
+                          ? "KAS went to the recipient"
+                          : "KAS back in your wallet",
+                    }}
+                    title={
+                      labLink.status === "claimed"
+                        ? "Claimed!"
+                        : isAutoReturn
+                          ? "Returned to you"
+                          : "Refunded to you"
+                    }
+                  >
+                    <button className="btn btn-primary" onClick={startAnotherLink} type="button">
+                      Create another link
+                    </button>
+                  </SuccessHero>
+                ) : (
+                  <div className="batch-drop-card batch-drop-done">
+                    <strong>This link&apos;s KAS was spent on-chain</strong>
+                    <button className="btn btn-primary" onClick={startAnotherLink} type="button">
+                      Create another link
+                    </button>
+                  </div>
+                )
               ) : null}
 
               <details className="batch-drop-more">
@@ -2934,35 +3016,42 @@ export function ToccataLabClient({
           <section className="card claimable-lab-panel batch-drop-panel claim-receive-panel">
             {labLink ? (
               <>
-                <header className="claim-receive-head">
-                  <span className="label">You received</span>
-                  <strong className="claim-receive-amount">{labLink.netClaimKas} KAS</strong>
-                  <KasFiatValue amountKas={labLink.netClaimKas} />
-                  <h2 className="form-section-heading">{labLink.title}</h2>
-                  {labLink.description && labLink.description !== DEFAULT_CLAIMABLE_DESCRIPTION ? (
-                    <p className="muted">{labLink.description}</p>
-                  ) : null}
-                </header>
+                {claimBroadcast && labLink.status === "claimed" ? (
+                  <SuccessHero
+                    fiatKas={labLink.netClaimKas}
+                    title={`You claimed ${labLink.netClaimKas} KAS!`}
+                  >
+                    <p>
+                      {labLink.title} · sent to{" "}
+                      <span className="value-mono">{compactHex(claimDestination)}</span>. It lands
+                      in your wallet within seconds.
+                    </p>
+                    <a
+                      href={kaspaStreamTransactionUrl(claimBroadcast.submittedTransactionId)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      View transaction
+                    </a>
+                  </SuccessHero>
+                ) : (
+                  <header className="claim-receive-head">
+                    <span className="label">
+                      {claimAlreadyClosed ? "Claim link" : "Ready to claim"}
+                    </span>
+                    <strong className="claim-receive-amount">{labLink.netClaimKas} KAS</strong>
+                    <KasFiatValue amountKas={labLink.netClaimKas} />
+                    <h2 className="form-section-heading">{labLink.title}</h2>
+                    {labLink.description &&
+                    labLink.description !== DEFAULT_CLAIMABLE_DESCRIPTION ? (
+                      <p className="muted">{labLink.description}</p>
+                    ) : null}
+                  </header>
+                )}
 
                 {claimAlreadyClosed ? (
                   claimBroadcast ? (
-                    <>
-                      <div className="batch-drop-card batch-drop-done" role="status">
-                        <strong>{labLink.netClaimKas} KAS is on its way to you</strong>
-                        <p>
-                          Sent to <span className="value-mono">{compactHex(claimDestination)}</span>
-                          . It arrives in your wallet within seconds.
-                        </p>
-                        <a
-                          href={kaspaStreamTransactionUrl(claimBroadcast.submittedTransactionId)}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          View transaction
-                        </a>
-                      </div>
-                      <GrowthPrompt accountFree={accountFree} source="claim-success" />
-                    </>
+                    <GrowthPrompt accountFree={accountFree} source="claim-success" />
                   ) : (
                     <div className="batch-drop-card" role="status">
                       <strong>

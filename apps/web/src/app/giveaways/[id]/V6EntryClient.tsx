@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { GrowthPrompt } from "@/app/GrowthPrompt";
+import { SuccessHero } from "@/app/SuccessHero";
 import { TurnstileWidget } from "@/app/toccata-lab/giveaway/[publicId]/TurnstileWidget";
 import { GIVEAWAY_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
 import { kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
@@ -83,32 +84,41 @@ export default function V6EntryClient({
   if (submission) {
     const explorerUrl =
       network === "mainnet" ? (kaspaStreamTransactionUrl(submission.transactionId) ?? null) : null;
+    if (chainStatus === "confirmed") {
+      return (
+        <>
+          <SuccessHero title="You're in!">
+            <p>
+              Your entry is confirmed on Kaspa. If you win, the prize goes straight to your address
+              after the draw.
+            </p>
+            {explorerUrl ? (
+              <a href={explorerUrl} target="_blank" rel="noreferrer">
+                View your entry
+              </a>
+            ) : null}
+          </SuccessHero>
+          {network === "mainnet" ? <GrowthPrompt source="giveaway-entry" /> : null}
+        </>
+      );
+    }
     return (
       <div className="giveaway-entry-success giveaway-v6-entry-success" role="status">
-        <span>{chainStatus === "confirmed" ? "✓" : chainStatus === "late" ? "!" : "…"}</span>
+        <span>{chainStatus === "late" ? "!" : "…"}</span>
         <div>
           <strong>
-            {chainStatus === "confirmed"
-              ? "Entry confirmed on Kaspa"
-              : chainStatus === "late"
-                ? "Entry confirmed after closing"
-                : "Entry sent to Kaspa"}
+            {chainStatus === "late" ? "Entry confirmed after closing" : "Entry sent to Kaspa"}
           </strong>
           <p>
-            {chainStatus === "confirmed"
-              ? "Your payout address is now part of the eligible on-chain participant set."
-              : chainStatus === "late"
-                ? "Kaspa confirmed this transaction too late for the draw, so it is not eligible."
-                : "Confirmation normally takes a few seconds. Keep this page open to see it update."}
+            {chainStatus === "late"
+              ? "Kaspa confirmed this transaction too late for the draw, so it is not eligible."
+              : "Confirmation normally takes a few seconds. Keep this page open to see it update."}
           </p>
           <code>{submission.transactionId}</code>
           {explorerUrl ? (
             <a href={explorerUrl} target="_blank" rel="noreferrer">
               View transaction
             </a>
-          ) : null}
-          {chainStatus === "confirmed" && network === "mainnet" ? (
-            <GrowthPrompt source="giveaway-entry" />
           ) : null}
         </div>
       </div>
