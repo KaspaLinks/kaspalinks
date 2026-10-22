@@ -110,6 +110,16 @@ async function registerGiveawayV6(
   if (giveaway.v6Projection!.phase !== GiveawayV6Phase.OPEN || restored.snapshot.phase !== "open") {
     return apiError(ErrorCodes.INVALID_STATE, "Entries are closed.", 409);
   }
+  // Each address belongs to one shard (its commitment decides which), so a full
+  // giveaway and a full shard are different answers.
+  const capacity = Number(restored.config.shardCount) * Number(restored.config.maxEntriesPerShard);
+  const occupied = restored.snapshot.shards.reduce(
+    (sum, shard) => sum + shard.finalizedEntries.length + (shard.pendingEntry === null ? 0 : 1),
+    0,
+  );
+  if (occupied >= capacity) {
+    return apiError(ErrorCodes.GIVEAWAY_FULL, "This giveaway is full. All spots are taken.", 409);
+  }
   if (giveaway.v6Projection!.lastErrorCode !== null) {
     return apiError(
       ErrorCodes.INVALID_STATE,
@@ -158,6 +168,13 @@ async function registerGiveawayV6(
       if (error.code === "DUPLICATE_ENTRY") {
         return apiError(ErrorCodes.INVALID_STATE, "This address is already entered.", 409);
       }
+      if (error.code === "INVALID_STATE" && /shard capacity/i.test(error.message)) {
+        return apiError(
+          ErrorCodes.INVALID_STATE,
+          "No spot left for this address. Each address belongs to one group of this giveaway, and that group is full. Another Kaspa address you own may still fit.",
+          409,
+        );
+      }
       if (error.code === "INVALID_STATE") {
         return apiError(ErrorCodes.INVALID_STATE, error.message, 409);
       }
@@ -180,9 +197,10 @@ async function registerGiveawayV6(
     if (isAlreadyAccepted(error)) {
       submittedTransactionId = registration.transactionId;
     } else if (isRelayRejection(error)) {
+      // Another entry just advanced this shard on Kaspa; the page retries by itself.
       return apiError(
-        ErrorCodes.INVALID_STATE,
-        "Another entry advanced this on-chain shard. Please retry in a few seconds.",
+        ErrorCodes.ENTRY_BUSY,
+        "Many people are joining right now. Please try again in a few seconds.",
         409,
       );
     } else {

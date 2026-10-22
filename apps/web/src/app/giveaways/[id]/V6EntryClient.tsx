@@ -16,6 +16,9 @@ type Submission = {
   transactionId: string;
 };
 
+const MAX_AUTO_RETRIES = 3;
+const AUTO_RETRY_DELAY_MS = 6_000;
+
 const VERIFICATION_RETRYING =
   "Human verification did not finish yet. It retries on its own; the button unlocks when it passes.";
 
@@ -38,6 +41,9 @@ export default function V6EntryClient({
   const [message, setMessage] = useState("");
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [chainStatus, setChainStatus] = useState<"pending" | "confirmed" | "late">("pending");
+  // A busy shard (someone else joined a moment earlier) is retried by itself,
+  // once a fresh human-check token is there.
+  const [retry, setRetry] = useState<null | { attempt: number; notBefore: number }>(null);
 
   useEffect(() => {
     if (!submission || chainStatus !== "pending") return;
@@ -80,6 +86,52 @@ export default function V6EntryClient({
       window.clearInterval(timer);
     };
   }, [chainStatus, publicId, router, submission]);
+
+  useEffect(() => {
+    if (!retry || !token || busy || submission) return;
+    const timer = window.setTimeout(
+      () => void submitEntry(retry.attempt),
+      Math.max(0, retry.notBefore - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+    // submitEntry reads the current address and token of this render.
+  }, [busy, retry, submission, token]);
+
+  async function submitEntry(attempt: number) {
+    if (busy || !token || !address.trim()) return;
+    setBusy(true);
+    if (attempt === 0) setMessage("");
+    try {
+      const response = await fetch(`/api/giveaways/${encodeURIComponent(publicId)}/entries`, {
+        body: JSON.stringify({ address, turnstileToken: token }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const data = (await response.json()) as {
+        error?: { code?: string; message?: string };
+        registration?: Submission;
+      };
+      if (response.ok && data.registration) {
+        setRetry(null);
+        setMessage("");
+        setSubmission(data.registration);
+        return;
+      }
+      if (data.error?.code === "ENTRY_BUSY" && attempt < MAX_AUTO_RETRIES) {
+        setRetry({ attempt: attempt + 1, notBefore: Date.now() + AUTO_RETRY_DELAY_MS });
+        setMessage("Many people are joining right now. Trying again in a few seconds…");
+        return;
+      }
+      setRetry(null);
+      throw new Error(data.error?.message ?? "Registration failed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Registration failed.");
+    } finally {
+      setBusy(false);
+      setToken(null);
+      setReset((value) => value + 1);
+    }
+  }
 
   if (submission) {
     const explorerUrl =
@@ -136,32 +188,10 @@ export default function V6EntryClient({
   return (
     <form
       className="giveaway-entry-form giveaway-v6-entry-form"
-      onSubmit={async (event) => {
+      onSubmit={(event) => {
         event.preventDefault();
-        if (busy || !token || !address.trim()) return;
-        setBusy(true);
-        setMessage("");
-        try {
-          const response = await fetch(`/api/giveaways/${encodeURIComponent(publicId)}/entries`, {
-            body: JSON.stringify({ address, turnstileToken: token }),
-            headers: { "content-type": "application/json" },
-            method: "POST",
-          });
-          const data = (await response.json()) as {
-            error?: { message?: string };
-            registration?: Submission;
-          };
-          if (!response.ok || !data.registration) {
-            throw new Error(data.error?.message ?? "Registration failed.");
-          }
-          setSubmission(data.registration);
-        } catch (error) {
-          setMessage(error instanceof Error ? error.message : "Registration failed.");
-        } finally {
-          setBusy(false);
-          setToken(null);
-          setReset((value) => value + 1);
-        }
+        setRetry(null);
+        void submitEntry(0);
       }}
     >
       <div>
@@ -198,8 +228,11 @@ export default function V6EntryClient({
           {message}
         </p>
       ) : null}
-      <button className="btn btn-primary" disabled={busy || !token || !address.trim()}>
-        {busy ? "Sending entry…" : "Join giveaway"}
+      <button
+        className="btn btn-primary"
+        disabled={busy || retry !== null || !token || !address.trim()}
+      >
+        {busy || retry !== null ? "Sending entry…" : "Join giveaway"}
       </button>
       <small className="muted">
         No account or wallet connection required. Your address is committed on-chain.

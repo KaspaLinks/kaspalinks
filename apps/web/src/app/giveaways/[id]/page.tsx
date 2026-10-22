@@ -101,6 +101,9 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
             publicCovenantVerificationReady()
           }
           closesAtDaa={restored.config.closesAtDaa.toString()}
+          participantCap={
+            Number(restored.config.shardCount) * Number(restored.config.maxEntriesPerShard)
+          }
           closesAt={v6Giveaway.closesAt}
           lastSyncedAt={v6Giveaway.v6Projection.lastSyncedAt}
           network={network}

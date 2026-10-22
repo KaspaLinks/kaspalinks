@@ -46,6 +46,8 @@ vi.mock("@/lib/rate-limit-helpers", () => ({
   enforceRateLimit: m.limit,
 }));
 vi.mock("@/lib/client-ip", () => ({ extractClientIp: () => "ip", hashClientIp: () => "hash" }));
+import { GiveawayV6ReconstructionError } from "@kaspa-actions/kaspa-indexer";
+
 import { POST } from "./route";
 const post = (body: unknown) =>
   POST(new Request("https://example.com", { method: "POST", body: JSON.stringify(body) }), {
@@ -163,8 +165,43 @@ describe("public covenant entry endpoint", () => {
     m.broadcast.mockRejectedValue(new Error("relay rejected transaction: missing outpoint"));
     const response = await post(body);
     expect(response.status).toBe(409);
-    expect(await response.text()).toContain("retry in a few seconds");
+    const busy = (await response.json()) as { error: { code: string; message: string } };
+    expect(busy.error.code).toBe("ENTRY_BUSY");
+    expect(busy.error.message).toContain("try again in a few seconds");
     expect(m.audit).not.toHaveBeenCalled();
+  });
+
+  it("says the giveaway is full once every committed spot is taken", async () => {
+    m.v6Enabled.mockReturnValue(true);
+    m.findUnique.mockResolvedValue(v6Giveaway());
+    m.restore.mockReturnValue(v6Projection([8, 8, 7, 8], [false, false, true, false]));
+    m.chain.mockResolvedValue({ blueScore: 900n, daa: 900n });
+
+    const response = await post(body);
+
+    expect(response.status).toBe(409);
+    const full = (await response.json()) as { error: { code: string; message: string } };
+    expect(full.error.code).toBe("GIVEAWAY_FULL");
+    expect(m.buildV6).not.toHaveBeenCalled();
+  });
+
+  it("explains a full group when other groups still have room", async () => {
+    m.v6Enabled.mockReturnValue(true);
+    m.findUnique.mockResolvedValue(v6Giveaway());
+    m.restore.mockReturnValue(v6Projection([8, 2, 0, 1]));
+    m.chain.mockResolvedValue({ blueScore: 900n, daa: 900n });
+    m.buildV6.mockImplementation(() => {
+      throw new GiveawayV6ReconstructionError(
+        "INVALID_STATE",
+        "Registration exceeds the shard capacity committed by the covenant.",
+      );
+    });
+
+    const response = await post(body);
+
+    expect(response.status).toBe(409);
+    const taken = (await response.json()) as { error: { message: string } };
+    expect(taken.error.message).toContain("Another Kaspa address you own may still fit");
   });
 });
 
@@ -177,7 +214,10 @@ function v6Giveaway() {
   };
 }
 
-function v6Projection() {
+function v6Projection(
+  entriesPerShard = [1, 1, 1, 0],
+  pendingPerShard = [false, false, false, false],
+) {
   return {
     checkpoint: {
       transitions: [
@@ -189,8 +229,16 @@ function v6Projection() {
         },
       ],
     },
-    config: { closesAtDaa: 1_000n },
+    config: { closesAtDaa: 1_000n, maxEntriesPerShard: 8, shardCount: 4 },
     family: {},
-    snapshot: { observedRegistrationCount: 3, phase: "open" },
+    snapshot: {
+      observedRegistrationCount: 3,
+      phase: "open",
+      shards: entriesPerShard.map((count, shardIndex) => ({
+        finalizedEntries: Array.from({ length: count }, () => ({})),
+        pendingEntry: pendingPerShard[shardIndex] ? {} : null,
+        shardIndex,
+      })),
+    },
   };
 }

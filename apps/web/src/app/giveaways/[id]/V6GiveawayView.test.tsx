@@ -42,9 +42,14 @@ function snapshot(
   };
 }
 
-function render(phase: GiveawayV6ReconstructionSnapshot["phase"], frozenEntryCount?: number) {
+function render(
+  phase: GiveawayV6ReconstructionSnapshot["phase"],
+  frozenEntryCount?: number,
+  participantCap?: number,
+) {
   return renderToStaticMarkup(
     <V6GiveawayView
+      participantCap={participantCap}
       amountKas="1"
       entryAvailable={true}
       closesAt={new Date("2026-10-11T12:00:00.000Z")}
@@ -108,5 +113,21 @@ describe("V6GiveawayView", () => {
     expect(html).toContain("Prize paid automatically");
     expect(html).toContain(`kaspa:${"q".repeat(61)}`);
     expect(html).toContain(`https://kaspa.stream/transactions/${"03".repeat(32)}`);
+  });
+
+  it("counts spots against the committed cap and keeps entering open below it", () => {
+    const html = render("open", undefined, 32);
+
+    expect(html).toContain(">12</strong><span>of 32 spots taken");
+    expect(html).toContain("Join giveaway");
+    expect(html).not.toContain("This giveaway is full");
+  });
+
+  it("replaces the entry form once every spot is taken", () => {
+    const html = render("open", undefined, 12);
+
+    expect(html).toContain("This giveaway is full");
+    expect(html).toContain("All 12 spots are taken");
+    expect(html).not.toContain("Join giveaway");
   });
 });

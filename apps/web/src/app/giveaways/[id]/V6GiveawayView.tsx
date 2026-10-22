@@ -15,6 +15,8 @@ type Props = {
   closesAtDaa: string;
   lastSyncedAt: Date | null;
   network: "mainnet" | "testnet-10";
+  /** Spots the covenant commits to (shards × entries per shard). */
+  participantCap?: number;
   publicId: string;
   returnAtDaa: string;
   snapshot: GiveawayV6ReconstructionSnapshot;
@@ -40,6 +42,7 @@ export default function V6GiveawayView(props: Props) {
           shard.pendingEntry.registeredAtDaa > BigInt(props.closesAtDaa),
       ).length;
   const explorerBase = props.network === "mainnet" ? "https://kaspa.stream" : null;
+  const full = props.participantCap !== undefined && participantCount >= props.participantCap;
 
   return (
     <main className="main giveaway-entry-page giveaway-v6-page">
@@ -90,7 +93,13 @@ export default function V6GiveawayView(props: Props) {
 
         <div className="covenant-participant-count giveaway-v6-count">
           <strong>{participantCount}</strong>
-          <span>{participantCount === 1 ? "confirmed participant" : "confirmed participants"}</span>
+          <span>
+            {props.participantCap !== undefined
+              ? `of ${props.participantCap} spots taken`
+              : participantCount === 1
+                ? "confirmed participant"
+                : "confirmed participants"}
+          </span>
           <span className="label">1 winner</span>
         </div>
 
@@ -101,7 +110,15 @@ export default function V6GiveawayView(props: Props) {
           winnerAddress={props.winnerAddress}
         />
 
-        {props.snapshot.phase === "open" ? (
+        {props.snapshot.phase === "open" && full ? (
+          <div className="giveaway-result-state">
+            <h2>This giveaway is full</h2>
+            <p>
+              All {props.participantCap} spots are taken. The winner is drawn after entries close{" "}
+              <V6SlotTime iso={props.closesAt.toISOString()} />.
+            </p>
+          </div>
+        ) : props.snapshot.phase === "open" ? (
           <V6EntryClient
             available={props.entryAvailable}
             network={props.network}
