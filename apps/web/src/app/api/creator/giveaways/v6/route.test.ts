@@ -262,6 +262,7 @@ describe("Giveaway V6 creator route", () => {
       expect.any(Request),
       expect.objectContaining({ $transaction: mocks.transaction }),
       {
+        allowGuest: true,
         allowTelegramMiniApp: true,
         allowTelegramOnly: true,
       },

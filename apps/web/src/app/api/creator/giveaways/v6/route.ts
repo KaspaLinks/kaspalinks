@@ -39,6 +39,7 @@ export async function GET(request: Request) {
   }
 
   const guard = await requireCreator(request, prisma, {
+    allowGuest: true,
     allowTelegramMiniApp: true,
     allowTelegramOnly: true,
   });
@@ -154,6 +155,7 @@ export async function POST(request: Request) {
   }
 
   const guard = await requireCreator(request, prisma, {
+    allowGuest: true,
     allowTelegramMiniApp: true,
     allowTelegramOnly: true,
   });

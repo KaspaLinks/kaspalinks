@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 
+import { getAccountFreeTurnstileClientConfig } from "@/lib/turnstile";
+
 import { GiveawayV6Studio } from "./GiveawayV6Studio";
 
 export const dynamic = "force-dynamic";
@@ -11,5 +13,7 @@ export const metadata: Metadata = {
 };
 
 export default function NewGiveawayPage() {
-  return <GiveawayV6Studio surface="browser" />;
+  return (
+    <GiveawayV6Studio guestTurnstile={getAccountFreeTurnstileClientConfig()} surface="browser" />
+  );
 }

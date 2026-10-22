@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { KasAmountInput } from "../../KasAmountInput";
+import { TurnstileWidget } from "../../toccata-lab/giveaway/[publicId]/TurnstileWidget";
+import { ACCOUNT_FREE_LINK_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
 import { KasFiatValue } from "../../KasFiatValue";
 import { useCreatorSession } from "../../use-creator-session";
 import { FundingQrCode } from "@/lib/funding-qr";
@@ -131,12 +133,106 @@ export function chooseGiveawayV6Slot(slots: Date[], preferred: string): string {
 
 type GiveawayV6Budget = ReturnType<typeof buildGiveawayV6Budget>;
 
+// Giveaways on the website without a profile run in a hidden guest workspace.
+// Its credentials stay in this browser (and in the private manage link); the
+// rest of the site stays signed out.
+const GUEST_STORAGE_KEY = "kaspalinks.giveawayGuest";
+type GuestIdentity = { token: string; username: string };
+
+function readStoredGuest(): GuestIdentity | null {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(GUEST_STORAGE_KEY) ?? "null") as unknown;
+    if (
+      value &&
+      typeof value === "object" &&
+      typeof (value as GuestIdentity).username === "string" &&
+      typeof (value as GuestIdentity).token === "string"
+    ) {
+      return value as GuestIdentity;
+    }
+  } catch {
+    // Blocked storage: the guest lasts for this page only.
+  }
+  return null;
+}
+
+function storeGuest(identity: GuestIdentity): void {
+  try {
+    window.localStorage.setItem(GUEST_STORAGE_KEY, JSON.stringify(identity));
+  } catch {
+    // Blocked storage: the private manage link is the only way back.
+  }
+}
+
+/** The private manage link carries "#guest=<username>.<token>" in its fragment. */
+function readGuestFragment(): GuestIdentity | null {
+  const match = window.location.hash.match(/^#guest=(guest-[a-z0-9]+)\.([A-Za-z0-9_-]+)$/);
+  return match ? { token: match[2]!, username: match[1]! } : null;
+}
+
+function guestManageUrl(identity: GuestIdentity): string {
+  return `${window.location.origin}/giveaway/new#guest=${identity.username}.${identity.token}`;
+}
+
+function GuestLinkNotice({ identity }: { identity: GuestIdentity }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <section className="card studio-guest-notice">
+      <div>
+        <strong>No account: this browser remembers your giveaways</strong>
+        <p>
+          To open them on another device, keep this private link. It lets anyone manage your
+          giveaways here, but never move the prize: that is locked in the contract.
+        </p>
+      </div>
+      <button
+        className="btn btn-sm"
+        onClick={() =>
+          void copyText(guestManageUrl(identity)).then((ok) => {
+            setCopied(ok);
+            if (ok) window.setTimeout(() => setCopied(false), 1600);
+          })
+        }
+        type="button"
+      >
+        {copied ? "Copied ✓" : "Copy private link"}
+      </button>
+    </section>
+  );
+}
+
 /**
  * What a visitor without a profile sees, often straight from a post: what a
- * giveaway is, and that starting one takes a username and nothing else.
+ * giveaway is, and that starting one needs no account at all.
  */
-function GiveawayStartGate() {
+function GiveawayStartGate({
+  onStartAsGuest,
+  turnstile,
+}: {
+  onStartAsGuest(turnstileToken: null | string): Promise<void>;
+  turnstile?: { required: boolean; siteKey: string };
+}) {
   const next = encodeURIComponent("/giveaway/new");
+  const [starting, setStarting] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [problem, setProblem] = useState("");
+  const [reset, setReset] = useState(0);
+  const humanCheck = Boolean(turnstile?.required && turnstile.siteKey);
+
+  const start = async (token: null | string) => {
+    setStarting(true);
+    setProblem("");
+    try {
+      await onStartAsGuest(token);
+    } catch (caught) {
+      setProblem(caught instanceof Error ? caught.message : "Could not start. Try again.");
+      setChecking(false);
+      setReset((value) => value + 1);
+    } finally {
+      setStarting(false);
+    }
+  };
+
   return (
     <section className="card card-accent creator-sign-in-gate giveaway-start-gate">
       <span className="label">On-chain giveaways</span>
@@ -160,17 +256,38 @@ function GiveawayStartGate() {
         </li>
       </ol>
       <div className="row">
-        <Link className="btn btn-primary" href={`/create-profile?next=${next}`}>
-          Start: pick a username
+        <button
+          className="btn btn-primary"
+          disabled={starting || checking}
+          onClick={() => (humanCheck ? setChecking(true) : void start(null))}
+          type="button"
+        >
+          {starting || checking ? "Starting…" : "Start without an account"}
+        </button>
+        <Link className="btn" href={`/create-profile?next=${next}`}>
+          Pick a username
         </Link>
         <Link className="btn" href={`/sign-in?next=${next}`}>
           Sign in
         </Link>
       </div>
+      {checking && turnstile ? (
+        <TurnstileWidget
+          action={ACCOUNT_FREE_LINK_TURNSTILE_ACTION}
+          onError={() => setProblem("The human check did not finish. It retries by itself.")}
+          onToken={(token) => {
+            if (token) void start(token);
+          }}
+          resetKey={reset}
+          siteKey={turnstile.siteKey}
+        />
+      ) : null}
+      {problem ? <p className="error-text">{problem}</p> : null}
       <p className="muted giveaway-start-note">
-        No email, no password: a username is enough. No account at all?{" "}
+        Without an account, this browser keeps your giveaway and you get a private link to open it
+        elsewhere. A username lets you sign in anywhere. Also in{" "}
         <a href="https://t.me/kaspalinksbot" rel="noreferrer" target="_blank">
-          Create it in Telegram
+          Telegram
         </a>
         .
       </p>
@@ -312,13 +429,18 @@ function normalizedCreatedGiveaway(response: CreateResponse): StudioGiveaway {
 }
 
 export function GiveawayV6Studio({
+  guestTurnstile,
   initialView = "create",
   surface,
 }: {
+  /** Human check for starting without an account (website only). */
+  guestTurnstile?: { required: boolean; siteKey: string };
   initialView?: StudioView;
   surface: Surface;
 }) {
   const creatorSession = useCreatorSession();
+  const [guest, setGuest] = useState<GuestIdentity | null>(null);
+  const [guestChecked, setGuestChecked] = useState(false);
   const [telegramInitData, setTelegramInitData] = useState<null | string>(null);
   const [view, setView] = useState<StudioView>(initialView);
   const [giveaways, setGiveaways] = useState<StudioGiveaway[]>([]);
@@ -373,22 +495,61 @@ export function GiveawayV6Studio({
     }
   }, []);
 
+  useEffect(() => {
+    if (surface !== "browser") {
+      setGuestChecked(true);
+      return;
+    }
+    const fromLink = readGuestFragment();
+    if (fromLink) {
+      storeGuest(fromLink);
+      // The credentials leave the address bar right away.
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+    }
+    setGuest(fromLink ?? readStoredGuest());
+    setGuestChecked(true);
+  }, [surface]);
+
+  const signedInCreator = creatorSession.hydrated && creatorSession.signedIn;
+  const isGuest = surface === "browser" && !signedInCreator && guest !== null;
   const authenticated =
-    surface === "telegram"
-      ? Boolean(telegramInitData)
-      : creatorSession.hydrated && creatorSession.signedIn;
+    surface === "telegram" ? Boolean(telegramInitData) : signedInCreator || guest !== null;
   const authenticationReady =
-    surface === "telegram" ? telegramInitData !== null : creatorSession.hydrated;
+    surface === "telegram" ? telegramInitData !== null : creatorSession.hydrated && guestChecked;
 
   const authHeaders = useCallback((): Record<string, string> => {
     if (surface === "telegram") {
       return telegramInitData ? { "x-telegram-mini-app-init-data": telegramInitData } : {};
     }
+    if (!signedInCreator && guest) {
+      return { "x-creator-token": guest.token, "x-creator-username": guest.username };
+    }
     return {
       "x-creator-token": creatorSession.token,
       "x-creator-username": creatorSession.username,
     };
-  }, [creatorSession.token, creatorSession.username, surface, telegramInitData]);
+  }, [
+    creatorSession.token,
+    creatorSession.username,
+    guest,
+    signedInCreator,
+    surface,
+    telegramInitData,
+  ]);
+
+  const startAsGuest = useCallback(async (turnstileToken: null | string) => {
+    const response = await fetch("/api/creators/guest", {
+      body: JSON.stringify(turnstileToken ? { turnstileToken } : {}),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(errorMessage(body, "Could not start. Try again."));
+    const created = body as { creator: { username: string }; creatorToken: string };
+    const identity = { token: created.creatorToken, username: created.creator.username };
+    storeGuest(identity);
+    setGuest(identity);
+  }, []);
 
   const storeGiveaway = useCallback((giveaway: StudioGiveaway) => {
     setSelected(giveaway);
@@ -677,7 +838,7 @@ export function GiveawayV6Studio({
   if (!authenticated && surface === "browser") {
     return (
       <main className="main giveaway-studio">
-        <GiveawayStartGate />
+        <GiveawayStartGate onStartAsGuest={startAsGuest} turnstile={guestTurnstile} />
       </main>
     );
   }
@@ -733,6 +894,8 @@ export function GiveawayV6Studio({
           </span>
         </div>
       </header>
+
+      {isGuest && guest ? <GuestLinkNotice identity={guest} /> : null}
 
       <div className="studio-toolbar">
         <button

@@ -107,6 +107,8 @@ enum GiveawayV6TransitionKind {
 enum CreatorAccountKind {
   REGISTERED
   TELEGRAM_ONLY
+  // Created in the background for a giveaway on the website, without a profile.
+  GUEST
 }
 
 model Creator {

@@ -22,7 +22,8 @@ type Props = {
   snapshot: GiveawayV6ReconstructionSnapshot;
   title: string;
   transitionCount: number;
-  username: string;
+  /** Null for a giveaway started without an account. */
+  username: null | string;
   verificationPaused: boolean;
   turnstileSiteKey: string;
   winnerAddress: string | null;
@@ -47,7 +48,10 @@ export default function V6GiveawayView(props: Props) {
   return (
     <main className="main giveaway-entry-page giveaway-v6-page">
       <section className="giveaway-entry-hero">
-        <span className="hero-eyebrow">On-chain Kaspa giveaway · @{props.username}</span>
+        <span className="hero-eyebrow">
+          On-chain Kaspa giveaway ·{" "}
+          {props.username ? `@${props.username}` : "created without an account"}
+        </span>
         <h1>{props.title}</h1>
         <div className="giveaway-hero-prize">
           <span className="label">Prize</span>

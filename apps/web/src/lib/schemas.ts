@@ -118,6 +118,9 @@ const usernameSchema = z
   })
   .refine((value) => !RESERVED_USERNAMES.has(value), {
     message: "Username is reserved.",
+  })
+  .refine((value) => !value.startsWith("guest-"), {
+    message: "Usernames starting with guest- are reserved.",
   });
 
 const slugSchema = z

@@ -30,6 +30,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const guard = await requireCreator(request, prisma, {
+    allowGuest: true,
     allowTelegramMiniApp: true,
     allowTelegramOnly: true,
   });

@@ -13,7 +13,7 @@ export async function readGiveawayPreview(id: string) {
     select: {
       amountSompi: true,
       title: true,
-      creator: { select: { username: true } },
+      creator: { select: { accountKind: true, username: true } },
       v6Projection: { select: { family: true } },
     },
   });
@@ -27,7 +27,8 @@ export async function readGiveawayPreview(id: string) {
     if (prizeValueSompi !== v6.amountSompi) return null;
     return {
       title: v6.title,
-      username: v6.creator.username,
+      // A guest workspace's generated name is not a public identity.
+      username: v6.creator.accountKind === "GUEST" ? null : v6.creator.username,
       amount: `${formatSompiToKaspa(prizeValueSompi)} KAS`,
     };
   }
@@ -55,7 +56,8 @@ export async function giveawayMetadata(id: string): Promise<Metadata> {
   const image = `${path}/opengraph-image`;
   const title = `Kaspa Giveaway · ${preview.amount} | ${preview.title}`;
   // Do not claim the prize is funded or entries are open: crawlers cache previews beyond closing.
-  const description = `${preview.amount} prize · by @${preview.username}. Free entry · one winner. Open the giveaway to see participation and results.`;
+  const by = preview.username ? ` · by @${preview.username}` : "";
+  const description = `${preview.amount} prize${by}. Free entry · one winner. Open the giveaway to see participation and results.`;
   return {
     title,
     description,

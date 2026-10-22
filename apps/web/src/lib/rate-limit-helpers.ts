@@ -16,6 +16,7 @@ export const RateBuckets = {
   CREATOR_PROFILE_DELETE: "creator.profile.delete",
   CREATOR_PROFILE_UPDATE: "creator.profile.update",
   CREATOR_SIGNUP: "creator.signup",
+  GUEST_CREATOR_CREATE: "creator.guest-create",
   ESCROW_PROTOTYPE_ACCESS: "escrow-prototype.access",
   ESCROW_CANARY_MUTATION: "escrow-canary.mutation",
   ESCROW_LINK_CREATOR_MUTATION: "escrow-link.creator-mutation",
@@ -61,6 +62,8 @@ export const RateLimits = {
   // still cap at the same generous bucket used for action mutations.
   [RateBuckets.CREATOR_PROFILE_UPDATE]: { limit: 30, windowMs: 60_000 },
   [RateBuckets.CREATOR_SIGNUP]: { limit: 5, windowMs: 60 * 60_000 },
+  // Each guest can create giveaways, and each giveaway runs the compiler.
+  [RateBuckets.GUEST_CREATOR_CREATE]: { limit: 3, windowMs: 60 * 60_000 },
   [RateBuckets.ESCROW_PROTOTYPE_ACCESS]: { limit: 60, windowMs: 60_000 },
   [RateBuckets.ESCROW_CANARY_MUTATION]: { limit: 12, windowMs: 60_000 },
   [RateBuckets.ESCROW_LINK_CREATOR_MUTATION]: { limit: 12, windowMs: 60_000 },

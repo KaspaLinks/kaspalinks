@@ -19,6 +19,8 @@ type CreatorGuardFailure = {
 };
 
 type CreatorGuardOptions = {
+  /** Guest workspaces (giveaways on the website without a profile). */
+  allowGuest?: boolean;
   allowTelegramMiniApp?: boolean;
   allowTelegramOnly?: boolean;
 };
@@ -133,6 +135,24 @@ export async function requireCreator(
     return {
       ok: false,
       response: apiError(ErrorCodes.CREATOR_TOKEN_INVALID, "Creator token is invalid.", 401),
+    };
+  }
+
+  if (creator.accountKind === "GUEST" && options.allowGuest !== true) {
+    await writeAuditLog(prisma, {
+      actorType: AuditActorType.CREATOR,
+      creatorId: creator.id,
+      event: "creator.auth_failed",
+      ipHash,
+      metadata: { reason: "guest_scope", username },
+    });
+    return {
+      ok: false,
+      response: apiError(
+        ErrorCodes.CREATOR_TOKEN_INVALID,
+        "This guest workspace can only manage giveaways.",
+        403,
+      ),
     };
   }
 

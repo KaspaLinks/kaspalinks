@@ -49,7 +49,7 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
       closesAt: true,
       publicId: true,
       title: true,
-      creator: { select: { username: true } },
+      creator: { select: { accountKind: true, username: true } },
       v6Projection: {
         select: {
           id: true,
@@ -113,7 +113,7 @@ export default async function GiveawayPage({ params }: { params: Promise<{ id: s
           title={v6Giveaway.title}
           turnstileSiteKey={process.env.TURNSTILE_SITE_KEY?.trim() ?? ""}
           transitionCount={restored.checkpoint?.transitions.length ?? 0}
-          username={v6Giveaway.creator.username}
+          username={v6Giveaway.creator.accountKind === "GUEST" ? null : v6Giveaway.creator.username}
           verificationPaused={v6Giveaway.v6Projection.lastErrorCode !== null}
           winnerAddress={winnerAddress}
         />

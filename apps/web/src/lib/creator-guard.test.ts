@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { generateCreatorToken, hashCreatorToken } from "./creator-auth";
 import { requireCreator } from "./creator-guard";
 
 const mocks = vi.hoisted(() => ({ writeAuditLog: vi.fn() }));
@@ -112,5 +113,37 @@ describe("requireCreator Telegram Mini App scope", () => {
         allowTelegramOnly: true,
       }),
     ).resolves.toEqual(expect.objectContaining({ creator, ok: true }));
+  });
+});
+
+describe("requireCreator guest workspaces", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lets a guest token through only on routes that allow guests", async () => {
+    const token = generateCreatorToken();
+    const creator = {
+      accountKind: "GUEST",
+      id: "creator-guest",
+      tokenHash: hashCreatorToken(token),
+      username: "guest-abc234defg",
+    };
+    const prisma = { creator: { findUnique: vi.fn().mockResolvedValue(creator) } };
+    const request = new Request("https://kaspalinks.test/api/creator/actions", {
+      headers: { "x-creator-token": token, "x-creator-username": creator.username },
+    });
+
+    const rejected = await requireCreator(request, prisma as never);
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.response.status).toBe(403);
+    expect(mocks.writeAuditLog).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({ metadata: expect.objectContaining({ reason: "guest_scope" }) }),
+    );
+
+    await expect(requireCreator(request, prisma as never, { allowGuest: true })).resolves.toEqual(
+      expect.objectContaining({ creator, ok: true }),
+    );
   });
 });

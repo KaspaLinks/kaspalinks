@@ -16,6 +16,7 @@ import {
 } from "@kaspa-actions/kaspa-indexer";
 
 import { processClaimableReturns } from "./claimable-returns.ts";
+import { processGiveawayV6Advances } from "./giveaway-v6-advance.ts";
 import { agentWorkerEnabled, env } from "./config.ts";
 import { deliverOutbox } from "./outbox.ts";
 import { processGiveawayReminders } from "./giveaways.ts";
@@ -51,7 +52,9 @@ const giveawayV6Relay =
     : null;
 
 const giveawayV6Prover = process.env.GIVEAWAY_V6_PROVER_SOCKET?.trim()
-  ? createGiveawayV6EntropyProverSocketClient({ socketPath: process.env.GIVEAWAY_V6_PROVER_SOCKET.trim() })
+  ? createGiveawayV6EntropyProverSocketClient({
+      socketPath: process.env.GIVEAWAY_V6_PROVER_SOCKET.trim(),
+    })
   : process.env.GIVEAWAY_V6_PROVER_URL?.trim()
     ? createGiveawayV6EntropyProverClient({ baseUrl: process.env.GIVEAWAY_V6_PROVER_URL.trim() })
     : null;
@@ -115,6 +118,7 @@ async function tick(client: TelegramApiClient) {
     })(),
     processGiveawayReminders(now),
     processClaimableReturns(now),
+    processGiveawayV6Advances(now),
     giveawayV6Relay
       ? (async () => {
           await syncDueGiveawayV6Projections(prisma, giveawayV6Relay, now);

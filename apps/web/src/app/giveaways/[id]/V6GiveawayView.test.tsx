@@ -130,4 +130,29 @@ describe("V6GiveawayView", () => {
     expect(html).toContain("All 12 spots are taken");
     expect(html).not.toContain("Join giveaway");
   });
+
+  it("names no account for a giveaway started as a guest", () => {
+    const html = renderToStaticMarkup(
+      <V6GiveawayView
+        amountKas="1"
+        entryAvailable={true}
+        closesAt={new Date("2026-10-11T12:00:00.000Z")}
+        closesAtDaa="123456"
+        lastSyncedAt={null}
+        network="mainnet"
+        publicId="cm12345678901234567890123"
+        returnAtDaa="223456"
+        snapshot={snapshot("open")}
+        title="Community giveaway"
+        turnstileSiteKey="site-key"
+        transitionCount={2}
+        username={null}
+        verificationPaused={false}
+        winnerAddress={null}
+      />,
+    );
+
+    expect(html).toContain("created without an account");
+    expect(html).not.toContain("@null");
+  });
 });
