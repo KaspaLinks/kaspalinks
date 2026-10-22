@@ -2429,6 +2429,21 @@ export function BatchClaimableLabClient({
                 <span>Send exactly</span>
                 <strong>{batchFundingAmountKas} KAS</strong>
               </div>
+              <div className="batch-funding-watch" aria-live="polite">
+                <span className="claimable-spinner" aria-hidden="true" />
+                <div>
+                  <strong>Watching for your payment</strong>
+                  <p>This page continues by itself once the payment confirms.</p>
+                </div>
+                <button
+                  className="btn btn-sm"
+                  disabled={checking}
+                  onClick={() => void checkFunding()}
+                  type="button"
+                >
+                  {checking ? "Checking…" : "Check now"}
+                </button>
+              </div>
               <code className="batch-lab-address">{batch.activation.fundingAddress}</code>
               <div className="batch-lab-wallet-options">
                 {isTouchOnly === null ? (
@@ -2510,21 +2525,6 @@ export function BatchClaimableLabClient({
                   </div>
                 </div>
               ) : null}
-              <div className="batch-funding-watch" aria-live="polite">
-                <span className="claimable-spinner" aria-hidden="true" />
-                <div>
-                  <strong>Watching for your payment</strong>
-                  <p>This page continues by itself once the payment confirms.</p>
-                </div>
-                <button
-                  className="btn btn-sm"
-                  disabled={checking}
-                  onClick={() => void checkFunding()}
-                  type="button"
-                >
-                  {checking ? "Checking…" : "Check now"}
-                </button>
-              </div>
             </div>
           ) : null}
 

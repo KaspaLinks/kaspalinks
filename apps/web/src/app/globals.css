@@ -11161,7 +11161,7 @@ body:has(main.deck-main) {
 
 .batch-funding-watch strong {
   color: var(--fg);
-  font-size: 0.82rem;
+  font-size: 0.92rem;
 }
 
 .batch-funding-watch p {
@@ -12497,6 +12497,20 @@ main.giveaway-guided-page {
 .studio-watch .btn {
   flex-shrink: 0;
   margin-left: auto;
+}
+/* The live status leads the step, so nobody scrolls to find out if it worked. */
+.studio-watch-live {
+  margin: 0 0 22px;
+  border-color: rgba(73, 234, 203, 0.45);
+  background: rgba(73, 234, 203, 0.07);
+}
+.studio-watch-live strong {
+  font-size: 1.02rem;
+}
+.studio-watch-live .studio-watch-dot {
+  width: 12px;
+  height: 12px;
+  box-shadow: 0 0 0 4px rgba(73, 234, 203, 0.18);
 }
 .studio-watch-dot {
   width: 10px;

@@ -2714,6 +2714,21 @@ export function ToccataLabClient({
                     <span>Send exactly</span>
                     <strong>{labLink.amountKas} KAS</strong>
                   </div>
+                  <div className="batch-funding-watch" aria-live="polite">
+                    <span className="claimable-spinner" aria-hidden="true" />
+                    <div>
+                      <strong>Watching for your payment</strong>
+                      <p>This page continues by itself once the payment confirms.</p>
+                    </div>
+                    <button
+                      className="btn btn-sm"
+                      disabled={fundingChecking}
+                      onClick={() => void checkFundingStatus()}
+                      type="button"
+                    >
+                      {fundingChecking ? "Checking…" : "Check now"}
+                    </button>
+                  </div>
                   <code className="batch-lab-address">
                     {labLink.fundingAddress ?? FUNDING_ADDRESS_PENDING}
                   </code>
@@ -2766,21 +2781,6 @@ export function ToccataLabClient({
                       </div>
                     </div>
                   ) : null}
-                  <div className="batch-funding-watch" aria-live="polite">
-                    <span className="claimable-spinner" aria-hidden="true" />
-                    <div>
-                      <strong>Watching for your payment</strong>
-                      <p>This page continues by itself once the payment confirms.</p>
-                    </div>
-                    <button
-                      className="btn btn-sm"
-                      disabled={fundingChecking}
-                      onClick={() => void checkFundingStatus()}
-                      type="button"
-                    >
-                      {fundingChecking ? "Checking…" : "Check now"}
-                    </button>
-                  </div>
                   <details className="batch-drop-more">
                     <summary>Wallet says &quot;storage mass exceeds maximum&quot;?</summary>
                     <p>

@@ -992,6 +992,24 @@ export function GiveawayV6Studio({
                 </div>
                 <span className="studio-prize-badge">{selected.amountKas} KAS prize</span>
               </div>
+              <div className="studio-watch studio-watch-live" role="status">
+                <span aria-hidden="true" className="studio-watch-dot" />
+                <div>
+                  <strong>Waiting for your payment of {selected.funding.amountKas} KAS</strong>
+                  <span>
+                    This page continues by itself once Kaspa confirms it, usually within seconds.
+                    You can leave and come back.
+                  </span>
+                </div>
+                <button
+                  className="btn btn-sm"
+                  disabled={checking}
+                  onClick={() => void checkFunding(selected)}
+                  type="button"
+                >
+                  {checking ? "Checking…" : "Check now"}
+                </button>
+              </div>
               <div className="studio-funding">
                 <div className="studio-qr">
                   <FundingQrCode
@@ -1037,42 +1055,10 @@ export function GiveawayV6Studio({
                 <strong>Exact amount only</strong>
                 <p>Send the amount above in one payment. A different amount is not detected.</p>
               </div>
-              <div className="studio-watch" role="status">
-                <span aria-hidden="true" className="studio-watch-dot" />
-                <div>
-                  <strong>Watching Kaspa for your payment</strong>
-                  <span>
-                    This page continues by itself once the payment confirms, usually within seconds.
-                    You can leave and come back.
-                  </span>
-                </div>
-                <button
-                  className="btn btn-sm"
-                  disabled={checking}
-                  onClick={() => void checkFunding(selected)}
-                  type="button"
-                >
-                  {checking ? "Checking…" : "Check now"}
-                </button>
-              </div>
             </section>
           ) : step === 3 ? (
             <section className="card studio-panel studio-detail">
-              <div className="studio-state">
-                <div className="studio-state-icon">↗</div>
-                <span className="studio-kicker">Step 3 of 4</span>
-                <h2>Activating on Kaspa</h2>
-                <p>
-                  The deterministic activation transaction has no private key and can only create
-                  the reviewed covenant outputs.
-                </p>
-                {selected.activation.transactionId ? (
-                  <p className="studio-address" title={selected.activation.transactionId}>
-                    Transaction {compactTransactionId(selected.activation.transactionId)}
-                  </p>
-                ) : null}
-              </div>
-              <div className="studio-watch" role="status">
+              <div className="studio-watch studio-watch-live" role="status">
                 <span aria-hidden="true" className="studio-watch-dot" />
                 <div>
                   <strong>Payment received · confirming on Kaspa</strong>
@@ -1089,6 +1075,20 @@ export function GiveawayV6Studio({
                 >
                   {checking ? "Checking…" : "Check now"}
                 </button>
+              </div>
+              <div className="studio-state">
+                <div className="studio-state-icon">↗</div>
+                <span className="studio-kicker">Step 3 of 4</span>
+                <h2>Activating on Kaspa</h2>
+                <p>
+                  The deterministic activation transaction has no private key and can only create
+                  the reviewed covenant outputs.
+                </p>
+                {selected.activation.transactionId ? (
+                  <p className="studio-address" title={selected.activation.transactionId}>
+                    Transaction {compactTransactionId(selected.activation.transactionId)}
+                  </p>
+                ) : null}
               </div>
             </section>
           ) : (
