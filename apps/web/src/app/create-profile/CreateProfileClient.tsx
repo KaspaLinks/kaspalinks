@@ -123,6 +123,28 @@ export function CreateProfileClient({
     [displayName, signupSource, username],
   );
 
+  // The token is the only way back in, and the session ends with the tab:
+  // a small text file is the easiest backup for people without a password manager.
+  const downloadToken = useCallback(() => {
+    if (!issuedToken || !issuedUsername) return;
+    const text = [
+      "Kaspa Links creator token",
+      "",
+      `Profile: ${issuedUsername}`,
+      `Token: ${issuedToken}`,
+      "",
+      `Sign in: ${window.location.origin}/sign-in`,
+      "Keep this file private. Anyone with this token can manage your profile.",
+      "",
+    ].join("\n");
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `kaspa-links-${issuedUsername}-token.txt`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [issuedToken, issuedUsername]);
+
   const copyToken = useCallback(async () => {
     if (!issuedToken) return;
     const ok = await writeClipboardText(issuedToken);
@@ -135,33 +157,36 @@ export function CreateProfileClient({
   if (issuedToken && issuedUsername) {
     return (
       <Wrapper className={onContinue ? "giveaway-inline-auth" : "auth-layout"}>
-        <section className="card card-accent auth-hero">
-          <span className="label">Profile created</span>
+        <section className="card auth-hero token-save-hero" role="alert">
+          <span className="label">Profile created · one more step</span>
           <Heading style={{ marginBottom: 6 }}>
-            {onContinue ? "Save your access code" : "Save your creator token"}
+            {onContinue ? "Save your access code now" : "Save your creator token now"}
           </Heading>
-          <p className="muted" style={{ margin: 0 }}>
+          <p style={{ margin: 0 }}>
             {onContinue ? (
-              "Save this code in your password manager. You need it to sign in again; we cannot recover it."
+              "It is the only way back into your profile. We show it once and cannot reset it."
             ) : (
               <>
-                This token is shown only once. Without it, you cannot sign back into the{" "}
-                <code>{issuedUsername}</code> profile. Kaspa Links stores only a cryptographic hash,
-                so we cannot read the token back or recover it later. Save it in a password manager
-                now.
+                It is the only way back into <code>{issuedUsername}</code>. We show it once and
+                cannot reset it: Kaspa Links keeps only a hash.
               </>
-            )}
+            )}{" "}
+            <strong>
+              You are signed out when you close this tab, so save it in a password manager or
+              download it now.
+            </strong>
           </p>
         </section>
 
-        <section className="card auth-form-card">
+        <section className="card auth-form-card token-save-card">
           <span className="label">{onContinue ? "Access code" : "Creator token"}</span>
-          <p className="value-mono" style={{ marginTop: 8 }}>
-            {issuedToken}
-          </p>
+          <p className="value-mono token-save-value">{issuedToken}</p>
           <div className="row">
             <button className="btn btn-primary" onClick={() => void copyToken()} type="button">
-              {copied ? "Copied" : onContinue ? "Copy access code" : "Copy token"}
+              {copied ? "Copied ✓" : onContinue ? "Copy access code" : "Copy token"}
+            </button>
+            <button className="btn" onClick={downloadToken} type="button">
+              Download as file
             </button>
           </div>
         </section>
@@ -169,7 +194,7 @@ export function CreateProfileClient({
         <section className="card auth-note">
           {onContinue ? (
             <>
-              <label className="giveaway-check">
+              <label className="giveaway-check token-save-check">
                 <input
                   type="checkbox"
                   checked={accessSaved}
@@ -189,13 +214,26 @@ export function CreateProfileClient({
           ) : (
             <>
               <p style={{ marginTop: 0 }}>
-                You&apos;re already signed in as <strong>{issuedUsername}</strong>. Once you&apos;ve
-                saved the token, you&apos;re ready to spin up your first link.
+                You&apos;re signed in as <strong>{issuedUsername}</strong>. Confirm that the token
+                is saved to continue.
               </p>
+              <label className="giveaway-check token-save-check">
+                <input
+                  type="checkbox"
+                  checked={accessSaved}
+                  onChange={(event) => setAccessSaved(event.target.checked)}
+                />
+                I saved my creator token somewhere safe
+              </label>
               <div className="row">
                 <Link
-                  className="btn btn-primary"
+                  aria-disabled={!accessSaved}
+                  className={`btn btn-primary${accessSaved ? "" : " is-locked"}`}
                   href={nextPath === "/dashboard" ? "/new-link" : nextPath}
+                  onClick={(event) => {
+                    if (!accessSaved) event.preventDefault();
+                  }}
+                  tabIndex={accessSaved ? undefined : -1}
                 >
                   {nextPath.startsWith("/toccata-lab/giveaway")
                     ? "Continue to my giveaway"
@@ -207,7 +245,15 @@ export function CreateProfileClient({
                           ? "Continue to My Links"
                           : "Create your first link"}
                 </Link>
-                <Link className="btn" href="/dashboard">
+                <Link
+                  aria-disabled={!accessSaved}
+                  className={`btn${accessSaved ? "" : " is-locked"}`}
+                  href="/dashboard"
+                  onClick={(event) => {
+                    if (!accessSaved) event.preventDefault();
+                  }}
+                  tabIndex={accessSaved ? undefined : -1}
+                >
                   Open dashboard
                 </Link>
               </div>
