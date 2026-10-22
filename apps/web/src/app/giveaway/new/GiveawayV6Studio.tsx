@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
-import { CreatorSignInGate } from "../../CreatorSignInGate";
 import { KasAmountInput } from "../../KasAmountInput";
 import { KasFiatValue } from "../../KasFiatValue";
 import { useCreatorSession } from "../../use-creator-session";
@@ -131,6 +130,53 @@ export function chooseGiveawayV6Slot(slots: Date[], preferred: string): string {
 }
 
 type GiveawayV6Budget = ReturnType<typeof buildGiveawayV6Budget>;
+
+/**
+ * What a visitor without a profile sees, often straight from a post: what a
+ * giveaway is, and that starting one takes a username and nothing else.
+ */
+function GiveawayStartGate() {
+  const next = encodeURIComponent("/giveaway/new");
+  return (
+    <section className="card card-accent creator-sign-in-gate giveaway-start-gate">
+      <span className="label">On-chain giveaways</span>
+      <h1>Run a Kaspa giveaway</h1>
+      <p className="muted">
+        Each giveaway is a SilverScript contract on Kaspa. Kaspa Links never holds the prize.
+      </p>
+      <ol className="giveaway-start-steps">
+        <li>
+          <strong>Set a prize and a draw time.</strong> Any amount from 0.2 KAS, up to 32
+          participants.
+        </li>
+        <li>
+          <strong>Fund it once</strong> from your own wallet.
+        </li>
+        <li>
+          <strong>Share the link.</strong> People join free with a Kaspa address.
+        </li>
+        <li>
+          <strong>Kaspa picks the winner</strong> and the contract pays them automatically.
+        </li>
+      </ol>
+      <div className="row">
+        <Link className="btn btn-primary" href={`/create-profile?next=${next}`}>
+          Start: pick a username
+        </Link>
+        <Link className="btn" href={`/sign-in?next=${next}`}>
+          Sign in
+        </Link>
+      </div>
+      <p className="muted giveaway-start-note">
+        No email, no password: a username is enough. No account at all?{" "}
+        <a href="https://t.me/kaspalinksbot" rel="noreferrer" target="_blank">
+          Create it in Telegram
+        </a>
+        .
+      </p>
+    </section>
+  );
+}
 
 function FundingCostExplanation({
   budget,
@@ -631,12 +677,7 @@ export function GiveawayV6Studio({
   if (!authenticated && surface === "browser") {
     return (
       <main className="main giveaway-studio">
-        <CreatorSignInGate
-          description="Sign in to create, fund and manage your SilverScript giveaways."
-          label="Giveaway Studio"
-          nextPath="/giveaway/new"
-          title="Sign in to continue"
-        />
+        <GiveawayStartGate />
       </main>
     );
   }

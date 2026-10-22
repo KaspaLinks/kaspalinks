@@ -54,6 +54,7 @@ export function validateRecipientAddress(rawAddress: string): AddressValidation 
 }
 
 /** The Giveaway tile shows once the server confirmed this creator may create one. */
+/** Visitors see it too: the studio explains how to start. */
 export function canShowGiveawayTemplate(username: string, accessVerified: boolean): boolean {
-  return username.length > 0 && accessVerified;
+  return username.length === 0 || accessVerified;
 }

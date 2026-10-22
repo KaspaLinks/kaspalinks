@@ -199,11 +199,13 @@ export function CreateProfileClient({
                 >
                   {nextPath.startsWith("/toccata-lab/giveaway")
                     ? "Continue to my giveaway"
-                    : nextPath.startsWith("/claim/create")
-                      ? "Create your first claim link"
-                      : nextPath === "/my-links"
-                        ? "Continue to My Links"
-                        : "Create your first link"}
+                    : nextPath.startsWith("/giveaway")
+                      ? "Start my giveaway"
+                      : nextPath.startsWith("/claim/create")
+                        ? "Create your first claim link"
+                        : nextPath === "/my-links"
+                          ? "Continue to My Links"
+                          : "Create your first link"}
                 </Link>
                 <Link className="btn" href="/dashboard">
                   Open dashboard
