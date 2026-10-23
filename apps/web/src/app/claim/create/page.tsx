@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { TOCCATA_BATCH_MAX_SAFE_OUTPUTS } from "@kaspa-actions/kaspa/toccata-constants";
 
-import { isClaimableAnonymousEnabled } from "@/lib/claimable-flags";
+import { isClaimableAnonymousEnabled, isClaimDropAutoReturnEnabled } from "@/lib/claimable-flags";
 
 import { ClaimableCreateChooser } from "./ClaimableCreateChooser";
 
@@ -32,6 +32,7 @@ export default async function ClaimableCreatePage({
   return (
     <ClaimableCreateChooser
       accountFree={isClaimableAnonymousEnabled()}
+      dropAutoReturn={isClaimDropAutoReturnEnabled()}
       initialCount={parseInitialCount(query.count)}
     />
   );

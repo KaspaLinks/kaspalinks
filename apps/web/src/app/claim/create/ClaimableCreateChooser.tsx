@@ -17,10 +17,13 @@ function clampCount(value: number): number {
 
 export function ClaimableCreateChooser({
   accountFree = false,
+  dropAutoReturn = false,
   initialCount = 1,
 }: {
   /** Single links work without an account; Claim Drops still need a profile. */
   accountFree?: boolean;
+  /** New Claim Drops return unclaimed KAS by themselves: no recovery file. */
+  dropAutoReturn?: boolean;
   initialCount?: number;
 }) {
   const router = useRouter();
@@ -137,7 +140,9 @@ export function ClaimableCreateChooser({
           </strong>
           <p>
             {isClaimDrop
-              ? "Each link gets its own on-chain output, private claim code, and refund path. Save the recovery bundle before funding."
+              ? dropAutoReturn
+                ? "Each link gets its own on-chain output and private claim code. Links nobody claims go back to your wallet automatically. No recovery file needed."
+                : "Each link gets its own on-chain output, private claim code, and refund path. Save the recovery bundle before funding."
               : accountFree
                 ? "Send it privately: whoever has the link can claim the KAS. If it expires unclaimed, the KAS returns to your wallet automatically. No account needed."
                 : "The first person with the link can claim the KAS. If it expires unclaimed, your private refund link recovers it."}
