@@ -18,8 +18,9 @@ The product is non-custodial. The server never:
 Supporters always pay from their own wallet directly to the recipient address. The server's role is limited to metadata, payment-instruction generation, and status display. When the client uses **Pay with KasWare**, KasWare itself shows the confirmation dialog, signs, and broadcasts inside the user's wallet. For claimable links, claim/refund codes stay browser-side, and the relay only handles already signed SafeJSON.
 
 Claimable-link registration does not trust a browser-supplied funding script. The server rebuilds the
-canonical script and funding address from the public claim key, public refund key, and refund lock
-time, then requires an exact match. The same reconstruction runs again before signed transaction JSON
+canonical script and funding address from public values only, then requires an exact match: the
+public claim key, return address, lock time and committed return fee for current links (script
+version 2), or the public claim key, public refund key and refund lock time for older links. The same reconstruction runs again before signed transaction JSON
 can reach the relay.
 
 Claim links keep a compact private claim key in the URL fragment after `#`. Fragment decoding,

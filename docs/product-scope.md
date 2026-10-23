@@ -31,8 +31,11 @@ review, share, and open in a wallet without becoming a wallet or payment custodi
   service.
 - Normal payment attribution is address-, amount-, and time-based. A dedicated recipient address
   is recommended where exact accounting matters.
-- Claimable links rely on browser-held recovery material. Losing the private refund link can make
-  an unclaimed output unrecoverable by the creator.
+- A claim link is a bearer link: whoever opens the full private link first can claim it.
+- Current claimable links return unclaimed KAS automatically to the committed wallet address; the
+  return is broadcast by the worker or any visitor, so it is delayed while nobody broadcasts it.
+  Older links (script version 1) rely on browser-held recovery material: losing their private
+  refund link and recovery bundle can make an unclaimed output unrecoverable by the creator.
 - Kaspa Links is an independent community project, not an official Kaspa wallet or product.
 
 ## Design Boundary

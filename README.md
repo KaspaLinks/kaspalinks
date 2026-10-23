@@ -27,9 +27,12 @@ move wallet-to-wallet without custody.
 Normal payments go directly from the supporter wallet to the recipient wallet. Kaspa Links creates
 and displays payment instructions but does not sign or forward those payments.
 
-Claimable links lock KAS in a one-time on-chain script. Claim and refund keys remain in browser-only
-URL fragments or encrypted local recovery data. Claim/refund transactions are signed in the browser;
-the internal relay receives only already signed transaction JSON.
+Claimable links lock KAS in a one-time on-chain script. The claim code stays in the browser-only URL
+fragment and claims are signed in the recipient's browser. If nobody claims in time, the script
+sends the KAS back to the wallet address committed at creation; that return needs no key, so the
+relay only ever handles signed or keyless transactions and cannot redirect funds. Links created
+before automatic returns use a browser-held refund key instead. See
+[docs/claimable-links.md](docs/claimable-links.md).
 
 ## Workspace
 

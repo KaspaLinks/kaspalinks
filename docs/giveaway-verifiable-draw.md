@@ -1,5 +1,9 @@
 # Verifiable Giveaway Draw
 
+> Status: historical. This describes the earlier Giveaway Lab (draw protocol v2). Giveaways created
+> today run on the on-chain V6 contracts; see
+> [giveaway-v6-onchain-protocol.md](./giveaway-v6-onchain-protocol.md).
+
 The private Giveaway Lab uses draw protocol v2 for newly created giveaways. It improves the draw
 without changing the non-custodial prize flow.
 
