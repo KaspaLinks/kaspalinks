@@ -51,6 +51,15 @@ export function giveawayV6TransitionFees(shardCount: number): GiveawayV6Transiti
   return GIVEAWAY_V6_FEES_BY_SHARD_COUNT[shardCount];
 }
 
+/**
+ * Network fees of a Giveaway nobody joins: activation, freeze and return. The
+ * rest of the funding, prize included, goes back to the return address.
+ */
+export function giveawayV6EmptyNetworkFeesSompi(shardCount: number): bigint {
+  const fees = giveawayV6TransitionFees(shardCount);
+  return fees.activationFeeSompi + fees.freezeFeeSompi + fees.returnFeeSompi;
+}
+
 // The reviewed 32-person profile leaves 0.84 KAS after every possible entry.
 // Preserve that same terminal reserve for the smaller one- and two-shard profiles.
 const TERMINAL_RESERVE_SOMPI = 84_000_000n;

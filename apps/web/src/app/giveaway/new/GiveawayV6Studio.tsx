@@ -12,7 +12,9 @@ import { FundingQrCode } from "@/lib/funding-qr";
 import {
   buildGiveawayV6Budget,
   GIVEAWAY_V6_ENTRY_FEE_SOMPI,
+  GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD,
   GIVEAWAY_V6_PARTICIPANT_CAPS,
+  giveawayV6EmptyNetworkFeesSompi,
   type GiveawayV6ParticipantCap,
 } from "@/lib/giveaway-v6-budget";
 import { formatGiveawayV6Prize, parseGiveawayV6Prize } from "@/lib/giveaway-v6-prize";
@@ -305,6 +307,9 @@ function FundingCostExplanation({
   prize: Prize;
 }) {
   const transactionReserveSompi = budget.activationFeeSompi + budget.executionReserveSompi;
+  const emptyFeesSompi = giveawayV6EmptyNetworkFeesSompi(budget.shardCount);
+  const smallestEmptyFeesSompi =
+    participantCap > GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD ? giveawayV6EmptyNetworkFeesSompi(1) : null;
 
   return (
     <section aria-label="Funding cost explanation" className="studio-cost">
@@ -339,6 +344,20 @@ function FundingCostExplanation({
           <span>On-chain reserve</span>
           <b>{formatSompi(transactionReserveSompi)} KAS</b>
         </div>
+      </div>
+      <div className="studio-cost-empty">
+        <span>If nobody joins</span>
+        <p>
+          <b>{formatSompi(budget.expectedFundingSompi - emptyFeesSompi)} KAS</b> comes back to your
+          return address after the draw time. {formatSompi(emptyFeesSompi)} KAS pays the network for
+          the contract steps.
+        </p>
+        {smallestEmptyFeesSompi !== null ? (
+          <p className="studio-cost-tip">
+            Just trying it out? With {GIVEAWAY_V6_MAX_ENTRIES_PER_SHARD} places, an empty giveaway
+            costs only {formatSompi(smallestEmptyFeesSompi)} KAS.
+          </p>
+        ) : null}
       </div>
       <details className="studio-cost-details">
         <summary>View reserve breakdown</summary>

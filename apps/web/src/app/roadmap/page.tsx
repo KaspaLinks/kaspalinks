@@ -72,7 +72,8 @@ export default function RoadmapPage() {
               <li>Free to join with any Kaspa address</li>
               <li>Kaspa locks the list, a random block picks the winner</li>
               <li>Winner paid automatically by SilverScript, every step verifiable on-chain</li>
-              <li>If nobody joins, the prize goes back to you</li>
+              <li>If nobody joins, the prize and unused reserve go back to you</li>
+              <li>No account needed: start on the website and keep a private link</li>
             </ul>
           </article>
 
@@ -110,6 +111,17 @@ export default function RoadmapPage() {
             </p>
             <p className="muted roadmap-feature-usecase">
               Use cases: private sales, freelance jobs, paying someone you have not met.
+            </p>
+          </article>
+
+          <article className="card roadmap-feature">
+            <h3 className="roadmap-feature-title">Cheaper giveaways</h3>
+            <p>
+              A leaner participant contract: every on-chain step gets smaller, so joining and
+              closing cost less network fee and more of the reserve comes back to you.
+            </p>
+            <p className="muted roadmap-feature-usecase">
+              Applies to new giveaways; running ones keep their committed terms.
             </p>
           </article>
 
