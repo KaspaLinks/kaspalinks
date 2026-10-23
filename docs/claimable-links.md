@@ -49,9 +49,9 @@ No account is needed for a single link, and there is no refund link or recovery 
   reach the claimant or your return address.
 - **…Kaspa Links is offline?** The KAS stays locked in the script; it cannot be moved anywhere
   else in the meantime. The return goes out once a worker or a visitor broadcasts it again.
-  Everything needed to rebuild that return transaction is public (claim public key, return
-  address, end of the claim window, return fee), so the open-source code can build it without our
-  servers. A step-by-step guide for doing that by hand is planned.
+  The return needs no key, so you do not have to wait: with the optional **return file** from the
+  link page, anyone can send it through public Kaspa nodes. See
+  [Getting unclaimed KAS back without Kaspa Links](./claimable-return-without-kaspa-links.md).
 - **…I paid a different amount?** Every payment is a separate on-chain output, and Kaspa Links
   never combines two payments. A wrong amount keeps the link locked. If you created the link with a
   profile, you may adopt one verified payment as the new link amount before sharing. Every other

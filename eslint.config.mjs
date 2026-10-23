@@ -24,7 +24,7 @@ export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["apps/wrpc-relay/**/*.mjs"],
+    files: ["apps/wrpc-relay/**/*.mjs", "tools/**/*.mjs"],
     languageOptions: {
       globals: {
         Buffer: "readonly",
