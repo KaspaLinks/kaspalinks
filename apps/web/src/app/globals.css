@@ -4154,6 +4154,22 @@ body:has(main.overlay-page) > footer.app-footer {
   color: var(--fg-muted);
 }
 
+.claim-drop-profile {
+  display: grid;
+  gap: 6px;
+}
+.claim-drop-profile strong {
+  color: var(--fg-strong);
+}
+.claim-drop-profile p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+}
+.claim-drop-profile .row {
+  margin-top: 4px;
+}
+
 .claimable-count-continue {
   justify-self: stretch;
 }

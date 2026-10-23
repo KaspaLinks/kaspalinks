@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { TOCCATA_BATCH_MAX_SAFE_OUTPUTS } from "@kaspa-actions/kaspa/toccata-constants";
@@ -116,6 +117,7 @@ export function ClaimableCreateChooser({
             <strong>{count}</strong>
           </output>
           <button
+            aria-describedby={creatorSignedIn ? undefined : "claim-drop-profile"}
             aria-label="Increase number of claim links"
             disabled={count === MAX_LINK_COUNT || !creatorSignedIn}
             onClick={() => setCount((current) => clampCount(current + 1))}
@@ -124,6 +126,8 @@ export function ClaimableCreateChooser({
             +
           </button>
         </div>
+
+        {!creatorSignedIn ? <ClaimDropProfileNotice /> : null}
 
         <div className="claimable-count-summary" aria-live="polite">
           <strong>
@@ -138,9 +142,6 @@ export function ClaimableCreateChooser({
                 ? "Send it privately: whoever has the link can claim the KAS. If it expires unclaimed, the KAS returns to your wallet automatically. No account needed."
                 : "The first person with the link can claim the KAS. If it expires unclaimed, your private refund link recovers it."}
           </p>
-          {!creatorSignedIn ? (
-            <p className="muted">Claim Drops with several links need a free profile.</p>
-          ) : null}
         </div>
 
         <button
@@ -158,5 +159,27 @@ export function ClaimableCreateChooser({
           : "Kaspa Links never holds the funds. Claim and refund transactions remain browser-signed."}
       </p>
     </main>
+  );
+}
+
+/** Signed out, the stepper stops at one link; say why and how to unlock it. */
+function ClaimDropProfileNotice() {
+  const next = encodeURIComponent("/claim/create?count=2");
+  return (
+    <div className="notice notice-warn claim-drop-profile" id="claim-drop-profile">
+      <strong>Need more than one link? Create a free profile</strong>
+      <p>
+        A Claim Drop funds up to {MAX_LINK_COUNT} separate links in one payment. It needs a profile:
+        a username is enough, no email. One link works without an account.
+      </p>
+      <div className="row">
+        <Link className="btn btn-sm" href={`/create-profile?next=${next}`}>
+          Pick a username
+        </Link>
+        <Link className="btn btn-sm" href={`/sign-in?next=${next}`}>
+          Sign in
+        </Link>
+      </div>
+    </div>
   );
 }
