@@ -291,4 +291,6 @@ Audit-log surface: the send itself is client-side and produces no server-side lo
 
 ## Reporting
 
-If you find a security issue, do not open a public issue. Contact the operator of the deployment directly. For the upstream project, the maintainer's preferred channel will be added when the project moves to a public repository.
+If you find a security issue, do not open a public issue. For kaspalinks.com and this repository,
+report it privately through GitHub's **Report a vulnerability** on the repository's Security tab;
+see [SECURITY.md](../SECURITY.md). For a self-hosted deployment, contact its operator.
