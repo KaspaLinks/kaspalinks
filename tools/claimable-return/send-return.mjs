@@ -22,7 +22,8 @@ import { createRequire } from "node:module";
 
 const FORMAT = "kaspa-links/claimable-return@1";
 const SOMPI_PER_KAS = 100_000_000n;
-const CONNECT_TIMEOUT_MS = 30_000;
+const CONNECT_TIMEOUT_MS = 20_000;
+const CONNECT_ATTEMPTS = 3;
 
 const require = createRequire(import.meta.url);
 const kaspa = require("../../vendor/kaspa-wasm-v2.0.1/kaspa.js");
@@ -98,18 +99,29 @@ function verifyFile(file) {
 }
 
 async function connect(nodeUrl) {
-  const rpc = new kaspa.RpcClient(
-    nodeUrl
-      ? { networkId: "mainnet", url: nodeUrl }
-      : { networkId: "mainnet", resolver: new kaspa.Resolver() },
-  );
-  const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("timed out")), CONNECT_TIMEOUT_MS),
-  );
-  await Promise.race([rpc.connect(), timeout]).catch((error) =>
-    fail(`Could not reach a Kaspa node (${error.message}). Try again or pass --node <url>.`),
-  );
-  return rpc;
+  let lastError = null;
+  // Public nodes come and go; the resolver picks another one on each attempt.
+  for (let attempt = 1; attempt <= CONNECT_ATTEMPTS; attempt += 1) {
+    const rpc = new kaspa.RpcClient(
+      nodeUrl
+        ? { networkId: "mainnet", url: nodeUrl }
+        : { networkId: "mainnet", resolver: new kaspa.Resolver() },
+    );
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("timed out")), CONNECT_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([rpc.connect(), timeout]);
+      return rpc;
+    } catch (error) {
+      lastError = error;
+      await rpc.disconnect().catch(() => undefined);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  fail(`Could not reach a Kaspa node (${lastError?.message}). Try again or pass --node <url>.`);
 }
 
 async function main() {
