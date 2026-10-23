@@ -67,6 +67,7 @@ import { SESSION_EVENT } from "../../BrandNav";
 import { CreatorSignInGate } from "../../CreatorSignInGate";
 import { KasAmountInput } from "../../KasAmountInput";
 import { KasFiatValue } from "../../KasFiatValue";
+import { ClaimableWhatIf } from "../ClaimableWhatIf";
 import { SuccessHero } from "../../SuccessHero";
 
 import {
@@ -2221,6 +2222,7 @@ export function BatchClaimableLabClient({
                   </small>
                 </div>
               ) : null}
+              {autoReturnEnabled ? <ClaimableWhatIf kind="drop" /> : null}
 
               <button
                 className="btn btn-primary"

@@ -64,6 +64,7 @@ import { buildWalletLaunchUri } from "@/lib/wallet-uri";
 import { KasAmountInput } from "../KasAmountInput";
 import { KasFiatValue } from "../KasFiatValue";
 import { SuccessHero } from "../SuccessHero";
+import { ClaimableWhatIf } from "./ClaimableWhatIf";
 import { FundingQrCode } from "@/lib/funding-qr";
 import { parseSignupSource } from "@/lib/signup-source";
 
@@ -2468,6 +2469,7 @@ export function ToccataLabClient({
                       </small>
                     </div>
                   ) : null}
+                  {autoReturnEnabled ? <ClaimableWhatIf kind="link" /> : null}
 
                   {!enabled ? (
                     <p className="notice notice-warn">
