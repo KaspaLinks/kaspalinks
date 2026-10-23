@@ -34,27 +34,91 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # Contract tests run against the real TxScript engine at the exact compiler
+  # commit each contract family was verified with (labs/claimable-script/README.md).
+
   claimable-script-engine:
+    # Claimable links and Claim Drops, both script versions (refund key and
+    # automatic return).
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      SILVERSCRIPT_COMMIT: d25bd3427a093c17327ca3d6b9e1aa5f7688c863
+      CARGO_PROFILE_DEV_DEBUG: 0
     steps:
       - uses: actions/checkout@v4
-      - name: Check out pinned Silverscript toolchain
+      - name: Check out pinned SilverScript toolchain
         run: |
           git clone --filter=blob:none https://github.com/kaspanet/silverscript.git silverscript
-          git -C silverscript checkout d25bd3427a093c17327ca3d6b9e1aa5f7688c863
+          git -C silverscript checkout "$SILVERSCRIPT_COMMIT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            silverscript/target
+          key: silverscript-${{ env.SILVERSCRIPT_COMMIT }}-claimable
       - name: Install the Kaspa Links engine harness
         run: |
-          cp labs/claimable-script/claimable_ui_scriptbuilder_tests.rs silverscript/silverscript-lang/tests/
-          cp labs/claimable-script/claimable_batch_allocator_tests.rs silverscript/silverscript-lang/tests/
-          cp labs/claimable-script/escrow_v2.sil silverscript/silverscript-lang/tests/
-          cp labs/claimable-script/escrow_v2_tests.rs silverscript/silverscript-lang/tests/
+          src=labs/claimable-script
+          dst=silverscript/silverscript-lang/tests
+          mkdir -p "$dst/examples"
+          cp "$src/claimable_link.sil" "$dst/examples/"
+          cp "$src/claimable_link_tests.rs" \
+            "$src/claimable_ui_scriptbuilder_tests.rs" \
+            "$src/claimable_batch_allocator_tests.rs" \
+            "$src/claimable_autoreturn_tests.rs" \
+            "$src/claimable_batch_autoreturn_tests.rs" \
+            "$dst/"
       - name: Run claimable-link engine tests
         working-directory: silverscript
-        env:
-          CARGO_BUILD_JOBS: 1
-          CARGO_PROFILE_DEV_DEBUG: 0
         run: |
+          cargo test -p silverscript-lang --test claimable_link_tests
           cargo test -p silverscript-lang --test claimable_ui_scriptbuilder_tests
           cargo test -p silverscript-lang --test claimable_batch_allocator_tests
+          cargo test -p silverscript-lang --test claimable_autoreturn_tests
+          cargo test -p silverscript-lang --test claimable_batch_autoreturn_tests
+
+  covenant-script-engine:
+    # Giveaway V6 and escrow covenants at SilverScript v1.0.0, the compiler
+    # release the web image installs to compile each giveaway.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SILVERSCRIPT_COMMIT: 3ed973335b59269293564805cc2c58a14595ec03
+      CARGO_PROFILE_DEV_DEBUG: 0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned SilverScript toolchain
+        run: |
+          git clone --filter=blob:none https://github.com/kaspanet/silverscript.git silverscript
+          git -C silverscript checkout "$SILVERSCRIPT_COMMIT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            silverscript/target
+          key: silverscript-${{ env.SILVERSCRIPT_COMMIT }}-covenant
+      - name: Install the Kaspa Links engine harness
+        run: |
+          src=labs/claimable-script
+          dst=silverscript/silverscript-lang/tests
+          mkdir -p "$dst/fixtures"
+          cp "$src/escrow_v1.sil" "$src/escrow_v1_tests.rs" \
+            "$src/escrow_v2.sil" "$src/escrow_v2_tests.rs" \
+            "$src/giveaway_entry_shard_v6.sil" "$src/giveaway_prize_shards_v6.sil" \
+            "$src/giveaway_entry_shard_v6_tests.rs" "$src/giveaway_sharded_family_v6_tests.rs" \
+            "$dst/"
+          cp "$src/fixtures/giveaway_v6_participants.json" \
+            "$src/fixtures/giveaway_entropy_v6_mainnet_groth16.rcpt" \
+            "$dst/fixtures/"
+      - name: Run covenant engine tests
+        working-directory: silverscript
+        env:
+          ESCROW_TS_VECTORS: ${{ github.workspace }}/labs/claimable-script/escrow_v1_ts_vectors.json
+        run: |
+          cargo test -p silverscript-lang --test escrow_v1_tests
           cargo test -p silverscript-lang --test escrow_v2_tests
+          cargo test -p silverscript-lang --test giveaway_entry_shard_v6_tests
+          cargo test -p silverscript-lang --test giveaway_sharded_family_v6_tests
