@@ -3,7 +3,9 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # A commit is pushed to next first; once these checks pass there, the
+    # same commit can go to main, where a ruleset requires them.
+    branches: [main, next]
 
 permissions:
   contents: read
