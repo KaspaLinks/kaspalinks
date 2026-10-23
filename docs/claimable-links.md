@@ -56,7 +56,8 @@ No account is needed for a single link, and there is no refund link or recovery 
   never combines two payments. A wrong amount keeps the link locked. If you created the link with a
   profile, you may adopt one verified payment as the new link amount before sharing. Every other
   output at the funding address goes back to your return address after the claim window, one
-  transaction each.
+  transaction each. A payment too small to leave the network minimum of 0.2 KAS after the return
+  fee cannot be returned and stays in the script.
 
 ### Safety model
 

@@ -20,8 +20,9 @@ export function ClaimableWhatIf({ kind }: { kind: "drop" | "link" }) {
         <div>
           <dt>Nobody claims {links ? "a link" : "it"}</dt>
           <dd>
-            After the claim window the KAS can only go back to your wallet. Kaspa Links sends it
-            back within a few minutes, and anyone can press Return now on the link page.
+            After the claim window Kaspa Links sends the KAS back to your wallet, usually within a
+            few minutes, and anyone can press Return now on the link page. Until that return is
+            confirmed the recipient can still claim; the KAS can never go anywhere else.
           </dd>
         </div>
         <div>
@@ -34,8 +35,9 @@ export function ClaimableWhatIf({ kind }: { kind: "drop" | "link" }) {
         <div>
           <dt>You send a different amount</dt>
           <dd>
-            {links ? "The drop" : "The link"} stays locked. Every payment to the address comes back
-            to your wallet after the claim window.
+            {links ? "The drop" : "The link"} stays locked, and each payment to the address comes
+            back to your wallet after the claim window. A payment too small to cover the return
+            (under about 0.2 KAS) cannot come back.
           </dd>
         </div>
       </dl>
