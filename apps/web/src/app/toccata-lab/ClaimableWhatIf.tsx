@@ -29,7 +29,10 @@ export function ClaimableWhatIf({ kind }: { kind: "drop" | "link" }) {
           <dt>Kaspa Links is offline</dt>
           <dd>
             The KAS stays locked on-chain and nobody can move it anywhere else. Claims and the
-            return go out once the service is back.
+            return go out once the service is back
+            {links
+              ? "."
+              : ", or you send the return yourself with the optional return file from the link page."}
           </dd>
         </div>
         <div>

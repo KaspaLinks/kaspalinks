@@ -11,6 +11,7 @@ export const RateBuckets = {
   CLAIMABLE_ANONYMOUS_CREATE: "claimable.anonymous-create",
   CLAIMABLE_ANONYMOUS_DAILY: "claimable.anonymous-daily",
   CLAIMABLE_RETURN: "claimable.return",
+  CLAIMABLE_RETURN_FILE: "claimable.return-file",
   CREATOR_ACTION_CREATE: "creator.action.create",
   CREATOR_LOGIN: "creator.login",
   CREATOR_PROFILE_DELETE: "creator.profile.delete",
@@ -54,6 +55,7 @@ export const RateLimits = {
   // In memory only: no IP-derived value is stored with account-free links.
   [RateBuckets.CLAIMABLE_ANONYMOUS_DAILY]: { limit: 10, windowMs: 24 * 60 * 60_000 },
   [RateBuckets.CLAIMABLE_RETURN]: { limit: 6, windowMs: 60_000 },
+  [RateBuckets.CLAIMABLE_RETURN_FILE]: { limit: 20, windowMs: 60_000 },
   [RateBuckets.CREATOR_ACTION_CREATE]: { limit: 20, windowMs: 60_000 },
   [RateBuckets.CREATOR_LOGIN]: { limit: 10, windowMs: 60_000 },
   [RateBuckets.CREATOR_PROFILE_DELETE]: { limit: 5, windowMs: 60_000 },

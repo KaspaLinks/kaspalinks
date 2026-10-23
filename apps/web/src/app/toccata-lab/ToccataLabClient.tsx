@@ -1343,6 +1343,29 @@ export function ToccataLabClient({
     );
   }
 
+  // Optional backup for auto-return links: the prepared keyless return, which
+  // anyone can send with any Kaspa node after the claim window.
+  async function downloadReturnFile() {
+    if (!labLink) return;
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/claimable-links/${encodeURIComponent(labLink.id)}/return-file`,
+      );
+      const body = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok)
+        throw new Error(body.error?.message ?? "Could not prepare the return file.");
+      downloadJson(`kaspa-links-return-${safeFilename(labLink.id)}.json`, body);
+      setNotice(
+        "Return file downloaded. It holds no secret and can only pay your wallet; you only need it if Kaspa Links is ever unavailable.",
+      );
+    } catch (fileError) {
+      setError(
+        fileError instanceof Error ? fileError.message : "Could not prepare the return file.",
+      );
+    }
+  }
+
   async function downloadRecoveryFile() {
     if (!labLink) return;
     setError("");
@@ -3002,6 +3025,10 @@ export function ToccataLabClient({
                     >
                       Download recovery file
                     </button>
+                  ) : labLink.fundingMatch && singleStage !== "done" ? (
+                    <button className="btn" onClick={() => void downloadReturnFile()} type="button">
+                      Download return file
+                    </button>
                   ) : null}
                   {singleStage !== "done" ? (
                     <button className="btn" onClick={startAnotherLink} type="button">
@@ -3009,6 +3036,12 @@ export function ToccataLabClient({
                     </button>
                   ) : null}
                 </div>
+                {isAutoReturn && labLink.fundingMatch && singleStage !== "done" ? (
+                  <p className="muted batch-drop-field-hint">
+                    Optional backup: the return file lets anyone send your KAS back to your wallet
+                    after the claim window, even if Kaspa Links is unavailable.
+                  </p>
+                ) : null}
               </details>
             </section>
           )
