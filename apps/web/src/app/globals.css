@@ -3958,6 +3958,29 @@ body:has(main.overlay-page) > footer.app-footer {
   gap: 10px;
 }
 
+.start-choice-grid .quick-template-title {
+  font-size: 1.02rem;
+}
+.start-choice-extra {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+}
+.new-link-wallet-help {
+  margin-top: 10px;
+  font-size: 0.86rem;
+  color: var(--fg-muted);
+}
+.new-link-wallet-help summary {
+  cursor: pointer;
+  color: var(--accent-bright);
+}
+.new-link-wallet-help ol {
+  margin: 8px 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+}
+
 .quick-template-button {
   display: grid;
   gap: 7px;
@@ -4203,6 +4226,12 @@ body:has(main.overlay-page) > footer.app-footer {
 @media (min-width: 720px) {
   .quick-template-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 720px) {
+  .start-choice-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

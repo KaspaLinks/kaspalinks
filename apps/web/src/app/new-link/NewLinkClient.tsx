@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { SESSION_EVENT } from "../BrandNav";
@@ -155,22 +155,6 @@ const CLAIMABLE_ICON = (
   </svg>
 );
 
-// Escrow links are a prototype; the template only appears for allowlisted creators.
-const ESCROW_ICON = (
-  <svg
-    aria-hidden="true"
-    fill="none"
-    stroke="currentColor"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    strokeWidth="1.6"
-    viewBox="0 0 24 24"
-  >
-    <rect height="11" rx="2" width="16" x="4" y="10" />
-    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-  </svg>
-);
-
 const ACTION_TYPES: ActionTypeDef[] = [
   {
     amountRequired: false,
@@ -218,23 +202,6 @@ const ACTION_TYPES: ActionTypeDef[] = [
 // template grid speaks the same visual language as the Type selector below.
 const ICON_BY_TYPE = new Map<ActionTypeValue, ReactNode>(
   ACTION_TYPES.map((option) => [option.value, option.icon]),
-);
-
-// Pencil glyph for the "Start blank" card — neutral, signals "write your own"
-// instead of a specific link type.
-const BLANK_ICON = (
-  <svg
-    aria-hidden="true"
-    fill="none"
-    stroke="currentColor"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    strokeWidth="1.6"
-    viewBox="0 0 24 24"
-  >
-    <path d="M12 20h9" />
-    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-  </svg>
 );
 
 const LINK_TEMPLATES: LinkTemplate[] = [
@@ -300,7 +267,109 @@ const LINK_TEMPLATES: LinkTemplate[] = [
   },
 ];
 
-const LINK_TEMPLATE_BY_ID = new Map(LINK_TEMPLATES.map((template) => [template.id, template]));
+// Starting point for "A fixed amount": no pre-filled price, so nobody ships the
+// example amount by accident.
+const FIXED_PAYMENT_TEMPLATE: LinkTemplate = {
+  amountKas: "",
+  description: "",
+  goalAutoClose: false,
+  id: "fixed-payment",
+  label: "Fixed amount",
+  noteRequired: false,
+  showOnProfile: false,
+  title: "",
+  type: "kaspa.transfer",
+  walletNote: "",
+};
+
+const LINK_TEMPLATE_BY_ID = new Map(
+  [...LINK_TEMPLATES, FIXED_PAYMENT_TEMPLATE].map((template) => [template.id, template]),
+);
+
+const TYPE_HINTS: Record<ActionTypeValue, string> = {
+  "kaspa.donation": "Shown as a donation: a contribution to a project or cause.",
+  "kaspa.goal": "Supporters pay what they want; a progress bar fills toward the target.",
+  "kaspa.invoice": "Marked as paid after the first payment, then closed.",
+  "kaspa.tip": "Shown as a tip: pay-what-you-want support.",
+  "kaspa.transfer": "Can be paid more than once.",
+};
+
+// "Get paid" asks one plain question instead of five link types. Each answer
+// starts from a template; the finer type (tip or donation, invoice or
+// transfer) stays under More options. Each step is a real URL so the server
+// logs show where people stop, without any tracking in the browser.
+type PaymentKind = "any" | "fixed" | "goal";
+
+const PAYMENT_KINDS: {
+  description: string;
+  kind: PaymentKind;
+  label: string;
+  templateId: string;
+  types: ActionTypeValue[];
+}[] = [
+  {
+    description: "Supporters choose how much. For tips and donations.",
+    kind: "any",
+    label: "Any amount",
+    templateId: "creator-tip",
+    types: ["kaspa.tip", "kaspa.donation"],
+  },
+  {
+    description: "You set the price. For invoices, sales or a one-off payment.",
+    kind: "fixed",
+    label: "A fixed amount",
+    templateId: "fixed-payment",
+    types: ["kaspa.invoice", "kaspa.transfer"],
+  },
+  {
+    description: "Collect any amounts toward a target, with a progress bar.",
+    kind: "goal",
+    label: "Toward a goal",
+    templateId: "funding-goal",
+    types: ["kaspa.goal"],
+  },
+];
+
+function parsePaymentKind(value: null | string): PaymentKind | null {
+  return PAYMENT_KINDS.find((option) => option.kind === value)?.kind ?? null;
+}
+
+function paymentKindOfType(type: ActionTypeValue): PaymentKind {
+  return PAYMENT_KINDS.find((option) => option.types.includes(type))?.kind ?? "any";
+}
+
+const PAID_ICON = (
+  <svg
+    aria-hidden="true"
+    fill="none"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="1.6"
+    viewBox="0 0 24 24"
+  >
+    <path d="M12 3v12" />
+    <polyline points="7 10 12 15 17 10" />
+    <path d="M5 21h14" />
+  </svg>
+);
+
+const GIVEAWAY_ICON = (
+  <svg
+    aria-hidden="true"
+    fill="none"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="1.6"
+    viewBox="0 0 24 24"
+  >
+    <rect height="5" width="18" x="3" y="8" />
+    <path d="M12 8v13" />
+    <path d="M19 13v8H5v-8" />
+    <path d="M12 8c-1.5-3-5-3.5-5-1.5S10 8 12 8c2 0 5-0.5 5-1.5S13.5 5 12 8z" />
+  </svg>
+);
 
 const TOKEN_STORAGE_KEY = "kaspa-actions:creator-token";
 const USERNAME_STORAGE_KEY = "kaspa-actions:creator-username";
@@ -372,6 +441,7 @@ export function NewLinkClient({
   turnstile?: { required: boolean; siteKey: string };
 } = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [username, setUsername] = useState("");
   const [token, setToken] = useState("");
   const [hydrated, setHydrated] = useState(false);
@@ -381,7 +451,6 @@ export function NewLinkClient({
   const [slug, setSlug] = useState("");
   const [slugServerError, setSlugServerError] = useState<null | string>(null);
   const [slugTouched, setSlugTouched] = useState(false);
-  const [activeTemplateId, setActiveTemplateId] = useState<null | string>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [walletNote, setWalletNote] = useState("");
@@ -409,19 +478,16 @@ export function NewLinkClient({
   const kasUsdPrice = useKasUsdPrice();
   const escrowAccess = useEscrowAccess();
 
+  const urlKind = parsePaymentKind(searchParams.get("kind"));
+  const urlPreset = Boolean(searchParams.get("template") || searchParams.get("type"));
+  const paymentStarted = searchParams.get("start") === "paid" || urlKind !== null || urlPreset;
+  const paymentKind: PaymentKind | null = urlKind ?? (urlPreset ? paymentKindOfType(type) : null);
+  const kindTypes = PAYMENT_KINDS.find((option) => option.kind === paymentKind)?.types ?? [];
+
   const signedIn = username.length > 0 && token.length > 0;
   // Without an account the link has no slug and no profile; a private manage link replaces both.
   const accountFreeMode = !signedIn && accountFreeEnabled;
   const selectedType = ACTION_TYPES.find((option) => option.value === type) ?? ACTION_TYPES[0]!;
-  const blankTemplateActive =
-    activeTemplateId === null &&
-    title.trim().length === 0 &&
-    description.trim().length === 0 &&
-    walletNote.trim().length === 0 &&
-    amountKas.trim().length === 0 &&
-    !noteRequired &&
-    !goalAutoClose &&
-    showOnProfile === undefined;
   const amountIsRequired = selectedType.amountRequired;
   const isGoalType = selectedType.goalTarget;
   const amountMissingForRequiredType = amountIsRequired && amountKas.trim().length === 0;
@@ -477,7 +543,6 @@ export function NewLinkClient({
   }, [signedIn, username, authHeaders]);
 
   const applyTemplate = useCallback((template: LinkTemplate) => {
-    setActiveTemplateId(template.id);
     setType(template.type);
     setTitle(template.title);
     setDescription(template.description);
@@ -493,7 +558,6 @@ export function NewLinkClient({
   }, []);
 
   const startBlank = useCallback(() => {
-    setActiveTemplateId(null);
     setType("kaspa.tip");
     setTitle("");
     setDescription("");
@@ -507,6 +571,32 @@ export function NewLinkClient({
     setSlugTouched(false);
     setError(null);
   }, []);
+
+  // Keeps other parameters (such as utm_source) while moving between steps.
+  const goToStep = useCallback(
+    (next: { kind?: PaymentKind; start?: "paid" }) => {
+      const params = new URLSearchParams(window.location.search);
+      params.delete("template");
+      params.delete("type");
+      params.delete("kind");
+      params.delete("start");
+      if (next.start) params.set("start", next.start);
+      if (next.kind) params.set("kind", next.kind);
+      const query = params.toString();
+      router.push(query ? `/new-link?${query}` : "/new-link", { scroll: false });
+    },
+    [router],
+  );
+
+  const choosePaymentKind = useCallback(
+    (kind: PaymentKind) => {
+      const option = PAYMENT_KINDS.find((entry) => entry.kind === kind);
+      const template = option && LINK_TEMPLATE_BY_ID.get(option.templateId);
+      if (template) applyTemplate(template);
+      goToStep({ kind, start: "paid" });
+    },
+    [applyTemplate, goToStep],
+  );
 
   useEffect(() => {
     setUsername(readSessionValue(USERNAME_STORAGE_KEY));
@@ -526,6 +616,12 @@ export function NewLinkClient({
       const validType = ACTION_TYPES.find((option) => option.value === typeFromUrl);
       if (!templateFromUrl && validType) {
         setType(validType.value);
+      }
+
+      const kindFromUrl = PAYMENT_KINDS.find((option) => option.kind === params.get("kind"));
+      const kindTemplate = kindFromUrl && LINK_TEMPLATE_BY_ID.get(kindFromUrl.templateId);
+      if (!templateFromUrl && !validType && kindTemplate) {
+        applyTemplate(kindTemplate);
       }
     }
 
@@ -556,7 +652,6 @@ export function NewLinkClient({
     setSlug(value);
     setSlugServerError(null);
     setSlugTouched(true);
-    setActiveTemplateId(null);
   }, []);
 
   const createAccountFreeLink = useCallback(
@@ -774,9 +869,8 @@ export function NewLinkClient({
         <span className="label">New link</span>
         <h1 style={{ marginBottom: 6 }}>Create a Kaspa link</h1>
         <p className="muted" style={{ margin: 0 }}>
-          Bundle a recipient address, an optional amount, and a short message into one shareable
-          URL.
-          {accountFreeMode ? " No account needed — payments go straight to your wallet." : null}
+          One link to get paid, send KAS or run a giveaway.
+          {accountFreeMode ? " No account needed, and the KAS goes straight to your wallet." : null}
         </p>
         {accountFreeMode ? (
           <p className="muted account-free-signin-hint">
@@ -788,527 +882,524 @@ export function NewLinkClient({
       </section>
 
       <section className="card quick-template-section">
-        <div>
-          <span className="label">Quick start</span>
-          <h2 className="form-section-heading">Start with a common use case</h2>
-        </div>
-        <div className="quick-template-grid" aria-label="Quick link templates">
-          {canShowGiveawayTemplate(username, giveawayAccess) && (
-            <Link className="quick-template-button" href="/giveaway/new">
-              <span className="quick-template-icon" aria-hidden="true">
-                {BLANK_ICON}
-              </span>
-              <span className="quick-template-title">Giveaway</span>
-              <span className="quick-template-description">
-                Fund a prize and share a link for people to enter.
-              </span>
-              <span className="quick-template-meta">Fixed draw times · prize locked on-chain</span>
-            </Link>
-          )}
-          {LINK_TEMPLATES.map((template) => (
-            <button
-              aria-pressed={activeTemplateId === template.id}
-              className={`quick-template-button${
-                activeTemplateId === template.id ? " quick-template-button-active" : ""
-              }`}
-              key={template.id}
-              onClick={() => applyTemplate(template)}
-              type="button"
-            >
-              <span className="quick-template-icon" aria-hidden="true">
-                {ICON_BY_TYPE.get(template.type)}
-              </span>
-              <span className="quick-template-title">{template.label}</span>
-              <span className="quick-template-description">{template.description}</span>
-              <span className="quick-template-meta">
-                {humanActionType(template.type)} ·{" "}
-                {template.amountKas
-                  ? `${template.amountKas} KAS${template.type === "kaspa.goal" ? " target" : ""}`
-                  : "Any amount"}
-              </span>
-            </button>
-          ))}
+        <h2 className="form-section-heading">What do you want to do?</h2>
+        <div className="quick-template-grid start-choice-grid" aria-label="What to create">
+          <button
+            aria-pressed={paymentStarted}
+            className={`quick-template-button${paymentStarted ? " quick-template-button-active" : ""}`}
+            onClick={() => goToStep({ start: "paid" })}
+            type="button"
+          >
+            <span className="quick-template-icon" aria-hidden="true">
+              {PAID_ICON}
+            </span>
+            <span className="quick-template-title">Get paid</span>
+            <span className="quick-template-description">
+              Tips, donations or a fixed price, paid straight to your wallet.
+            </span>
+          </button>
           <Link className="quick-template-button" href="/claim/create">
             <span className="quick-template-icon" aria-hidden="true">
               {CLAIMABLE_ICON}
             </span>
-            <span className="quick-template-title">Claimable reward</span>
+            <span className="quick-template-title">Send KAS to someone</span>
             <span className="quick-template-description">
-              Create one claimable reward or choose up to 8 separate links for a Claim Drop.
-              Unclaimed KAS comes back to your wallet by itself.
+              A link one person can claim. If nobody does, the KAS comes back to you.
             </span>
-            <span className="quick-template-meta">1 to 8 links · non-custodial rewards</span>
           </Link>
-          {escrowAccess === "granted" ? (
-            <Link className="quick-template-button" href="/escrow">
+          {canShowGiveawayTemplate(username, giveawayAccess) && (
+            <Link className="quick-template-button" href="/giveaway/new">
               <span className="quick-template-icon" aria-hidden="true">
-                {ESCROW_ICON}
+                {GIVEAWAY_ICON}
               </span>
-              <span className="quick-template-title">Escrow link</span>
+              <span className="quick-template-title">Run a giveaway</span>
               <span className="quick-template-description">
-                Sell an item with KAS locked in a Kaspa escrow until the buyer releases it.
-              </span>
-              <span className="quick-template-meta">
-                Prototype · example data · only visible to you
+                Fund a prize, people join for free, and the chain draws the winner.
               </span>
             </Link>
-          ) : null}
-          <button
-            aria-pressed={blankTemplateActive}
-            className={`quick-template-button quick-template-button-muted${
-              blankTemplateActive ? " quick-template-button-active" : ""
-            }`}
-            onClick={startBlank}
-            type="button"
-          >
-            <span className="quick-template-icon quick-template-icon-muted" aria-hidden="true">
-              {BLANK_ICON}
-            </span>
-            <span className="quick-template-title">Start blank</span>
-            <span className="quick-template-description">
-              Clear the starter copy and create your own link from scratch.
-            </span>
-            <span className="quick-template-meta">Custom · you decide</span>
-          </button>
+          )}
         </div>
+        {escrowAccess === "granted" ? (
+          <p className="muted start-choice-extra">
+            <Link href="/escrow">Escrow link (prototype)</Link>
+          </p>
+        ) : null}
       </section>
 
-      <div className="new-link-grid">
-        {/* Three grid siblings: preview, form, actions. CSS `order` flips
+      {paymentStarted ? (
+        <section className="card quick-template-section" id="payment-kind">
+          <h2 className="form-section-heading">How should people pay?</h2>
+          <div className="quick-template-grid start-choice-grid" aria-label="How people pay">
+            {PAYMENT_KINDS.map((option) => (
+              <button
+                aria-pressed={paymentKind === option.kind}
+                className={`quick-template-button${
+                  paymentKind === option.kind ? " quick-template-button-active" : ""
+                }`}
+                key={option.kind}
+                onClick={() => choosePaymentKind(option.kind)}
+                type="button"
+              >
+                <span className="quick-template-icon" aria-hidden="true">
+                  {ICON_BY_TYPE.get(option.types[0]!)}
+                </span>
+                <span className="quick-template-title">{option.label}</span>
+                <span className="quick-template-description">{option.description}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {paymentKind ? (
+        <div className="new-link-grid">
+          {/* Three grid siblings: preview, form, actions. CSS `order` flips
             them on mobile so the visual flow is form → preview → button
             (so the supporter sees the preview right before tapping Create
             link). On desktop, CSS grid lifts the preview into a sticky
             right column and keeps form + button stacked on the left. The
             submit button uses `form="new-link-form"` so it can sit OUTSIDE
             the <form> element and still trigger onSubmit. */}
-        {/* Live preview — updates as the user fills out the form */}
-        <section className="card preview-card" aria-live="polite">
-          <span className="preview-card-eyebrow">Live preview</span>
-          <div className="preview-card-stage">
-            <span className="link-type-pill">{humanActionType(type)}</span>
-            <h3 className="preview-card-title">
-              {title.trim() || <span className="preview-card-placeholder">Untitled link</span>}
-            </h3>
-            {description.trim() ? (
-              <p className="preview-card-description">{description}</p>
-            ) : (
-              <p className="preview-card-description preview-card-placeholder">
-                Page description will appear here.
-              </p>
-            )}
-            <div className="preview-card-divider" />
-            <span className="label">{isGoalType ? "Goal target" : "Amount"}</span>
-            <div className="amount-display amount-display-large">
-              {amountKas.trim() ? (
-                <>
-                  <span className="amount-main">{amountKas.trim()}</span>
-                  <span className="amount-unit">KAS</span>
-                </>
+          {/* Live preview — updates as the user fills out the form */}
+          <section className="card preview-card" aria-live="polite">
+            <span className="preview-card-eyebrow">Live preview</span>
+            <div className="preview-card-stage">
+              <span className="link-type-pill">{humanActionType(type)}</span>
+              <h3 className="preview-card-title">
+                {title.trim() || <span className="preview-card-placeholder">Untitled link</span>}
+              </h3>
+              {description.trim() ? (
+                <p className="preview-card-description">{description}</p>
               ) : (
-                <span className="amount-main preview-card-placeholder">
-                  {isGoalType ? "Set a target" : "Any amount"}
-                </span>
+                <p className="preview-card-description preview-card-placeholder">
+                  Page description will appear here.
+                </p>
               )}
-            </div>
-            {amountUsdEstimate ? <p className="amount-usd-estimate">{amountUsdEstimate}</p> : null}
-            <p className="preview-card-recipient">
-              <span className="muted">to </span>
-              <span className="value-mono">
-                {compactAddress(recipientAddress) || (
-                  <span className="preview-card-placeholder">kaspa:…</span>
+              <div className="preview-card-divider" />
+              <span className="label">{isGoalType ? "Goal target" : "Amount"}</span>
+              <div className="amount-display amount-display-large">
+                {amountKas.trim() ? (
+                  <>
+                    <span className="amount-main">{amountKas.trim()}</span>
+                    <span className="amount-unit">KAS</span>
+                  </>
+                ) : (
+                  <span className="amount-main preview-card-placeholder">
+                    {isGoalType ? "Set a target" : "Any amount"}
+                  </span>
                 )}
-              </span>
-            </p>
-          </div>
-        </section>
-
-        <form id="new-link-form" onSubmit={createLink} className="new-link-form">
-          {/* Section 1: What is it? */}
-          <section className="card">
-            <h2 className="form-section-heading">What is it?</h2>
-
-            <div className="form-field">
-              <span className="label">Type</span>
-              {/* Compact selector — the big use-case picker lives in the Quick
-                  Start grid above, so here the type is just one field. Picking
-                  a type directly drops any active template back to "custom". */}
-              <div className="type-segmented" role="group" aria-label="Link type">
-                {ACTION_TYPES.map((option) => (
-                  <button
-                    aria-pressed={type === option.value}
-                    className={`type-segment${type === option.value ? " type-segment-active" : ""}`}
-                    key={option.value}
-                    onClick={() => {
-                      setType(option.value);
-                      setActiveTemplateId(null);
-                    }}
-                    type="button"
-                  >
-                    <span className="type-segment-icon" aria-hidden="true">
-                      {option.icon}
-                    </span>
-                    {option.label}
-                  </button>
-                ))}
-                <Link className="type-segment" href="/claim/create">
-                  <span className="type-segment-icon" aria-hidden="true">
-                    {CLAIMABLE_ICON}
-                  </span>
-                  Claimable
-                </Link>
               </div>
-              <p className="form-field-help">{selectedType.description}</p>
-            </div>
-
-            <div className="form-field">
-              <label className="label" htmlFor="action-title">
-                Title
-              </label>
-              <input
-                autoFocus
-                id="action-title"
-                maxLength={80}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder={
-                  type === "kaspa.tip"
-                    ? "Buy me a coffee"
-                    : type === "kaspa.donation"
-                      ? "Support the dev"
-                      : type === "kaspa.invoice"
-                        ? "Invoice #2026-001"
-                        : "Send 10 KAS to a friend"
-                }
-                required
-                type="text"
-                value={title}
-              />
-            </div>
-
-            <div className="form-field">
-              <label className="label" htmlFor="action-description">
-                Page description{" "}
-                <span className="form-field-meta">— shown to supporters on the link page</span>
-              </label>
-              <textarea
-                id="action-description"
-                maxLength={280}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Optional. A short sentence so the supporter knows what they're paying for."
-                value={description}
-              />
-            </div>
-
-            <div className="form-field">
-              <label className="label" htmlFor="action-amount">
-                {isGoalType ? "Goal target" : amountIsRequired ? "Amount" : "Suggested amount"}
-                {!amountIsRequired && !isGoalType ? (
-                  <span className="form-field-meta"> — optional</span>
-                ) : null}
-              </label>
-              <KasAmountInput
-                id="action-amount"
-                onChange={setAmountKas}
-                placeholder={
-                  isGoalType
-                    ? "e.g. 1000"
-                    : amountIsRequired
-                      ? "e.g. 10"
-                      : "Leave blank for pay-what-you-want"
-                }
-                value={amountKas}
-              />
-              <p
-                className={`form-field-help${amountMissingForRequiredType || goalMissing ? " form-field-warn" : ""}`}
-              >
-                {isGoalType
-                  ? goalMissing
-                    ? "Goals need a target so the progress bar has something to fill."
-                    : "Supporters pay what they want. The progress bar fills toward this target."
-                  : amountIsRequired
-                    ? amountMissingForRequiredType
-                      ? `${selectedType.label}s normally need a fixed amount so the supporter knows exactly what to send.`
-                      : `The supporter has to match this amount exactly. Use at least ${MIN_RELIABLE_MAINNET_OUTPUT_KAS} KAS for reliable wallet sending.`
-                    : `Leave blank to let the supporter pick. Set a value of at least ${MIN_RELIABLE_MAINNET_OUTPUT_KAS} KAS to pre-fill the wallet.`}
+              {amountUsdEstimate ? (
+                <p className="amount-usd-estimate">{amountUsdEstimate}</p>
+              ) : null}
+              <p className="preview-card-recipient">
+                <span className="muted">to </span>
+                <span className="value-mono">
+                  {compactAddress(recipientAddress) || (
+                    <span className="preview-card-placeholder">kaspa:…</span>
+                  )}
+                </span>
               </p>
             </div>
           </section>
 
-          {/* Section 2: Where does the money go? */}
-          <section className="card">
-            <h2 className="form-section-heading">Where does the money go?</h2>
-
-            <div className="form-field">
-              <label className="label" htmlFor="action-recipient">
-                Recipient address
-              </label>
-              <div
-                className={`form-field-input-wrap${
-                  addressValidation.state === "valid" ? " is-valid" : ""
-                }${addressValidation.state === "invalid" ? " is-invalid" : ""}`}
-              >
-                <input
-                  id="action-recipient"
-                  {...KASPA_ADDRESS_INPUT_PROPS}
-                  onChange={(event) => setRecipientAddress(event.target.value)}
-                  placeholder="kaspa:..."
-                  required
-                  type="text"
-                  value={recipientAddress}
-                  spellCheck={false}
-                />
-                {addressValidation.state === "valid" ? (
-                  <span
-                    className="form-field-input-indicator form-field-input-indicator-valid"
-                    aria-label="Looks like a valid Kaspa address"
-                  >
-                    <svg
-                      aria-hidden="true"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="3"
-                      viewBox="0 0 24 24"
-                    >
-                      <polyline points="5 13 10 18 19 7" />
-                    </svg>
-                  </span>
-                ) : null}
-                {addressValidation.state === "invalid" ? (
-                  <span
-                    className="form-field-input-indicator form-field-input-indicator-invalid"
-                    aria-label="Address does not look valid"
-                  >
-                    <svg
-                      aria-hidden="true"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="3"
-                      viewBox="0 0 24 24"
-                    >
-                      <line x1="18" x2="6" y1="6" y2="18" />
-                      <line x1="6" x2="18" y1="6" y2="18" />
-                    </svg>
-                  </span>
-                ) : null}
-              </div>
-              {addressValidation.state === "invalid" ? (
-                <p className="form-field-help form-field-warn">{addressValidation.reason}</p>
-              ) : isGoalType ? (
-                <p className="form-field-help form-field-warn">
-                  For exact goal tracking, use a fresh recipient address that is only used for this
-                  goal. Reusing the same address across multiple links can make incoming payments
-                  harder to attribute perfectly.
-                </p>
-              ) : (
-                <p className="form-field-help">
-                  The Kaspa wallet address that will receive payments. Always paste, never type —
-                  these are not human-readable.
-                </p>
-              )}
-            </div>
-          </section>
-
-          {/* Section 3: Public URL — account-free links are served by their public id */}
-          {accountFreeMode ? null : (
+          <form id="new-link-form" onSubmit={createLink} className="new-link-form">
+            {/* Section 1: What is it? */}
             <section className="card">
-              <h2 className="form-section-heading">Public URL</h2>
+              <h2 className="form-section-heading">What is it?</h2>
 
               <div className="form-field">
-                <label className="label" htmlFor="action-slug">
-                  Slug
-                  {!slugTouched && slug.length > 0 ? (
-                    <span className="form-field-meta"> — auto-suggested, edit to override</span>
-                  ) : null}
+                <label className="label" htmlFor="action-title">
+                  Title
                 </label>
                 <input
-                  autoComplete="off"
-                  id="action-slug"
-                  onChange={(event) => handleSlugChange(event.target.value)}
-                  placeholder="my-link"
+                  autoFocus
+                  id="action-title"
+                  maxLength={80}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder={
+                    paymentKind === "fixed"
+                      ? "e.g. Logo design, Ticket, Invoice #12"
+                      : paymentKind === "goal"
+                        ? "e.g. New microphone for the stream"
+                        : type === "kaspa.donation"
+                          ? "Support the dev"
+                          : "Buy me a coffee"
+                  }
                   required
                   type="text"
-                  value={slug}
+                  value={title}
                 />
-                <div className="link-preview" aria-live="polite">
-                  <span className="label">Preview</span>
-                  <p className="value-mono link-preview-value">{slugPreviewUrl || "—"}</p>
-                  {normalizedSlug && normalizedSlug !== slug.trim() ? (
-                    <p className="muted" style={{ margin: 0 }}>
-                      Saved as <code>{normalizedSlug}</code>.
-                    </p>
+              </div>
+
+              <div className="form-field">
+                <label className="label" htmlFor="action-description">
+                  Page description{" "}
+                  <span className="form-field-meta">— shown to supporters on the link page</span>
+                </label>
+                <textarea
+                  id="action-description"
+                  maxLength={280}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Optional. A short sentence so the supporter knows what they're paying for."
+                  value={description}
+                />
+              </div>
+
+              <div className="form-field">
+                <label className="label" htmlFor="action-amount">
+                  {isGoalType ? "Goal target" : amountIsRequired ? "Amount" : "Suggested amount"}
+                  {!amountIsRequired && !isGoalType ? (
+                    <span className="form-field-meta"> — optional</span>
                   ) : null}
-                  {slugPreviewError ? (
-                    <p className="error-text" style={{ margin: 0 }}>
-                      {slugPreviewError}
-                    </p>
-                  ) : null}
-                  {slugServerError ? (
-                    <p className="error-text" style={{ margin: 0 }}>
-                      {slugServerError}
-                    </p>
-                  ) : null}
-                  <button
-                    className="btn"
-                    disabled={
-                      normalizedSlug.length === 0 ||
-                      slugPreviewError !== null ||
-                      slugServerError !== null
-                    }
-                    onClick={() => void copyPreview()}
-                    type="button"
-                  >
-                    {copiedPreview ? "Preview copied" : "Copy preview URL"}
-                  </button>
-                </div>
+                </label>
+                <KasAmountInput
+                  id="action-amount"
+                  onChange={setAmountKas}
+                  placeholder={
+                    isGoalType
+                      ? "e.g. 1000"
+                      : amountIsRequired
+                        ? "e.g. 10"
+                        : "Leave blank for pay-what-you-want"
+                  }
+                  value={amountKas}
+                />
+                <p
+                  className={`form-field-help${amountMissingForRequiredType || goalMissing ? " form-field-warn" : ""}`}
+                >
+                  {isGoalType
+                    ? goalMissing
+                      ? "Goals need a target so the progress bar has something to fill."
+                      : "Supporters pay what they want. The progress bar fills toward this target."
+                    : amountIsRequired
+                      ? amountMissingForRequiredType
+                        ? `${selectedType.label}s normally need a fixed amount so the supporter knows exactly what to send.`
+                        : `The supporter has to match this amount exactly. Use at least ${MIN_RELIABLE_MAINNET_OUTPUT_KAS} KAS for reliable wallet sending.`
+                      : `Leave blank to let the supporter pick. Set a value of at least ${MIN_RELIABLE_MAINNET_OUTPUT_KAS} KAS to pre-fill the wallet.`}
+                </p>
               </div>
             </section>
-          )}
 
-          {/* Section 4: optional extras, folded away so the form stays short */}
-          <details className="card new-link-more">
-            <summary>
-              <span className="form-section-heading">More options</span>
-              <span className="muted">
-                Wallet note, require a note
-                {isGoalType ? ", auto-close" : ""}
-                {accountFreeMode ? "" : ", profile"}
-                {walletNote.trim() || noteRequired ? " · set" : ""}
-              </span>
-            </summary>
-            <div className="form-field">
-              <label className="label" htmlFor="action-wallet-note">
-                Wallet note{" "}
-                <span className="form-field-meta">— appears in the wallet next to the amount</span>
-              </label>
-              <textarea
-                id="action-wallet-note"
-                maxLength={280}
-                onChange={(event) => setWalletNote(event.target.value)}
-                placeholder='e.g. "Thanks for the support!"'
-                value={walletNote}
-              />
-              <p className="form-field-help">
-                This goes into the BIP-21 wallet URI and shows up as a label inside the
-                supporter&apos;s wallet. It is <strong>not</strong> written on-chain.
-              </p>
-            </div>
+            {/* Section 2: Where does the money go? */}
+            <section className="card">
+              <h2 className="form-section-heading">Where does the money go?</h2>
 
-            <div className="form-field form-toggle-field">
-              <label className="form-toggle" htmlFor="action-note-required">
-                <input
-                  checked={noteRequired}
-                  id="action-note-required"
-                  onChange={(event) => setNoteRequired(event.target.checked)}
-                  type="checkbox"
-                />
-                <span className="form-toggle-body">
-                  <span className="form-toggle-title">Require a note from the supporter</span>
-                  <span className="form-toggle-help">
-                    Pay button stays disabled until the supporter writes at least 10 characters.
-                    Good for commissions, custom requests, shout-outs, or anything where the payment
-                    needs context (the note is off-chain, only you see it).
-                  </span>
-                </span>
-              </label>
-            </div>
-
-            {isGoalType ? (
-              <div className="form-field form-toggle-field">
-                <label className="form-toggle" htmlFor="action-goal-auto-close">
-                  <input
-                    checked={goalAutoClose}
-                    id="action-goal-auto-close"
-                    onChange={(event) => setGoalAutoClose(event.target.checked)}
-                    type="checkbox"
-                  />
-                  <span className="form-toggle-body">
-                    <span className="form-toggle-title">Auto-close when the goal is reached</span>
-                    <span className="form-toggle-help">
-                      When on, the payment page stops creating new payment requests after confirmed
-                      contributions reach the target. Existing pending requests can still confirm or
-                      expire normally.
-                    </span>
-                  </span>
+              <div className="form-field">
+                <label className="label" htmlFor="action-recipient">
+                  Recipient address
                 </label>
+                <div
+                  className={`form-field-input-wrap${
+                    addressValidation.state === "valid" ? " is-valid" : ""
+                  }${addressValidation.state === "invalid" ? " is-invalid" : ""}`}
+                >
+                  <input
+                    id="action-recipient"
+                    {...KASPA_ADDRESS_INPUT_PROPS}
+                    onChange={(event) => setRecipientAddress(event.target.value)}
+                    placeholder="kaspa:..."
+                    required
+                    type="text"
+                    value={recipientAddress}
+                    spellCheck={false}
+                  />
+                  {addressValidation.state === "valid" ? (
+                    <span
+                      className="form-field-input-indicator form-field-input-indicator-valid"
+                      aria-label="Looks like a valid Kaspa address"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="3"
+                        viewBox="0 0 24 24"
+                      >
+                        <polyline points="5 13 10 18 19 7" />
+                      </svg>
+                    </span>
+                  ) : null}
+                  {addressValidation.state === "invalid" ? (
+                    <span
+                      className="form-field-input-indicator form-field-input-indicator-invalid"
+                      aria-label="Address does not look valid"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="3"
+                        viewBox="0 0 24 24"
+                      >
+                        <line x1="18" x2="6" y1="6" y2="18" />
+                        <line x1="6" x2="18" y1="6" y2="18" />
+                      </svg>
+                    </span>
+                  ) : null}
+                </div>
+                {addressValidation.state === "invalid" ? (
+                  <p className="form-field-help form-field-warn">{addressValidation.reason}</p>
+                ) : isGoalType ? (
+                  <p className="form-field-help form-field-warn">
+                    For exact goal tracking, use a fresh recipient address that is only used for
+                    this goal. Reusing the same address across multiple links can make incoming
+                    payments harder to attribute perfectly.
+                  </p>
+                ) : (
+                  <p className="form-field-help">
+                    The Kaspa wallet address that will receive payments. Always paste, never type —
+                    these are not human-readable.
+                  </p>
+                )}
+                <details className="new-link-wallet-help">
+                  <summary>No Kaspa wallet yet?</summary>
+                  <ol>
+                    <li>
+                      Install a Kaspa wallet, for example Kaspium on your phone or KasWare in your
+                      browser.
+                    </li>
+                    <li>Open it and copy your receive address. It starts with kaspa:</li>
+                    <li>Paste it here. Your link is ready to share; nobody needs your password.</li>
+                  </ol>
+                  <Link href="/what-is-kaspa#wallets">More about Kaspa wallets</Link>
+                </details>
               </div>
-            ) : null}
+            </section>
 
+            {/* Section 3: Public URL — account-free links are served by their public id */}
             {accountFreeMode ? null : (
-              <div className="form-field form-toggle-field">
-                <label className="form-toggle" htmlFor="action-show-on-profile">
+              <section className="card">
+                <h2 className="form-section-heading">Public URL</h2>
+
+                <div className="form-field">
+                  <label className="label" htmlFor="action-slug">
+                    Slug
+                    {!slugTouched && slug.length > 0 ? (
+                      <span className="form-field-meta"> — auto-suggested, edit to override</span>
+                    ) : null}
+                  </label>
                   <input
-                    checked={
-                      showOnProfile === undefined
-                        ? type === "kaspa.tip" || type === "kaspa.donation" || type === "kaspa.goal"
-                        : showOnProfile
-                    }
-                    id="action-show-on-profile"
-                    onChange={(event) => setShowOnProfile(event.target.checked)}
+                    autoComplete="off"
+                    id="action-slug"
+                    onChange={(event) => handleSlugChange(event.target.value)}
+                    placeholder="my-link"
+                    required
+                    type="text"
+                    value={slug}
+                  />
+                  <div className="link-preview" aria-live="polite">
+                    <span className="label">Preview</span>
+                    <p className="value-mono link-preview-value">{slugPreviewUrl || "—"}</p>
+                    {normalizedSlug && normalizedSlug !== slug.trim() ? (
+                      <p className="muted" style={{ margin: 0 }}>
+                        Saved as <code>{normalizedSlug}</code>.
+                      </p>
+                    ) : null}
+                    {slugPreviewError ? (
+                      <p className="error-text" style={{ margin: 0 }}>
+                        {slugPreviewError}
+                      </p>
+                    ) : null}
+                    {slugServerError ? (
+                      <p className="error-text" style={{ margin: 0 }}>
+                        {slugServerError}
+                      </p>
+                    ) : null}
+                    <button
+                      className="btn"
+                      disabled={
+                        normalizedSlug.length === 0 ||
+                        slugPreviewError !== null ||
+                        slugServerError !== null
+                      }
+                      onClick={() => void copyPreview()}
+                      type="button"
+                    >
+                      {copiedPreview ? "Preview copied" : "Copy preview URL"}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Section 4: optional extras, folded away so the form stays short */}
+            <details className="card new-link-more">
+              <summary>
+                <span className="form-section-heading">More options</span>
+                <span className="muted">
+                  {kindTypes.length > 1 ? "Link type, " : ""}Wallet note, require a note
+                  {isGoalType ? ", auto-close" : ""}
+                  {accountFreeMode ? "" : ", profile"}
+                  {walletNote.trim() || noteRequired ? " · set" : ""}
+                </span>
+              </summary>
+              {kindTypes.length > 1 ? (
+                <div className="form-field">
+                  <span className="label">Link type</span>
+                  <div className="type-segmented" role="group" aria-label="Link type">
+                    {ACTION_TYPES.filter((option) => kindTypes.includes(option.value)).map(
+                      (option) => (
+                        <button
+                          aria-pressed={type === option.value}
+                          className={`type-segment${type === option.value ? " type-segment-active" : ""}`}
+                          key={option.value}
+                          onClick={() => {
+                            setType(option.value);
+                          }}
+                          type="button"
+                        >
+                          <span className="type-segment-icon" aria-hidden="true">
+                            {option.icon}
+                          </span>
+                          {option.label}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                  <p className="form-field-help">{TYPE_HINTS[type]}</p>
+                </div>
+              ) : null}
+              <div className="form-field">
+                <label className="label" htmlFor="action-wallet-note">
+                  Wallet note{" "}
+                  <span className="form-field-meta">
+                    — appears in the wallet next to the amount
+                  </span>
+                </label>
+                <textarea
+                  id="action-wallet-note"
+                  maxLength={280}
+                  onChange={(event) => setWalletNote(event.target.value)}
+                  placeholder='e.g. "Thanks for the support!"'
+                  value={walletNote}
+                />
+                <p className="form-field-help">
+                  This goes into the BIP-21 wallet URI and shows up as a label inside the
+                  supporter&apos;s wallet. It is <strong>not</strong> written on-chain.
+                </p>
+              </div>
+
+              <div className="form-field form-toggle-field">
+                <label className="form-toggle" htmlFor="action-note-required">
+                  <input
+                    checked={noteRequired}
+                    id="action-note-required"
+                    onChange={(event) => setNoteRequired(event.target.checked)}
                     type="checkbox"
                   />
                   <span className="form-toggle-body">
-                    <span className="form-toggle-title">Show on my public profile</span>
+                    <span className="form-toggle-title">Require a note from the supporter</span>
                     <span className="form-toggle-help">
-                      When on, this link appears in the list at{" "}
-                      <code>/u/{username || "your-username"}</code>. Tips and donations are on by
-                      default; invoices and transfers are off by default since they often contain
-                      customer-specific details.
+                      Pay button stays disabled until the supporter writes at least 10 characters.
+                      Good for commissions, custom requests, shout-outs, or anything where the
+                      payment needs context (the note is off-chain, only you see it).
                     </span>
                   </span>
                 </label>
               </div>
-            )}
-          </details>
-        </form>
 
-        {/* Submit lives OUTSIDE the form element so it's a third grid sibling
+              {isGoalType ? (
+                <div className="form-field form-toggle-field">
+                  <label className="form-toggle" htmlFor="action-goal-auto-close">
+                    <input
+                      checked={goalAutoClose}
+                      id="action-goal-auto-close"
+                      onChange={(event) => setGoalAutoClose(event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span className="form-toggle-body">
+                      <span className="form-toggle-title">Auto-close when the goal is reached</span>
+                      <span className="form-toggle-help">
+                        When on, the payment page stops creating new payment requests after
+                        confirmed contributions reach the target. Existing pending requests can
+                        still confirm or expire normally.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              ) : null}
+
+              {accountFreeMode ? null : (
+                <div className="form-field form-toggle-field">
+                  <label className="form-toggle" htmlFor="action-show-on-profile">
+                    <input
+                      checked={
+                        showOnProfile === undefined
+                          ? type === "kaspa.tip" ||
+                            type === "kaspa.donation" ||
+                            type === "kaspa.goal"
+                          : showOnProfile
+                      }
+                      id="action-show-on-profile"
+                      onChange={(event) => setShowOnProfile(event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span className="form-toggle-body">
+                      <span className="form-toggle-title">Show on my public profile</span>
+                      <span className="form-toggle-help">
+                        When on, this link appears in the list at{" "}
+                        <code>/u/{username || "your-username"}</code>. Tips and donations are on by
+                        default; invoices and transfers are off by default since they often contain
+                        customer-specific details.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
+            </details>
+          </form>
+
+          {/* Submit lives OUTSIDE the form element so it's a third grid sibling
             (form / preview / actions). On mobile that puts the preview right
             above the Create-link button so the user reviews before tapping.
             `form="new-link-form"` keeps the button tied to the form so it
             still triggers onSubmit. */}
-        <div className="new-link-actions">
-          {accountFreeMode && turnstile.required ? (
-            <TurnstileWidget
-              action={ACCOUNT_FREE_LINK_TURNSTILE_ACTION}
-              onError={() =>
-                setError("Human verification did not finish yet. It retries on its own.")
+          <div className="new-link-actions">
+            {accountFreeMode && turnstile.required ? (
+              <TurnstileWidget
+                action={ACCOUNT_FREE_LINK_TURNSTILE_ACTION}
+                onError={() =>
+                  setError("Human verification did not finish yet. It retries on its own.")
+                }
+                onToken={(value) => {
+                  setTurnstileToken(value);
+                  if (value) setError(null);
+                }}
+                resetKey={turnstileReset}
+                siteKey={turnstile.siteKey}
+              />
+            ) : null}
+            <button
+              className="btn btn-primary btn-block btn-pay"
+              disabled={
+                submitting ||
+                amountMissingForRequiredType ||
+                goalMissing ||
+                addressValidation.state !== "valid" ||
+                turnstileMissing ||
+                (!accountFreeMode &&
+                  (normalizedSlug.length === 0 ||
+                    slugPreviewError !== null ||
+                    slugServerError !== null))
               }
-              onToken={(value) => {
-                setTurnstileToken(value);
-                if (value) setError(null);
-              }}
-              resetKey={turnstileReset}
-              siteKey={turnstile.siteKey}
-            />
-          ) : null}
-          <button
-            className="btn btn-primary btn-block btn-pay"
-            disabled={
-              submitting ||
-              amountMissingForRequiredType ||
-              goalMissing ||
-              addressValidation.state !== "valid" ||
-              turnstileMissing ||
-              (!accountFreeMode &&
-                (normalizedSlug.length === 0 ||
-                  slugPreviewError !== null ||
-                  slugServerError !== null))
-            }
-            form="new-link-form"
-            type="submit"
-          >
-            {submitting ? "Creating..." : "Create link"}
-          </button>
-          {error ? (
-            <p className="error-text" style={{ marginTop: 8 }}>
-              {error}
-            </p>
-          ) : null}
+              form="new-link-form"
+              type="submit"
+            >
+              {submitting ? "Creating..." : "Create link"}
+            </button>
+            {error ? (
+              <p className="error-text" style={{ marginTop: 8 }}>
+                {error}
+              </p>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <section className="card card-muted">
         <p className="muted" style={{ margin: 0 }}>

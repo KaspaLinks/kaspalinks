@@ -8,7 +8,7 @@ const START_TILES = [
   {
     body: "Tips, donations, goals or invoices, paid straight to your wallet.",
     cta: "Create a payment link",
-    href: "/new-link",
+    href: "/new-link?start=paid",
     title: "Get paid",
   },
   {

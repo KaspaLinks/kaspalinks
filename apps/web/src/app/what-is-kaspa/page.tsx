@@ -84,7 +84,7 @@ export default function WhatIsKaspaPage() {
         </div>
       </section>
 
-      <section className="card card-muted what-is-kaspa-wallets">
+      <section className="card card-muted what-is-kaspa-wallets" id="wallets">
         <h2 style={{ marginBottom: 8 }}>How do I get a Kaspa wallet?</h2>
         <p className="muted" style={{ marginBottom: 14 }}>
           Three solid starting points, depending on where you live with your coins:
