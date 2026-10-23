@@ -5,6 +5,9 @@ import { resetMainnetDagInfoCacheForTests } from "@/lib/mainnet-dag-info";
 
 import { GET, POST } from "./route";
 
+// The past median time trails real time by about two minutes; older scores are refused.
+const MEDIAN_TIME = String(Date.now() - 2 * 60_000);
+
 function dagInfoRequest() {
   return new Request("https://kaspalinks.com/api/toccata-lab/dag-info", {
     headers: { "x-forwarded-for": "203.0.113.15" },
@@ -37,7 +40,7 @@ describe("GET /api/toccata-lab/dag-info", () => {
       new Response(
         JSON.stringify({
           networkName: "kaspa-mainnet",
-          pastMedianTime: "1783170335272",
+          pastMedianTime: MEDIAN_TIME,
           virtualDaaScore: "477506357",
         }),
         { status: 200 },
@@ -49,7 +52,7 @@ describe("GET /api/toccata-lab/dag-info", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       network: "mainnet",
-      pastMedianTime: "1783170335272",
+      pastMedianTime: MEDIAN_TIME,
       virtualDaaScore: "477506357",
     });
   });
@@ -78,7 +81,7 @@ describe("GET /api/toccata-lab/dag-info", () => {
         new Response(
           JSON.stringify({
             networkName: "kaspa-mainnet",
-            pastMedianTime: "1783170335272",
+            pastMedianTime: MEDIAN_TIME,
             virtualDaaScore: "477506357",
           }),
           { status: 200 },
@@ -97,7 +100,7 @@ describe("GET /api/toccata-lab/dag-info", () => {
       new Response(
         JSON.stringify({
           networkName: "kaspa-mainnet",
-          pastMedianTime: "1783170335272",
+          pastMedianTime: MEDIAN_TIME,
           virtualDaaScore: "477506357",
         }),
         { status: 200 },

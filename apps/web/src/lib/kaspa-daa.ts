@@ -7,8 +7,8 @@ const blockDagInfoSchema = z.object({
 
 export async function readCurrentMainnetDaaScore(): Promise<bigint> {
   const response = await fetch("https://api.kaspa.org/info/blockdag", {
+    cache: "no-store",
     headers: { accept: "application/json" },
-    next: { revalidate: 5 },
   });
   if (!response.ok) throw new Error("Could not read current Kaspa DAA score.");
 

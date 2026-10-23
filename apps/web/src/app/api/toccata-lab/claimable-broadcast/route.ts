@@ -313,8 +313,8 @@ export async function POST(request: Request) {
 async function readCurrentDaaScore(): Promise<bigint> {
   const response = await fetch("https://api.kaspa.org/info/blockdag", {
     headers: { accept: "application/json" },
+    cache: "no-store",
     signal: AbortSignal.timeout(7_000),
-    next: { revalidate: 5 },
   });
 
   if (!response.ok) {
