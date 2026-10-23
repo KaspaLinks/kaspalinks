@@ -423,6 +423,47 @@ describe("detectAndConfirmPayment", () => {
     expect(stub.outbox).toEqual([{ dedupeKey: "telegram:payment:pr-1" }]);
   });
 
+  it("leaves an invoice open when two people pay the same amount at the same time", async () => {
+    // Both payments really arrived at the recipient address, but nothing on
+    // chain says which payer opened which request: neither request may claim
+    // a payment, and the invoice must not be marked paid by a guess.
+    const incoming = ["payer-a-tx", "payer-b-tx"].map((transactionId, index) => ({
+      blockTime: Date.parse("2026-05-13T10:00:20Z") + index * 1_000,
+      matchedSompi: 1_000_000_000n,
+      outputIndex: 0,
+      transactionId,
+    }));
+    for (const id of ["pr-1", "pr-2"]) {
+      const stub = buildPrismaStub(
+        { id },
+        { actionType: ActionType.KASPA_INVOICE, telegramConnected: true },
+      );
+      stub.control.possibleRequests = 2;
+      const request = {
+        actionId: "action-1",
+        status: PaymentRequestStatus.PENDING,
+        supporterMessage: null,
+        supporterName: null,
+        supporterPublic: false,
+      };
+      stub.control.overlapping = [
+        { ...request, id: "pr-2" },
+        { ...request, id: "pr-1" },
+      ];
+      stub.control.createdBy = { "pr-1": "payer-a", "pr-2": "payer-b" };
+      const indexer = buildIndexer(incoming[0] ?? null, { incoming });
+
+      expect((await detectAndConfirmPayment(stub.request, indexer, stub.client)).kind).toBe(
+        "ambiguous",
+      );
+      expect(stub.request.status).toBe(PaymentRequestStatus.PENDING);
+      expect(stub.request.txId).toBeNull();
+      expect(stub.events).toHaveLength(0);
+      expect(stub.invoicePaidAt).toBeNull();
+      expect(stub.outbox).toHaveLength(0);
+    }
+  });
+
   it("skips when the request is not PENDING", async () => {
     const stub = buildPrismaStub({ status: PaymentRequestStatus.CONFIRMED });
     const indexer = buildIndexer({
