@@ -72,14 +72,15 @@ export default function Home() {
               <span className="home-start-cta">{tile.cta} →</span>
             </Link>
           ))}
-          {botUrl ? (
-            <a className="home-start-tile" href={botUrl} rel="noreferrer" target="_blank">
-              <strong>Use it in Telegram</strong>
-              <span>The same links and giveaways from a chat, without leaving Telegram.</span>
-              <span className="home-start-cta">Open the bot →</span>
-            </a>
-          ) : null}
         </div>
+        {botUrl ? (
+          <p className="home-start-telegram">
+            Also in Telegram: the same links and giveaways from a chat.{" "}
+            <a href={botUrl} rel="noreferrer" target="_blank">
+              Open the bot →
+            </a>
+          </p>
+        ) : null}
       </section>
 
       {/* Landing demo — a visual mockup of an actual Kaspa Links pay-page.
@@ -214,204 +215,41 @@ export default function Home() {
 
       <section className="why">
         <h2 className="why-heading">Why Kaspa Links?</h2>
-        <ul className="why-list">
+        <ul className="why-list why-list-compact">
           <li className="why-item">
             <span className="feature-dot" aria-hidden="true" />
             <div>
-              <strong className="why-item-lead">Direct, no middleman.</strong>
-              <p className="why-item-body">
-                Payments go from your supporter&apos;s wallet to yours, period. No platform fees, no
-                payout delays, no account freezes, no chargebacks.
-              </p>
+              <strong className="why-item-lead">Straight to your wallet.</strong>
+              <p className="why-item-body">No middleman, no platform fee, no payout delay.</p>
             </div>
           </li>
           <li className="why-item">
             <span className="feature-dot" aria-hidden="true" />
             <div>
-              <strong className="why-item-lead">Just paste, just scan.</strong>
-              <p className="why-item-body">
-                A 60-character Kaspa address is unreadable. A link with recipient, amount, and
-                message pre-filled is one tap or one scan away from done.
-              </p>
+              <strong className="why-item-lead">Confirmed in a second.</strong>
+              <p className="why-item-body">Supporters see CONFIRMED before they switch tabs.</p>
             </div>
           </li>
           <li className="why-item">
             <span className="feature-dot" aria-hidden="true" />
             <div>
-              <strong className="why-item-lead">Built for Kaspa speed.</strong>
-              <p className="why-item-body">
-                Kaspa confirms in under a second. Your supporter sees CONFIRMED before they switch
-                tabs.
-              </p>
-            </div>
-          </li>
-          <li className="why-item">
-            <span className="feature-dot" aria-hidden="true" />
-            <div>
-              <strong className="why-item-lead">Open-source, self-hostable.</strong>
-              <p className="why-item-body">
-                Run it on your own VPS, audit every line, fork it. No vendor lock-in, no tracking,
-                no email required.
-              </p>
+              <strong className="why-item-lead">Open source.</strong>
+              <p className="why-item-body">Audit it or host it yourself. No tracking, no email.</p>
             </div>
           </li>
         </ul>
-      </section>
-
-      <section className="use-cases">
-        <h2 className="use-cases-heading">Built for</h2>
-        <div className="use-cases-grid">
-          <Link className="use-case" href="/try-it-out#creators">
-            <span className="use-case-icon" aria-hidden="true">
-              <svg
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.6"
-                viewBox="0 0 24 24"
-              >
-                <rect height="11" rx="3" width="6" x="9" y="3" />
-                <path d="M5 11a7 7 0 0 0 14 0" />
-                <line x1="12" x2="12" y1="18" y2="21" />
-                <line x1="8" x2="16" y1="21" y2="21" />
-              </svg>
-            </span>
-            <span className="use-case-tag">Streamers &amp; creators</span>
-            <h3 className="use-case-title">Tips that just work</h3>
-            <p className="use-case-body">
-              Drop a tip link in your bio, or render the QR as an OBS overlay so live viewers can
-              pay without leaving the stream.
-            </p>
-          </Link>
-          <Link className="use-case" href="/try-it-out#freelancers">
-            <span className="use-case-icon" aria-hidden="true">
-              <svg
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.6"
-                viewBox="0 0 24 24"
-              >
-                <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-                <polyline points="14 3 14 9 20 9" />
-                <line x1="8" x2="14" y1="13" y2="13" />
-                <line x1="8" x2="16" y1="17" y2="17" />
-              </svg>
-            </span>
-            <span className="use-case-tag">Freelancers</span>
-            <h3 className="use-case-title">Send a clean invoice</h3>
-            <p className="use-case-body">
-              Issue a fixed-amount link; the page flips to CONFIRMED automatically once the
-              transaction lands. No reconciliation by hand.
-            </p>
-          </Link>
-          <Link className="use-case" href="/try-it-out#communities">
-            <span className="use-case-icon" aria-hidden="true">
-              <svg
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.6"
-                viewBox="0 0 24 24"
-              >
-                <circle cx="12" cy="5" r="2.2" />
-                <circle cx="5" cy="17" r="2.2" />
-                <circle cx="19" cy="17" r="2.2" />
-                <line x1="11.2" x2="6.2" y1="6.9" y2="15.1" />
-                <line x1="12.8" x2="17.8" y1="6.9" y2="15.1" />
-                <line x1="7.2" x2="16.8" y1="17" y2="17" />
-              </svg>
-            </span>
-            <span className="use-case-tag">Communities &amp; DAOs</span>
-            <h3 className="use-case-title">Fund transparently</h3>
-            <p className="use-case-body">
-              Every payment is on-chain and publicly verifiable. No platform sitting between your
-              treasury and your supporters.
-            </p>
-          </Link>
-          <Link className="use-case" href="/try-it-out#goals">
-            <span className="use-case-icon" aria-hidden="true">
-              <svg
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.6"
-                viewBox="0 0 24 24"
-              >
-                <circle cx="12" cy="12" r="9" />
-                <circle cx="12" cy="12" r="5" />
-                <circle cx="12" cy="12" r="1.5" />
-              </svg>
-            </span>
-            <span className="use-case-tag">Projects &amp; crowdfunding</span>
-            <h3 className="use-case-title">Crowdfund toward a goal</h3>
-            <p className="use-case-body">
-              Set a target and let supporters pay what they want. A live progress bar shows how
-              close you are — raised so far, percent funded, and supporter count.
-            </p>
-          </Link>
-          <Link className="use-case" href="/try-it-out#developers">
-            <span className="use-case-icon" aria-hidden="true">
-              <svg
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.6"
-                viewBox="0 0 24 24"
-              >
-                <polyline points="9 8 4 12 9 16" />
-                <polyline points="15 8 20 12 15 16" />
-                <line x1="14" x2="10" y1="6" y2="18" />
-              </svg>
-            </span>
-            <span className="use-case-tag">Developers</span>
-            <h3 className="use-case-title">Embed it anywhere</h3>
-            <p className="use-case-body">
-              Drop a &ldquo;Tip with Kaspa&rdquo; button on any page with the embed-button package,
-              or build directly against the kaspa-actions SDK.
-            </p>
-          </Link>
-          <Link className="use-case" href="/try-it-out#claimable">
-            <span className="use-case-icon" aria-hidden="true">
-              <svg
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.6"
-                viewBox="0 0 24 24"
-              >
-                <polyline points="20 12 20 22 4 22 4 12" />
-                <rect height="5" width="20" x="2" y="7" />
-                <line x1="12" x2="12" y1="22" y2="7" />
-                <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" />
-                <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
-              </svg>
-            </span>
-            <span className="use-case-tag">Gifts, giveaways &amp; rewards</span>
-            <h3 className="use-case-title">Claimable links &amp; drops</h3>
-            <p className="use-case-body">
-              Create one reward or a drop of up to 8 separate claim links. Fund a drop once, share
-              every link individually. Unclaimed KAS goes back to your wallet by itself.
-            </p>
-          </Link>
-        </div>
-      </section>
-
-      <section className="card card-muted">
-        <h2 style={{ marginBottom: 6 }}>What this is not</h2>
-        <p className="muted" style={{ margin: 0 }}>
-          Not a wallet. Not custody. Not a payment processor in the legal sense. Payment links,
-          claim links, Claim Drops and on-chain giveaways are live today; splits and more covenant
-          features are on the roadmap. <Link href="/roadmap">See the full roadmap →</Link>{" "}
-          <Link href="/deck">Read the pitch →</Link>
+        <p className="home-examples">
+          Ideas: a <Link href="/try-it-out#creators">tip jar</Link>, an{" "}
+          <Link href="/try-it-out#freelancers">invoice</Link>, a{" "}
+          <Link href="/try-it-out#goals">fundraising goal</Link> or a{" "}
+          <Link href="/try-it-out#claimable">claim drop</Link>.
         </p>
       </section>
+
+      <p className="home-footnote muted">
+        Not a wallet and never custody: Kaspa Links only builds the links.{" "}
+        <Link href="/roadmap">Roadmap</Link> · <Link href="/deck">Pitch</Link>
+      </p>
     </main>
   );
 }

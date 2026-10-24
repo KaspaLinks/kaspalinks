@@ -510,6 +510,27 @@ ul li {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }
 
+.home-start-telegram {
+  margin: 12px 0 0;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+.home-examples {
+  margin: 16px 0 0;
+  color: var(--fg-muted);
+}
+.home-footnote {
+  margin: 8px 0 24px;
+  font-size: 0.85rem;
+  text-align: center;
+}
+@media (min-width: 900px) {
+  main.main-wide .why-list.why-list-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .home-start-tile {
   display: grid;
   align-content: start;
