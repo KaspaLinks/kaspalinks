@@ -24,6 +24,7 @@ import { ACCOUNT_FREE_LINK_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
 import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
 import { AccountFreeLinkCreated, type AccountFreeCreatedLink } from "./AccountFreeLinkCreated";
 import { canShowGiveawayTemplate, slugify, validateRecipientAddress } from "./helpers";
+import { takeQuickRecipient } from "./quick-recipient";
 
 type ActionTypeValue =
   | "kaspa.tip"
@@ -617,6 +618,9 @@ export function NewLinkClient({
       if (!templateFromUrl && validType) {
         setType(validType.value);
       }
+
+      const quickRecipient = takeQuickRecipient();
+      if (quickRecipient) setRecipientAddress(quickRecipient);
 
       const kindFromUrl = PAYMENT_KINDS.find((option) => option.kind === params.get("kind"));
       const kindTemplate = kindFromUrl && LINK_TEMPLATE_BY_ID.get(kindFromUrl.templateId);
