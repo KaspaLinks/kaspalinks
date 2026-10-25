@@ -137,6 +137,18 @@ export function BatchClaimableLabClient({
   const [expiryUnit, setExpiryUnit] = useState<ToccataCanaryExpiryUnit>("hours");
   const [expiryValue, setExpiryValue] = useState("24");
   const [generating, setGenerating] = useState(false);
+  // After "Create links" the long form gives way to the shorter funding card;
+  // scroll to it once it has rendered, or a phone stays at its bottom.
+  const progressScrollPending = useRef(false);
+  const [, setProgressScrollRequest] = useState(0);
+
+  useEffect(() => {
+    if (!progressScrollPending.current) return;
+    const panel = document.getElementById("claim-drop-progress");
+    if (!panel) return;
+    progressScrollPending.current = false;
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   const [registering, setRegistering] = useState(false);
   const [linkTitles, setLinkTitles] = useState(() => defaultLinkTitles(safeInitialCount));
   const [notice, setNotice] = useState("");
@@ -673,6 +685,8 @@ export function BatchClaimableLabClient({
       await persist(registered);
       setShowKaswareHelp(false);
       setShowFundingQr(false);
+      progressScrollPending.current = true;
+      setProgressScrollRequest((value) => value + 1);
       setNotice(
         autoReturn
           ? "Claim Drop ready. The claim codes stay in this browser. Unclaimed KAS returns to your wallet by itself."
@@ -2243,7 +2257,7 @@ export function BatchClaimableLabClient({
           </button>
         </div>
       ) : stage && progress ? (
-        <section className="card batch-lab-panel batch-drop-panel">
+        <section className="card batch-lab-panel batch-drop-panel" id="claim-drop-progress">
           <header className="batch-drop-heading">
             <div>
               <span className="label">Claim drop</span>

@@ -578,6 +578,16 @@ export function ToccataLabClient({
   const [isTouchOnly, setIsTouchOnly] = useState<null | boolean>(null);
   const [spendBuilding, setSpendBuilding] = useState<"claim" | "refund" | null>(null);
   const recoveryInputRef = useRef<HTMLInputElement>(null);
+  const fundingScrollPending = useRef(false);
+  const [, setFundingScrollRequest] = useState(0);
+
+  useEffect(() => {
+    if (!fundingScrollPending.current) return;
+    const panel = document.getElementById("single-claimable-funding");
+    if (!panel) return;
+    fundingScrollPending.current = false;
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 
   const spendPlanResult = useMemo(() => {
     try {
@@ -1400,12 +1410,13 @@ export function ToccataLabClient({
     }
   }
 
+  // Asked for right after creating a link, before React has rendered the
+  // funding card; the effect below scrolls once it exists. On a phone the
+  // form is long, so without this the shorter funding card opens scrolled to
+  // its bottom and "Open in wallet" sits above the screen.
   function scrollToSingleClaimableFunding() {
-    window.requestAnimationFrame(() =>
-      document
-        .getElementById("single-claimable-funding")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-    );
+    fundingScrollPending.current = true;
+    setFundingScrollRequest((value) => value + 1);
   }
 
   function openRecoverySkipWarning() {
