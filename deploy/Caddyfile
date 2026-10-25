@@ -58,16 +58,13 @@ www.{$DOMAIN} {
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-origin"
 
-		# Content Security Policy.
-		# 'unsafe-inline' / 'unsafe-eval' for scripts and styles is required by
-		# Next.js streaming SSR + hydration — Next inlines the React payload as
-		# <script> tags during streaming, and inline style= attributes are used
-		# throughout the app. Tighter modes (nonces / strict-dynamic) need
-		# middleware support we haven't wired up yet.
+		# Content Security Policy fallback. Pages get a stricter nonce-based policy
+		# from the app (apps/web/src/proxy.ts); the leading "?" sets this one only
+		# on responses without their own, such as API routes and static files.
 		# img-src allows data: and blob: so the QR code data-URLs and the OG
 		# image render. Cloudflare Turnstile is the only approved third-party
 		# script/frame/connect origin and protects public giveaway entries.
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		?Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 
 		-Server
 	}
@@ -75,10 +72,10 @@ www.{$DOMAIN} {
 	# Only the Mini App and its sign-in continuation may be embedded by Telegram Web.
 	# Deferred replacement preserves the stricter default for every other page.
 	@telegramMini path /telegram /telegram/* /toccata-lab/giveaway /toccata-lab/giveaway/* /sign-in /create-profile
+	# Their CSP (frame-ancestors https://web.telegram.org) comes from the app.
 	header @telegramMini {
 		defer
 		-X-Frame-Options
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors https://web.telegram.org; base-uri 'self'; form-action 'self'; object-src 'none'"
 	}
 
 	log {

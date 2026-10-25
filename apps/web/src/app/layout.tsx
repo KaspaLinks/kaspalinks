@@ -20,6 +20,10 @@ const SITE_DESCRIPTION =
 const X_PROFILE_URL = "https://x.com/kaspalinks";
 const GITHUB_REPOSITORY_URL = "https://github.com/KaspaLinks/kaspalinks";
 
+// Every page renders per request so it can carry the CSP nonce from proxy.ts;
+// a prerendered page would have no nonce and its inline scripts would be blocked.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   // Canonical for the apex URL. Per-route pages override this with their
   // own canonical path so Google groups duplicate-via-trailing-slash etc.

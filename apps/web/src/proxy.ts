@@ -1,32 +1,22 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Strict, nonce-based Content-Security-Policy for claimable-link routes. The
-// claim/refund pages hold bearer-style codes in the URL fragment, so we drop
-// script-src 'unsafe-inline' here and require a per-request nonce instead.
-// 'unsafe-eval' stays because the kaspa-wasm signer needs it. This is scoped to
-// claimable routes only so the broader public site keeps the existing Caddy CSP.
+import { buildContentSecurityPolicy } from "./lib/content-security-policy";
+
+// Nonce-based Content-Security-Policy for every page. Without 'unsafe-inline'
+// an injected script cannot run, which is what keeps the bearer secrets this
+// site handles (claim codes, manage tokens) out of reach. Next reads the nonce
+// from the request header and puts it on its own <script> tags; Caddy only
+// sets its fallback policy on responses that carry none (API, static files).
 export function proxy(request: NextRequest) {
   const nonceBytes = crypto.getRandomValues(new Uint8Array(16));
   const nonce = btoa(String.fromCharCode(...nonceBytes));
+  const csp = buildContentSecurityPolicy({
+    development: process.env.NODE_ENV === "development",
+    nonce,
+    pathname: request.nextUrl.pathname,
+  });
 
-  const csp = [
-    "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' https://challenges.cloudflare.com https://telegram.org`,
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
-    "font-src 'self'",
-    "connect-src 'self' https://challenges.cloudflare.com",
-    "frame-src https://challenges.cloudflare.com",
-    "worker-src 'self' blob:",
-    "frame-ancestors 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "object-src 'none'",
-  ].join("; ");
-
-  // Next reads the request Content-Security-Policy header to find the nonce and
-  // applies it to its own <script> tags during rendering.
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
@@ -37,5 +27,14 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/toccata-lab", "/toccata-lab/:path*", "/claim", "/claim/:path*"],
+  matcher: [
+    {
+      // Pages only: no API routes, build assets, images or files with an extension.
+      source: "/((?!api/|_next/static|_next/image|.*\\.[a-zA-Z0-9]+$).*)",
+      missing: [
+        { key: "next-router-prefetch", type: "header" },
+        { key: "purpose", type: "header", value: "prefetch" },
+      ],
+    },
+  ],
 };

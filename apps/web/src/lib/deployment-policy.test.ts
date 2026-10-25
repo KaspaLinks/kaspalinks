@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import { buildContentSecurityPolicy } from "./content-security-policy";
+
 const caddy = readFileSync("deploy/Caddyfile", "utf8");
 
 describe("Caddy authentication boundaries", () => {
@@ -42,8 +44,24 @@ describe("Caddy authentication boundaries", () => {
     expect(caddy).toContain(
       "@telegramMini path /telegram /telegram/* /toccata-lab/giveaway /toccata-lab/giveaway/* /sign-in /create-profile",
     );
-    expect(caddy).toMatch(/header @telegramMini \{\s*defer\s*-X-Frame-Options/);
-    expect(caddy).toContain("frame-ancestors https://web.telegram.org;");
+    expect(caddy).toMatch(/header @telegramMini \{\s*defer\s*-X-Frame-Options\s*\}/);
     expect(caddy).toContain('X-Frame-Options "DENY"');
+    // The pages' CSP, frame-ancestors included, comes from the app: Caddy only
+    // sets its policy where a response has none.
+    expect(caddy).toContain("?Content-Security-Policy");
+    expect(caddy).not.toMatch(/^\s*Content-Security-Policy /m);
+    for (const pathname of [
+      "/telegram",
+      "/toccata-lab/giveaway/x",
+      "/sign-in",
+      "/create-profile",
+    ]) {
+      expect(buildContentSecurityPolicy({ development: false, nonce: "n", pathname })).toContain(
+        "frame-ancestors https://web.telegram.org",
+      );
+    }
+    expect(buildContentSecurityPolicy({ development: false, nonce: "n", pathname: "/" })).toContain(
+      "frame-ancestors 'none'",
+    );
   });
 });
