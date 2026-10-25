@@ -88,6 +88,29 @@ own profile where `creatorId` matches the authenticated creator. Profile deletio
 creator row, owned Actions, and related PaymentRequests; security AuditLog rows remain with
 database foreign keys cleared so abuse investigations still have an event trail.
 
+## Links without an account: browser storage
+
+Links created without an account have no server-side owner, so their private material lives in
+the creating browser: the manage token of a payment link, the claim link (with its claim code) of a
+claimable link, and the guest workspace of a giveaway.
+
+- Manage tokens and claim links are sealed with AES-GCM before they reach `localStorage`. The key
+  is generated in the browser as a non-extractable `CryptoKey` and kept in IndexedDB, so a copy of
+  the stored data shows ciphertext. Titles and amounts stay readable for the list. Entries written
+  before sealing are sealed on their next read.
+- A claim code is kept only while its link can still be claimed: when the list loads, claim links
+  that were claimed, returned or no longer exist are removed from the browser.
+- Script running on the site could still use the key. What keeps such script out is the
+  Content-Security-Policy below.
+
+## Content-Security-Policy
+
+Every page gets a per-request nonce from `apps/web/src/proxy.ts`; inline scripts without it do not
+run. Only pages that run the Kaspa WASM signer in the browser (claim links, escrow) allow
+`'unsafe-eval'`, which its wasm-bindgen glue still needs; everywhere else `'wasm-unsafe-eval'` is
+enough. Telegram Web may frame only the Mini App pages. Caddy sets a fallback policy just for
+responses without one, such as API routes and static files.
+
 ## Telegram Agent authentication
 
 Agent access is deny-by-default and enabled per Creator. Connection codes are random, expire after

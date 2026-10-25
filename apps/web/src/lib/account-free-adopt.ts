@@ -1,8 +1,4 @@
-import {
-  readAccountFreeEntries,
-  removeAccountFreeEntries,
-  type AccountFreeEntry,
-} from "./account-free-store";
+import { removeAccountFreeEntries, type AccountFreeEntry } from "./account-free-store";
 import { saveClaimableRecord } from "./claimable-store";
 
 export type CreatorSessionHeaders = { token: string; username: string };
@@ -14,7 +10,7 @@ export type CreatorSessionHeaders = { token: string; username: string };
  */
 export async function moveAccountFreeEntriesIntoAccount(
   session: CreatorSessionHeaders,
-  entries: AccountFreeEntry[] = readAccountFreeEntries(),
+  entries: AccountFreeEntry[],
 ): Promise<{ moved: number; remaining: number }> {
   const headers = {
     "content-type": "application/json",

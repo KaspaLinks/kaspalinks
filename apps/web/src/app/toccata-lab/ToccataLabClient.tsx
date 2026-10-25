@@ -638,7 +638,7 @@ export function ToccataLabClient({
       // Once funded, list it under "Created in this browser" so it survives closing
       // the tab and can move into an account later.
       if (claimUrl && labLink.manageToken) {
-        addAccountFreeEntry({
+        void addAccountFreeEntry({
           amountKas: labLink.netClaimKas,
           claimUrl,
           createdAt: labLink.createdAt,

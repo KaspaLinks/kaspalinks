@@ -691,7 +691,7 @@ export function NewLinkClient({
         return;
       }
       const publicId = String(body.action.publicId);
-      const savedInBrowser = addAccountFreeEntry({
+      const savedInBrowser = await addAccountFreeEntry({
         createdAt: String(body.action.createdAt),
         kind: "payment",
         manageToken,

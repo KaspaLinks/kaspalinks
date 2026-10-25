@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { moveAccountFreeEntriesIntoAccount } from "@/lib/account-free-adopt";
+import { forgetFinishedClaimLinks } from "@/lib/account-free-cleanup";
 import {
   ACCOUNT_FREE_STORE_EVENT,
   ACCOUNT_FREE_STORE_KEY,
@@ -23,7 +24,12 @@ const TYPE_LABELS: Record<string, string> = {
 function useAccountFreeEntries(): AccountFreeEntry[] {
   const [entries, setEntries] = useState<AccountFreeEntry[]>([]);
   useEffect(() => {
-    const refresh = () => setEntries(readAccountFreeEntries());
+    let active = true;
+    // Opening the entries also seals any left in plain text from before.
+    const refresh = () =>
+      void readAccountFreeEntries().then((next) => {
+        if (active) setEntries(next);
+      });
     const onStorage = (event: StorageEvent) => {
       if (event.key === null || event.key === ACCOUNT_FREE_STORE_KEY) refresh();
     };
@@ -31,6 +37,7 @@ function useAccountFreeEntries(): AccountFreeEntry[] {
     window.addEventListener(ACCOUNT_FREE_STORE_EVENT, refresh);
     window.addEventListener("storage", onStorage);
     return () => {
+      active = false;
       window.removeEventListener(ACCOUNT_FREE_STORE_EVENT, refresh);
       window.removeEventListener("storage", onStorage);
     };
@@ -53,6 +60,22 @@ export function AccountFreeLinksPanel({
   const entries = useAccountFreeEntries();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [cleanupDone, setCleanupDone] = useState(false);
+  const signedIn = session !== null;
+
+  // Signed out, this browser is the only place that holds the claim codes:
+  // forget the ones whose links are finished.
+  useEffect(() => {
+    if (signedIn || cleanupDone || entries.length === 0) return;
+    setCleanupDone(true);
+    void forgetFinishedClaimLinks(entries).then((removed) => {
+      if (removed > 0) {
+        setNotice(
+          `Removed ${removed} finished claim ${removed === 1 ? "link" : "links"} from this browser; ${removed === 1 ? "its claim code is" : "their claim codes are"} no longer needed.`,
+        );
+      }
+    });
+  }, [cleanupDone, entries, signedIn]);
 
   if (entries.length === 0) return null;
 

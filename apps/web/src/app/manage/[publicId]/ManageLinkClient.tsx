@@ -68,13 +68,23 @@ export function ManageLinkClient({ publicId }: { publicId: string }) {
 
   useEffect(() => {
     const fromFragment = readTokenFromFragment();
-    const stored = readAccountFreeEntries().find(
-      (entry): entry is AccountFreePaymentEntry =>
-        entry.kind === "payment" && entry.publicId === publicId,
-    );
-    const token = fromFragment || stored?.manageToken || "";
-    setManageToken(token);
-    if (!token) setState({ kind: "missing" });
+    if (fromFragment) {
+      setManageToken(fromFragment);
+      return;
+    }
+    let cancelled = false;
+    void readAccountFreeEntries().then((entries) => {
+      if (cancelled) return;
+      const stored = entries.find(
+        (entry): entry is AccountFreePaymentEntry =>
+          entry.kind === "payment" && entry.publicId === publicId,
+      );
+      setManageToken(stored?.manageToken ?? "");
+      if (!stored) setState({ kind: "missing" });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [publicId]);
 
   const load = useCallback(async () => {
@@ -95,7 +105,7 @@ export function ManageLinkClient({ publicId }: { publicId: string }) {
       const link = body.action as ManagedLink;
       setState({ kind: "ready", link, payments: body.payments as ManagedPayments });
       // Opening the manage link on another device adds it to that browser's list too.
-      addAccountFreeEntry({
+      void addAccountFreeEntry({
         createdAt: link.createdAt,
         kind: "payment",
         manageToken,
@@ -144,11 +154,7 @@ export function ManageLinkClient({ publicId }: { publicId: string }) {
         setNotice("Could not delete the link. Try again.");
         return;
       }
-      removeAccountFreeEntries(
-        readAccountFreeEntries().filter(
-          (entry) => entry.kind === "payment" && entry.publicId === publicId,
-        ),
-      );
+      removeAccountFreeEntries([{ kind: "payment", publicId }]);
       setState({ kind: "deleted" });
     } finally {
       setBusy(false);
@@ -161,7 +167,7 @@ export function ManageLinkClient({ publicId }: { publicId: string }) {
     try {
       const result = await moveAccountFreeEntriesIntoAccount(
         session,
-        readAccountFreeEntries().filter(
+        (await readAccountFreeEntries()).filter(
           (entry) => entry.kind === "payment" && entry.publicId === publicId,
         ),
       );
