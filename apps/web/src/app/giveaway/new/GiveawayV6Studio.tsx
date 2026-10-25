@@ -24,6 +24,7 @@ import {
   listGiveawayV6Slots,
 } from "@/lib/giveaway-v6-slots";
 import { validateRecipientAddress } from "../../new-link/helpers";
+import { readStoredGuest, storeGuest, type GuestIdentity } from "@/lib/giveaway-guest-store";
 
 type Surface = "browser" | "telegram";
 type StudioView = "create" | "manage";
@@ -138,34 +139,6 @@ type GiveawayV6Budget = ReturnType<typeof buildGiveawayV6Budget>;
 // Giveaways on the website without a profile run in a hidden guest workspace.
 // Its credentials stay in this browser (and in the private manage link); the
 // rest of the site stays signed out.
-const GUEST_STORAGE_KEY = "kaspalinks.giveawayGuest";
-type GuestIdentity = { token: string; username: string };
-
-function readStoredGuest(): GuestIdentity | null {
-  try {
-    const value = JSON.parse(window.localStorage.getItem(GUEST_STORAGE_KEY) ?? "null") as unknown;
-    if (
-      value &&
-      typeof value === "object" &&
-      typeof (value as GuestIdentity).username === "string" &&
-      typeof (value as GuestIdentity).token === "string"
-    ) {
-      return value as GuestIdentity;
-    }
-  } catch {
-    // Blocked storage: the guest lasts for this page only.
-  }
-  return null;
-}
-
-function storeGuest(identity: GuestIdentity): void {
-  try {
-    window.localStorage.setItem(GUEST_STORAGE_KEY, JSON.stringify(identity));
-  } catch {
-    // Blocked storage: the private manage link is the only way back.
-  }
-}
-
 /** The private manage link carries "#guest=<username>.<token>" in its fragment. */
 function readGuestFragment(): GuestIdentity | null {
   const match = window.location.hash.match(/^#guest=(guest-[a-z0-9]+)\.([A-Za-z0-9_-]+)$/);
@@ -176,12 +149,16 @@ function guestManageUrl(identity: GuestIdentity): string {
   return `${window.location.origin}/giveaway/new#guest=${identity.username}.${identity.token}`;
 }
 
-function GuestLinkNotice({ identity }: { identity: GuestIdentity }) {
+function GuestLinkNotice({ identity, saved }: { identity: GuestIdentity; saved: boolean }) {
   const [copied, setCopied] = useState(false);
   return (
     <section className="card studio-guest-notice">
       <div>
-        <strong>No account: this browser remembers your giveaways</strong>
+        <strong>
+          {saved
+            ? "No account: this browser remembers your giveaways"
+            : "No account, and this browser could not save your access"}
+        </strong>
         <p>
           To open them on another device, keep this private link. It lets anyone manage your
           giveaways here, but never move the prize: that is locked in the contract.
@@ -460,6 +437,7 @@ export function GiveawayV6Studio({
   const creatorSession = useCreatorSession();
   const [guest, setGuest] = useState<GuestIdentity | null>(null);
   const [guestChecked, setGuestChecked] = useState(false);
+  const [guestSaved, setGuestSaved] = useState(true);
   const [telegramInitData, setTelegramInitData] = useState<null | string>(null);
   const [view, setView] = useState<StudioView>(initialView);
   const [giveaways, setGiveaways] = useState<StudioGiveaway[]>([]);
@@ -519,14 +497,23 @@ export function GiveawayV6Studio({
       setGuestChecked(true);
       return;
     }
+    let cancelled = false;
     const fromLink = readGuestFragment();
     if (fromLink) {
-      storeGuest(fromLink);
       // The credentials leave the address bar right away.
       window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
     }
-    setGuest(fromLink ?? readStoredGuest());
-    setGuestChecked(true);
+    void (async () => {
+      const identity = fromLink ?? (await readStoredGuest());
+      const saved = fromLink ? await storeGuest(fromLink) : true;
+      if (cancelled) return;
+      setGuest(identity);
+      setGuestSaved(saved);
+      setGuestChecked(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [surface]);
 
   const signedInCreator = creatorSession.hydrated && creatorSession.signedIn;
@@ -566,7 +553,7 @@ export function GiveawayV6Studio({
     if (!response.ok) throw new Error(errorMessage(body, "Could not start. Try again."));
     const created = body as { creator: { username: string }; creatorToken: string };
     const identity = { token: created.creatorToken, username: created.creator.username };
-    storeGuest(identity);
+    setGuestSaved(await storeGuest(identity));
     setGuest(identity);
   }, []);
 
@@ -914,7 +901,7 @@ export function GiveawayV6Studio({
         </div>
       </header>
 
-      {isGuest && guest ? <GuestLinkNotice identity={guest} /> : null}
+      {isGuest && guest ? <GuestLinkNotice identity={guest} saved={guestSaved} /> : null}
 
       <div className="studio-toolbar">
         <button
