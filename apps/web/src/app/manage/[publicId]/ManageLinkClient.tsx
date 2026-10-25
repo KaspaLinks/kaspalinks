@@ -112,6 +112,16 @@ export function ManageLinkClient({ publicId }: { publicId: string }) {
         publicId: link.publicId,
         title: link.title,
         type: link.type,
+      }).then((saved) => {
+        // Once this browser keeps the token sealed, it leaves the address bar
+        // and the history. Without storage the link stays, as the only way back.
+        if (saved && window.location.hash.includes("token=")) {
+          window.history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`,
+          );
+        }
       });
     } catch {
       setState({ kind: "error", message: "Network error while loading this link." });

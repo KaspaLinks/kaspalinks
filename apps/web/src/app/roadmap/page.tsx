@@ -154,6 +154,14 @@ export default function RoadmapPage() {
           </article>
 
           <article className="card roadmap-feature">
+            <h3 className="roadmap-feature-title">Passkey lock for links without an account</h3>
+            <p>
+              Keep the private codes of links you created without an account behind a passkey, so
+              they only open after you confirm with Face ID, a fingerprint or your device PIN.
+            </p>
+          </article>
+
+          <article className="card roadmap-feature">
             <h3 className="roadmap-feature-title">Milestones &amp; conditional payouts</h3>
             <p>
               Release KAS in steps, on several signatures or on an external proof, built on the same
