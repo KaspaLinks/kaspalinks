@@ -295,9 +295,14 @@ export function WalletConnectCard({ expectedNetwork, onStateChange }: WalletConn
       {connectedAccount ? (
         <div className="wallet-line-connected">
           <span className="status-dot-ok" aria-hidden="true" />
-          <span>
-            KasWare connected · <span className="value-mono">{shortAccount(connectedAccount)}</span>
-            {wallet.balance ? ` · ${formatWalletBalance(wallet.balance.total)}` : ""}
+          <span className="wallet-line-text">
+            <strong>KasWare</strong>
+            <span className="value-mono">{shortAccount(connectedAccount)}</span>
+            {wallet.balance ? (
+              <span className="wallet-line-balance">
+                {formatWalletBalance(wallet.balance.total)}
+              </span>
+            ) : null}
           </span>
           <button
             type="button"
@@ -326,7 +331,7 @@ export function WalletConnectCard({ expectedNetwork, onStateChange }: WalletConn
 }
 
 function shortAccount(address: string): string {
-  return address.length > 24 ? `${address.slice(0, 14)}…${address.slice(-6)}` : address;
+  return address.length > 24 ? `${address.slice(0, 12)}…${address.slice(-5)}` : address;
 }
 
 function formatWalletBalance(totalSompi: string): string {
@@ -338,11 +343,13 @@ function formatWalletBalance(totalSompi: string): string {
   const wholePart = sompi / SOMPI_PER_KAS;
   const decimalPart = sompi % SOMPI_PER_KAS;
 
-  if (decimalPart === 0n) {
+  // Two decimals are enough to see whether the wallet can pay.
+  const hundredths = decimalPart / 1_000_000n;
+  if (hundredths === 0n) {
     return `${wholePart} KAS`;
   }
 
-  return `${wholePart}.${decimalPart.toString().padStart(8, "0").replace(/0+$/, "")} KAS`;
+  return `${wholePart}.${hundredths.toString().padStart(2, "0").replace(/0+$/, "")} KAS`;
 }
 
 function getNetworkMessage(
@@ -363,8 +370,6 @@ function getNetworkMessage(
     };
   }
 
-  return {
-    className: "success-text",
-    text: `Wallet network matches this ${expectedNetwork} Action.`,
-  };
+  // A matching network is the normal case; only problems need a line.
+  return null;
 }

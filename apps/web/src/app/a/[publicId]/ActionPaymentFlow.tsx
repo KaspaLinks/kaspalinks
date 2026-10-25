@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import QRCode from "qrcode";
 
 import {
@@ -1616,28 +1616,34 @@ export function ActionPaymentFlow({
                     </button>
                   ) : null}
 
-                  {/* QR — always visible while pending, smaller on desktop */}
-                  {qrDataUrl ? (
-                    <div className="pay-qr-block">
-                      <span className="label">Or scan with a Kaspa wallet</span>
-                      <div className="branded-qr-shell">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img alt="Kaspa payment QR code" className="qr" src={qrDataUrl} />
-                        <span className="branded-qr-mark" aria-hidden="true">
-                          <LogoMark size={34} title={undefined} variant="solid" />
-                        </span>
+                  {/* QR — visible while pending; folded away while KasWare is connected,
+                      where it is only the fallback for paying from another wallet. */}
+                  <FoldedWhen
+                    folded={kaswareConnection.connected && Boolean(qrDataUrl || isVariableAmount)}
+                    summary="Pay from another wallet with a QR code"
+                  >
+                    {qrDataUrl ? (
+                      <div className="pay-qr-block">
+                        <span className="label">Or scan with a Kaspa wallet</span>
+                        <div className="branded-qr-shell">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img alt="Kaspa payment QR code" className="qr" src={qrDataUrl} />
+                          <span className="branded-qr-mark" aria-hidden="true">
+                            <LogoMark size={34} title={undefined} variant="solid" />
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ) : isVariableAmount && !paymentRequest ? (
-                    <div className="pay-qr-block">
-                      <span className="label">Or scan with a Kaspa wallet</span>
-                      <div className="qr qr-placeholder" aria-hidden>
-                        <span>
-                          {getAmountInputPrompt(variablePreview, walletLaunchAmountTooSmall)}
-                        </span>
+                    ) : isVariableAmount && !paymentRequest ? (
+                      <div className="pay-qr-block">
+                        <span className="label">Or scan with a Kaspa wallet</span>
+                        <div className="qr qr-placeholder" aria-hidden>
+                          <span>
+                            {getAmountInputPrompt(variablePreview, walletLaunchAmountTooSmall)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </FoldedWhen>
 
                   {/* Manual copy fallback */}
                   <div className="pay-copy-row">
@@ -1713,5 +1719,24 @@ export function ActionPaymentFlow({
         </p>
       </section>
     </main>
+  );
+}
+
+/** Wraps its children in a closed <details> when folded, otherwise renders them as is. */
+function FoldedWhen({
+  children,
+  folded,
+  summary,
+}: {
+  children: ReactNode;
+  folded: boolean;
+  summary: string;
+}) {
+  if (!folded) return <>{children}</>;
+  return (
+    <details className="pay-qr-details">
+      <summary>{summary}</summary>
+      {children}
+    </details>
   );
 }
