@@ -94,6 +94,7 @@ www.{$DOMAIN} {
 				request>headers>Cookie delete
 				request>headers>X-Admin-Token delete
 				request>headers>X-Creator-Token delete
+				request>headers>X-Manage-Token delete
 				request>headers>X-Telegram-Mini-App-Init-Data delete
 				request>headers>X-Telegram-Bot-Api-Secret-Token delete
 			}

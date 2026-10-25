@@ -29,6 +29,7 @@ describe("Caddy authentication boundaries", () => {
     for (const header of [
       "Authorization",
       "X-Creator-Token",
+      "X-Manage-Token",
       "X-Admin-Token",
       "X-Telegram-Mini-App-Init-Data",
       "X-Telegram-Bot-Api-Secret-Token",
