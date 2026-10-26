@@ -44,6 +44,70 @@ export default function V6GiveawayView(props: Props) {
       ).length;
   const explorerBase = props.network === "mainnet" ? "https://kaspa.stream" : null;
   const full = props.participantCap !== undefined && participantCount >= props.participantCap;
+  // Visitors usually arrive from a post: while entries are open, the form comes
+  // right after the prize and the on-chain progress folds away below it.
+  const entryFirst = props.snapshot.phase === "open" && !full;
+
+  const progress = (
+    <>
+      <div className="giveaway-v6-status-row" role="status">
+        <span className={`status-chip status-${statusTone(props.snapshot.phase)}`}>
+          {phaseLabel(props.snapshot.phase)}
+        </span>
+        <span>{props.verificationPaused ? "Verification paused" : "Verified from Kaspa L1"}</span>
+      </div>
+
+      <div className="giveaway-v6-steps" aria-label="Giveaway progress">
+        <ProgressStep
+          number="1"
+          title="Prize secured"
+          detail={phaseIndex >= 1 ? "SilverScript activated" : "Waiting for confirmation"}
+          state={phaseIndex >= 1 ? "complete" : "active"}
+        />
+        <ProgressStep
+          number="2"
+          title="Entries"
+          detail={`${participantCount} confirmed on-chain`}
+          state={phaseIndex > 1 ? "complete" : phaseIndex === 1 ? "active" : "pending"}
+        />
+        <ProgressStep
+          number="3"
+          title="Result"
+          detail={
+            terminal
+              ? props.snapshot.phase === "drawn"
+                ? "Winner paid"
+                : "Prize returned"
+              : `Paid automatically, usually about ${GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES} minutes after close`
+          }
+          state={terminal ? "complete" : phaseIndex === 2 ? "active" : "pending"}
+        />
+      </div>
+    </>
+  );
+
+  const count = (
+    <div className="covenant-participant-count giveaway-v6-count">
+      <strong>{participantCount}</strong>
+      <span>
+        {props.participantCap !== undefined
+          ? `of ${props.participantCap} spots taken`
+          : participantCount === 1
+            ? "confirmed participant"
+            : "confirmed participants"}
+      </span>
+      <span className="label">1 winner</span>
+    </div>
+  );
+
+  const phasePanel = (
+    <PhasePanel
+      closesAt={props.closesAt}
+      explorerBase={explorerBase}
+      snapshot={props.snapshot}
+      winnerAddress={props.winnerAddress}
+    />
+  );
 
   return (
     <main className="main giveaway-entry-page giveaway-v6-page">
@@ -61,75 +125,42 @@ export default function V6GiveawayView(props: Props) {
       </section>
 
       <section className="card giveaway-entry-card">
-        <div className="giveaway-v6-status-row" role="status">
-          <span className={`status-chip status-${statusTone(props.snapshot.phase)}`}>
-            {phaseLabel(props.snapshot.phase)}
-          </span>
-          <span>{props.verificationPaused ? "Verification paused" : "Verified from Kaspa L1"}</span>
-        </div>
-
-        <div className="giveaway-v6-steps" aria-label="Giveaway progress">
-          <ProgressStep
-            number="1"
-            title="Prize secured"
-            detail={phaseIndex >= 1 ? "SilverScript activated" : "Waiting for confirmation"}
-            state={phaseIndex >= 1 ? "complete" : "active"}
-          />
-          <ProgressStep
-            number="2"
-            title="Entries"
-            detail={`${participantCount} confirmed on-chain`}
-            state={phaseIndex > 1 ? "complete" : phaseIndex === 1 ? "active" : "pending"}
-          />
-          <ProgressStep
-            number="3"
-            title="Result"
-            detail={
-              terminal
-                ? props.snapshot.phase === "drawn"
-                  ? "Winner paid"
-                  : "Prize returned"
-                : `Paid automatically, usually about ${GIVEAWAY_V6_EXPECTED_PAYOUT_MINUTES} minutes after close`
-            }
-            state={terminal ? "complete" : phaseIndex === 2 ? "active" : "pending"}
-          />
-        </div>
-
-        <div className="covenant-participant-count giveaway-v6-count">
-          <strong>{participantCount}</strong>
-          <span>
-            {props.participantCap !== undefined
-              ? `of ${props.participantCap} spots taken`
-              : participantCount === 1
-                ? "confirmed participant"
-                : "confirmed participants"}
-          </span>
-          <span className="label">1 winner</span>
-        </div>
-
-        <PhasePanel
-          closesAt={props.closesAt}
-          explorerBase={explorerBase}
-          snapshot={props.snapshot}
-          winnerAddress={props.winnerAddress}
-        />
-
-        {props.snapshot.phase === "open" && full ? (
-          <div className="giveaway-result-state">
-            <h2>This giveaway is full</h2>
-            <p>
-              All {props.participantCap} spots are taken. The winner is drawn after entries close{" "}
-              <V6SlotTime iso={props.closesAt.toISOString()} />.
-            </p>
-          </div>
-        ) : props.snapshot.phase === "open" ? (
-          <V6EntryClient
-            available={props.entryAvailable}
-            network={props.network}
-            publicId={props.publicId}
-            siteKey={props.turnstileSiteKey}
-          />
-        ) : null}
+        {entryFirst ? (
+          <>
+            <div className="giveaway-v6-join-summary">
+              {count}
+              <p>
+                Free entry · entries close <V6SlotTime iso={props.closesAt.toISOString()} />
+              </p>
+            </div>
+            <V6EntryClient
+              available={props.entryAvailable}
+              network={props.network}
+              publicId={props.publicId}
+              siteKey={props.turnstileSiteKey}
+            />
+            <details className="giveaway-proof giveaway-v6-how">
+              <summary>How it works</summary>
+              {progress}
+              {phasePanel}
+            </details>
+          </>
+        ) : (
+          <>
+            {progress}
+            {count}
+            {phasePanel}
+            {props.snapshot.phase === "open" ? (
+              <div className="giveaway-result-state">
+                <h2>This giveaway is full</h2>
+                <p>
+                  All {props.participantCap} spots are taken. The winner is drawn after entries
+                  close <V6SlotTime iso={props.closesAt.toISOString()} />.
+                </p>
+              </div>
+            ) : null}
+          </>
+        )}
 
         <div className="giveaway-entry-meta">
           <span>SilverScript V6 · {props.network === "mainnet" ? "Mainnet" : "Testnet 10"}</span>

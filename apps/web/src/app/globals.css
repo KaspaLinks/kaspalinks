@@ -11190,6 +11190,31 @@ body:has(main.deck-main) {
   border-block: 1px solid var(--border);
 }
 
+.giveaway-v6-join-summary {
+  display: grid;
+  gap: 6px;
+}
+
+.giveaway-v6-join-summary .giveaway-v6-count {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.giveaway-v6-join-summary p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+
+.giveaway-v6-how {
+  color: var(--fg);
+}
+
+.giveaway-v6-how > :not(summary) {
+  margin-top: 14px;
+}
+
 .giveaway-v6-open-panel {
   border-color: rgba(73, 234, 203, 0.42);
   background: rgba(73, 234, 203, 0.06);

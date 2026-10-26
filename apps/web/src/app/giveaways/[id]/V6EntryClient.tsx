@@ -196,10 +196,11 @@ export default function V6EntryClient({
     >
       <div>
         <span className="label">Join for free</span>
-        <h2>Where should the prize go?</h2>
-        <p className="muted">Enter any Kaspa Mainnet address you control.</p>
+        <h2>
+          <label htmlFor="v6-payout-address">Paste your Kaspa address</label>
+        </h2>
+        <p className="muted">If you win, the prize is sent there automatically.</p>
       </div>
-      <label htmlFor="v6-payout-address">Kaspa payout address</label>
       <input
         id="v6-payout-address"
         required

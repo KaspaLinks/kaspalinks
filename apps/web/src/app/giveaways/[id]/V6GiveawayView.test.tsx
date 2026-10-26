@@ -123,6 +123,17 @@ describe("V6GiveawayView", () => {
     expect(html).not.toContain("This giveaway is full");
   });
 
+  it("puts the entry form right after the prize while entries are open", () => {
+    const open = render("open", undefined, 32);
+    expect(open.indexOf("Paste your Kaspa address")).toBeGreaterThan(-1);
+    expect(open.indexOf("Paste your Kaspa address")).toBeLessThan(open.indexOf("Prize secured"));
+    expect(open).toContain("<summary>How it works</summary>");
+
+    const drawn = render("drawn");
+    expect(drawn).not.toContain("How it works");
+    expect(drawn.indexOf("Prize secured")).toBeLessThan(drawn.indexOf("Prize paid automatically"));
+  });
+
   it("replaces the entry form once every spot is taken", () => {
     const html = render("open", undefined, 12);
 
