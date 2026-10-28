@@ -3,7 +3,10 @@ import { z } from "zod";
 import { KaspaVspcError, type KaspaVspcV2Client } from "./kaspa-vspc-v2";
 
 const DEFAULT_TIMEOUT_MS = 35_000;
-const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
+// A busy Mainnet VSPC Full page reached 93 MB (17 s, ~770 MB RSS to parse); a
+// page above the cap stalls every projection on it, a much larger one would
+// exhaust the worker's memory.
+const MAX_RESPONSE_BYTES = 128 * 1024 * 1024;
 
 export type KaspaVspcRelayClientOptions = {
   relayUrl: string;

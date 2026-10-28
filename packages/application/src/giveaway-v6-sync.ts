@@ -18,6 +18,8 @@ const RETRY_MS = 15_000;
 // A malformed relay answer is retried too, more slowly: stopping for good would
 // leave a funded Giveaway unattended over a fault outside its own lineage.
 const PARSE_RETRY_MS = 60_000;
+// A busy Mainnet page took 17 s to read; the reader's 20 s default is too tight.
+const PAGE_TIMEOUT_MS = 60_000;
 
 const projectionSelect = {
   id: true,
@@ -108,6 +110,7 @@ async function syncOne(
   const page = await readKaspaVspcV2Page(client, {
     startHash: record.cursorHash ?? record.anchorHash,
     expectedNetwork: record.network === "MAINNET" ? "mainnet" : "testnet-10",
+    timeoutMs: PAGE_TIMEOUT_MS,
   });
   let prepared = prepareGiveawayV6ProjectionAdvance({ record, page });
   if (prepared.status === "needs_headers") {

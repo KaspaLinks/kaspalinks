@@ -85,10 +85,24 @@ describe("createKaspaVspcRelayClient", () => {
     );
   });
 
+  it("accepts a page as large as the busiest Mainnet page seen", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"network":"mainnet"}', {
+        headers: { "content-length": String(93_000_000) },
+      }),
+    );
+    const client = createKaspaVspcRelayClient({
+      relayUrl: "http://toccata-relay:3010",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(client.getCurrentNetwork(null)).resolves.toEqual({ network: "mainnet" });
+  });
+
   it("rejects oversized responses before parsing", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("{}", {
-        headers: { "content-length": String(64 * 1024 * 1024 + 1) },
+        headers: { "content-length": String(128 * 1024 * 1024 + 1) },
       }),
     );
     const fetchImpl = fetchMock as unknown as typeof fetch;

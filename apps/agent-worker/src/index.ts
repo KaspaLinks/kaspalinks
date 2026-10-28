@@ -48,6 +48,8 @@ const giveawayV6Relay =
   process.env.GIVEAWAY_V6_PROJECTION_ENABLED === "true"
     ? createKaspaVspcRelayClient({
         relayUrl: process.env.TOCCATA_WRPC_RELAY_URL?.trim() || "http://toccata-relay:3010",
+        // A busy chain page takes well over 10 s to transfer and parse.
+        timeoutMs: 60_000,
       })
     : null;
 
