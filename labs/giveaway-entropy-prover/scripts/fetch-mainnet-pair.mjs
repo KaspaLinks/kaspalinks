@@ -12,6 +12,12 @@ const projectRoot = resolve(scriptDirectory, "../../..");
 const requireFromKaspaPackage = createRequire(resolve(projectRoot, "packages/kaspa/package.json"));
 const { Resolver, RpcClient } = requireFromKaspaPackage("kaspa-wasm");
 
+// Blue score grows by about ten per second. Within the threshold the plain walk
+// stays fast; the margin leaves room to rejoin the chain above the target.
+const DESCENT_THRESHOLD = 3_000n;
+const DESCENT_MARGIN = 600n;
+const DESCENT_MAX_REQUESTS = 500;
+
 const options = parseArguments(process.argv.slice(2));
 const rpc = new RpcClient({ networkId: "mainnet", resolver: new Resolver() });
 
@@ -26,6 +32,13 @@ try {
       `Target blue score ${targetBlueScore} has not been reached by sink ${candidate.hash}.`,
     );
   }
+
+  // A public node answers one selected-parent step in about 170 ms, so walking
+  // from the sink fails once the target is more than a few minutes behind it
+  // (a worker outage delays the request by hours). Far targets are approached
+  // through higher-level parents first, then the walk rejoins the selected chain.
+  const descended = BigInt(candidate.blueScore) - targetBlueScore > DESCENT_THRESHOLD;
+  if (descended) candidate = await descendToSelectedChain(candidate, targetBlueScore);
 
   let parent;
   let traversed = 0;
@@ -54,6 +67,14 @@ try {
       `First crossing was not found within ${options.maxSteps} selected-parent steps.`,
     );
   }
+  if (descended) {
+    for (const header of [parent, candidate]) {
+      const block = await fetchBlock(header.hash);
+      if (block.verboseData?.isChainBlock !== true) {
+        throw new Error(`Block ${header.hash} is not on the selected chain.`);
+      }
+    }
+  }
 
   const capture = {
     network: "mainnet",
@@ -80,12 +101,53 @@ try {
 }
 
 async function fetchHeader(hash) {
+  return (await fetchBlock(hash)).header;
+}
+
+async function fetchBlock(hash) {
   const response = await withTimeout(
     rpc.getBlock({ hash, includeTransactions: false }),
     options.timeoutMs,
     `Kaspa block ${hash}`,
   );
-  return response.block.header;
+  return response.block;
+}
+
+// Every Mainnet block already sits at a high base level, so the lower levels
+// repeat the direct parents; each level above it reaches about twice as far
+// back. Jumping along the highest level that stays at or above the floor, then
+// lowering it, lands just above the floor in a few dozen requests. That
+// ancestor of the sink need not be a chain block; its selected parents lead
+// back to the chain within a few steps.
+async function descendToSelectedChain(start, targetBlueScore) {
+  const floor = targetBlueScore + DESCENT_MARGIN;
+  let cursor = start;
+  let level = cursor.parentsByLevel.length - 1;
+  for (let requests = 0; level >= 1; requests += 1) {
+    if (requests >= DESCENT_MAX_REQUESTS) {
+      throw new Error(`Descent did not reach blue score ${floor} within ${requests} requests.`);
+    }
+    const hash = cursor.parentsByLevel[level]?.[0];
+    // Very high levels point past the pruning point; the node no longer has them.
+    const ancestor = isHash(hash) ? await fetchHeader(hash).catch(() => null) : null;
+    if (ancestor && BigInt(ancestor.blueScore) >= floor) cursor = ancestor;
+    else level -= 1;
+  }
+
+  // A node that misreports chain membership ends here at the target instead of
+  // walking on; the next request starts over, usually on another node.
+  let block = await fetchBlock(cursor.hash);
+  while (block.verboseData?.isChainBlock !== true) {
+    const parentHash = block.verboseData?.selectedParentHash;
+    if (BigInt(block.header.blueScore) <= targetBlueScore || !isHash(parentHash)) {
+      throw new Error(`Block ${cursor.hash} did not rejoin the selected chain above the target.`);
+    }
+    block = await fetchBlock(parentHash);
+  }
+  if (BigInt(block.header.blueScore) < targetBlueScore) {
+    throw new Error(`Descent rejoined the selected chain below target ${targetBlueScore}.`);
+  }
+  return block.header;
 }
 
 function normalizeHeader(header) {
