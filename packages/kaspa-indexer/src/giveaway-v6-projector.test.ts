@@ -128,6 +128,19 @@ describe("projectGiveawayV6Chain", () => {
     });
   });
 
+  it("passes over an unrelated transaction without outputs", () => {
+    const scenario = buildScenario("draw");
+    const result = projectGiveawayV6Chain({
+      config,
+      family,
+      transactions: [{ ...unrelatedTransaction(), outputs: [] }, ...scenario.transactions],
+      headers: scenario.headers,
+    });
+
+    expect(result.ignoredTransactionCount).toBe(1);
+    expect(result.snapshot.phase).toBe("drawn");
+  });
+
   it("continues from a previously verified worker checkpoint", () => {
     const scenario = buildScenario("draw");
     const first = projectGiveawayV6Chain({

@@ -159,6 +159,20 @@ describe("readKaspaVspcV2Page", () => {
     });
   });
 
+  it("accepts a confirmed transaction without outputs", async () => {
+    const response = fullResponse();
+    const block = (response.chainBlockAcceptedTransactions as Array<Record<string, unknown>>)[0]!;
+    const transaction = (block.acceptedTransactions as Array<Record<string, unknown>>)[1]!;
+    transaction.outputs = [];
+
+    const page = await readKaspaVspcV2Page(client(response), { startHash: START_HASH });
+
+    expect(page.blocks[0]!.acceptedTransactions[1]).toMatchObject({
+      transactionId: TRANSACTION_ID,
+      outputs: [],
+    });
+  });
+
   it("rejects imprecise numeric uint64 fields", async () => {
     const response = fullResponse();
     const block = (response.chainBlockAcceptedTransactions as Array<Record<string, unknown>>)[0]!;

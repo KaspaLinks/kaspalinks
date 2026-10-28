@@ -163,7 +163,10 @@ const transactionSchema = z.object({
   version: z.number().int().min(0).max(0xffff),
   // Every chain block accepts its coinbase first, and a coinbase has no inputs.
   inputs: z.array(inputSchema),
-  outputs: z.array(outputSchema).min(1),
+  // Consensus accepts a transaction without outputs (its whole input goes to the
+  // fee). Rejecting one would stall every projection on that page; V6 transitions
+  // still need their exact output count, which the projector checks.
+  outputs: z.array(outputSchema),
   verboseData: z.object({ transactionId: hashSchema }),
 });
 
