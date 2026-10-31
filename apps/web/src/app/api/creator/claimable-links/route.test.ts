@@ -436,6 +436,11 @@ describe("creator claimable link API", () => {
     mockPrisma.claimableLink.findUnique.mockResolvedValue(row());
     const response = await DELETE(deleteRequest());
     expect(response.status).toBe(200);
+    // The Telegram Mini App's "My links" removes its own links through this route.
+    expect(mockRequireCreator).toHaveBeenCalledWith(expect.any(Request), mockPrisma, {
+      allowTelegramMiniApp: true,
+      allowTelegramOnly: true,
+    });
     expect(mockIsClaimableFundingAddressEmpty).toHaveBeenCalledWith(FUNDING_ADDRESS);
     expect(mockPrisma.claimableLink.updateMany).toHaveBeenCalledWith({
       data: { deletedAt: expect.any(Date) },

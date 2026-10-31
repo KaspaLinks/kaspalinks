@@ -34,6 +34,14 @@ const CLAIM_STATUS: Record<string, string> = {
   shared: "Ready to claim",
   spent_unknown: "Spent",
 };
+// Unpaid links can go: their claim code only lived in the Mini App session that
+// made them. Finished links can go too. The server checks the address first.
+const REMOVABLE_CLAIM_STATUSES = new Set([
+  "awaiting_funding",
+  "claimed",
+  "refunded",
+  "spent_unknown",
+]);
 
 /** "My links": what this Telegram chat has created, newest first. */
 export function TelegramMineApp({ onOpen }: { onOpen(view: TelegramView): void }) {
@@ -42,6 +50,8 @@ export function TelegramMineApp({ onOpen }: { onOpen(view: TelegramView): void }
     | { claimLinks: ClaimLink[]; kind: "ready"; paymentLinks: PaymentLink[] }
     | { kind: "loading" }
   >({ kind: "loading" });
+  const [removing, setRemoving] = useState<null | string>(null);
+  const [claimNotice, setClaimNotice] = useState("");
 
   useEffect(() => {
     void (async () => {
@@ -64,6 +74,33 @@ export function TelegramMineApp({ onOpen }: { onOpen(view: TelegramView): void }
       }
     })();
   }, []);
+
+  async function removeClaimLink(linkKey: string) {
+    setRemoving(linkKey);
+    setClaimNotice("");
+    try {
+      const response = await fetch(
+        `/api/creator/claimable-links?linkKey=${encodeURIComponent(linkKey)}`,
+        { headers: telegramAuthHeaders(), method: "DELETE" },
+      );
+      if (!response.ok) {
+        setClaimNotice(await readApiError(response, "This link could not be removed."));
+        return;
+      }
+      setState((current) =>
+        current.kind === "ready"
+          ? {
+              ...current,
+              claimLinks: current.claimLinks.filter((link) => link.linkKey !== linkKey),
+            }
+          : current,
+      );
+    } catch {
+      setClaimNotice("Network error. Try again.");
+    } finally {
+      setRemoving(null);
+    }
+  }
 
   return (
     <main className="main telegram-claim-page">
@@ -126,13 +163,25 @@ export function TelegramMineApp({ onOpen }: { onOpen(view: TelegramView): void }
                         {CLAIM_STATUS[link.status] ?? link.status}
                       </span>
                     </div>
+                    {REMOVABLE_CLAIM_STATUSES.has(link.status) ? (
+                      <button
+                        className="btn btn-sm"
+                        disabled={removing !== null}
+                        onClick={() => void removeClaimLink(link.linkKey)}
+                        type="button"
+                      >
+                        {removing === link.linkKey ? "Removing…" : "Remove"}
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             )}
+            {claimNotice ? <p className="error-text">{claimNotice}</p> : null}
             <p className="muted">
               The secret claim link stays on the phone that made it. The bot tells you when a link
-              is claimed or returned.
+              is claimed or returned. A link that was never paid cannot be paid later; remove it and
+              create a new one.
             </p>
             <button className="btn" onClick={() => onOpen("claim")} type="button">
               New claim link

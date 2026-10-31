@@ -2755,6 +2755,13 @@ export function ToccataLabClient({
                     <div>
                       <strong>Watching for your payment</strong>
                       <p>This page continues by itself once the payment confirms.</p>
+                      {/* Without an account the claim code lives only in this tab. */}
+                      {creatorSignedIn ? null : (
+                        <p>
+                          Keep this screen open until then. A link that is not paid now cannot be
+                          paid later; you would have to create a new one.
+                        </p>
+                      )}
                     </div>
                     <button
                       className="btn btn-sm"

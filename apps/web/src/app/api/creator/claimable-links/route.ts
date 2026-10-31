@@ -331,7 +331,11 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const guard = await requireCreator(request, prisma);
+  // The Telegram Mini App's "My links" removes its own links here too.
+  const guard = await requireCreator(request, prisma, {
+    allowTelegramMiniApp: true,
+    allowTelegramOnly: true,
+  });
   if (!guard.ok) return guard.response;
 
   const limited = enforceRateLimit(RateBuckets.CREATOR_PROFILE_UPDATE, guard.creator.id);
