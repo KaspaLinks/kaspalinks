@@ -31,14 +31,27 @@ describe("parseWalletLaunchUri", () => {
       amountKas: "5.002",
       uri: `${ADDRESS}?amount=5.002`,
     });
-    expect(parseWalletLaunchUri(ADDRESS)).toEqual({ address: ADDRESS, amountKas: null, uri: ADDRESS });
+    expect(parseWalletLaunchUri(ADDRESS)).toEqual({
+      address: ADDRESS,
+      amountKas: null,
+      uri: ADDRESS,
+    });
+  });
+
+  it("accepts giveaway funding URIs and hands on only address and amount", () => {
+    expect(
+      parseWalletLaunchUri(
+        `${ADDRESS}?amount=101.73&label=Kaspa%20Links%20Giveaway&message=Community%20drop`,
+      ),
+    ).toEqual({ address: ADDRESS, amountKas: "101.73", uri: `${ADDRESS}?amount=101.73` });
   });
 
   it("rejects anything that is not a plain kaspa: payment URI", () => {
     for (const uri of [
       "javascript:alert(1)",
       "https://example.com",
-      `${ADDRESS}?amount=5&label=x`,
+      `${ADDRESS}?amount=5&redirect=x`,
+      `${ADDRESS}?amount=5&amount=6`,
       `${ADDRESS}?amount=-5`,
       "kaspa:short",
       "",
