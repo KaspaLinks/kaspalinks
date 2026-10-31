@@ -11,6 +11,7 @@ type TelegramWebApp = {
   isVersionAtLeast?: (version: string) => boolean;
   initDataUnsafe?: { start_param?: string };
   shareMessage?: (id: string, callback?: (success: boolean) => void) => void;
+  openLink?: (url: string) => void;
   openTelegramLink?: (url: string) => void;
   close: () => void;
   expand: () => void;

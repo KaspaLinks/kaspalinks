@@ -71,7 +71,7 @@ import { parseSignupSource } from "@/lib/signup-source";
 import { SESSION_EVENT } from "../BrandNav";
 import { CreatorSignInGate } from "../CreatorSignInGate";
 import { GrowthPrompt } from "../GrowthPrompt";
-import { telegramAuthHeaders } from "../telegram/telegram-mini-app";
+import { openWalletUri, telegramAuthHeaders } from "../telegram/telegram-mini-app";
 
 import {
   buildClaimableSpendInBrowser,
@@ -1590,7 +1590,7 @@ export function ToccataLabClient({
     setNotice(
       "Opening your wallet with the exact funding amount. After sending, return here; this page will keep checking the funding address automatically.",
     );
-    window.location.assign(fundingWalletUri);
+    openWalletUri(fundingWalletUri);
   }
 
   async function fundWithKasware() {

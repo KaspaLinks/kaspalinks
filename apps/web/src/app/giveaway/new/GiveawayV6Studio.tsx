@@ -25,6 +25,7 @@ import {
 } from "@/lib/giveaway-v6-slots";
 import { validateRecipientAddress } from "../../new-link/helpers";
 import { readStoredGuest, storeGuest, type GuestIdentity } from "@/lib/giveaway-guest-store";
+import { openWalletUri } from "../../telegram/telegram-mini-app";
 
 type Surface = "browser" | "telegram";
 type StudioView = "create" | "manage";
@@ -1196,7 +1197,15 @@ export function GiveawayV6Studio({
                     <textarea readOnly rows={3} value={selected.funding.address} />
                   </label>
                   <div className="studio-actions">
-                    <a className="btn btn-primary" href={selected.funding.paymentUri}>
+                    <a
+                      className="btn btn-primary"
+                      href={selected.funding.paymentUri}
+                      onClick={(event) => {
+                        if (surface !== "telegram") return;
+                        event.preventDefault();
+                        openWalletUri(selected.funding.paymentUri);
+                      }}
+                    >
                       Open Kaspium
                     </a>
                     <button

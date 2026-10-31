@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildWalletLaunchUri } from "./wallet-uri";
+import { buildWalletLaunchUri, parseWalletLaunchUri, walletBridgePath } from "./wallet-uri";
 
 describe("buildWalletLaunchUri", () => {
   it("builds a conservative mobile wallet URI with only address and amount", () => {
@@ -19,5 +19,38 @@ describe("buildWalletLaunchUri", () => {
     expect(buildWalletLaunchUri({ amountKas: "   ", recipientAddress: "kaspa:qexample" })).toBe(
       "kaspa:qexample",
     );
+  });
+});
+
+const ADDRESS = "kaspa:qypq8vh4xtmkcq7ajnhuyrl3s2z8kd94hrxqvhkxuyu5xzqzx34yshcq8ahy9";
+
+describe("parseWalletLaunchUri", () => {
+  it("reads the address and amount of a payment URI", () => {
+    expect(parseWalletLaunchUri(`${ADDRESS}?amount=5.002`)).toEqual({
+      address: ADDRESS,
+      amountKas: "5.002",
+      uri: `${ADDRESS}?amount=5.002`,
+    });
+    expect(parseWalletLaunchUri(ADDRESS)).toEqual({ address: ADDRESS, amountKas: null, uri: ADDRESS });
+  });
+
+  it("rejects anything that is not a plain kaspa: payment URI", () => {
+    for (const uri of [
+      "javascript:alert(1)",
+      "https://example.com",
+      `${ADDRESS}?amount=5&label=x`,
+      `${ADDRESS}?amount=-5`,
+      "kaspa:short",
+      "",
+    ]) {
+      expect(parseWalletLaunchUri(uri)).toBeNull();
+    }
+  });
+
+  it("round-trips through the bridge page fragment", () => {
+    const uri = `${ADDRESS}?amount=101.73`;
+    const fragment = walletBridgePath(uri).split("#")[1] ?? "";
+    expect(walletBridgePath(uri)).toMatch(/^\/open-wallet#/);
+    expect(parseWalletLaunchUri(decodeURIComponent(fragment))?.uri).toBe(uri);
   });
 });

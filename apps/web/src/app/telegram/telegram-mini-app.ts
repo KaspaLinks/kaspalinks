@@ -1,5 +1,7 @@
 // Small helpers shared by the Mini App views.
 
+import { walletBridgePath } from "@/lib/wallet-uri";
+
 export function telegramAuthHeaders(): Record<string, string> {
   const initData = typeof window === "undefined" ? "" : (window.Telegram?.WebApp?.initData ?? "");
   return initData ? { "x-telegram-mini-app-init-data": initData } : {};
@@ -11,6 +13,13 @@ export function shareInTelegram(url: string, text: string): void {
   const app = window.Telegram?.WebApp;
   if (app?.openTelegramLink) app.openTelegramLink(shareUrl);
   else window.open(shareUrl, "_blank", "noopener,noreferrer");
+}
+
+/** Opens a kaspa: payment URI; inside the Mini App it goes through the phone's browser. */
+export function openWalletUri(uri: string): void {
+  const app = window.Telegram?.WebApp;
+  if (app?.initData && app.openLink) app.openLink(`${window.location.origin}${walletBridgePath(uri)}`);
+  else window.location.assign(uri);
 }
 
 export async function readApiError(response: Response, fallback: string): Promise<string> {
