@@ -1,6 +1,7 @@
 import type { Creator, PrismaClient } from "@kaspa-actions/db";
 import { AuditActorType } from "@kaspa-actions/db";
 import { validateTelegramMiniAppInitData } from "@kaspa-actions/agent";
+import { ensureTelegramGiveawayWorkspaceTool } from "@kaspa-actions/application";
 
 import { writeAuditLog } from "./audit";
 import { extractClientIp, hashClientIp } from "./client-ip";
@@ -58,10 +59,21 @@ export async function requireCreator(
       };
     }
 
-    const connection = await prisma.telegramConnection.findUnique({
+    let connection = await prisma.telegramConnection.findUnique({
       include: { creator: true },
       where: { telegramUserId: validation.identity.userId },
     });
+    // The bot's menu button opens the Mini App without sending a message, so a chat
+    // that never wrote to the bot (or just disconnected its account) has no workspace
+    // yet. Account-free views open one the same way /start does. A private chat's id
+    // is the user's id.
+    if (!connection && options.allowTelegramOnly) {
+      const workspace = await ensureTelegramGiveawayWorkspaceTool(prisma, {
+        telegramChatId: validation.identity.userId,
+        telegramUserId: validation.identity.userId,
+      });
+      connection = { ...workspace.connection, creator: workspace.creator };
+    }
     if (!connection?.creator.telegramBetaEnabled) {
       await writeAuditLog(prisma, {
         actorType: AuditActorType.CREATOR,

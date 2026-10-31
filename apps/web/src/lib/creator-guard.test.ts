@@ -5,9 +5,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateCreatorToken, hashCreatorToken } from "./creator-auth";
 import { requireCreator } from "./creator-guard";
 
-const mocks = vi.hoisted(() => ({ writeAuditLog: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  ensureTelegramGiveawayWorkspaceTool: vi.fn(),
+  writeAuditLog: vi.fn(),
+}));
 
 vi.mock("./audit", () => ({ writeAuditLog: mocks.writeAuditLog }));
+vi.mock("@kaspa-actions/application", () => ({
+  ensureTelegramGiveawayWorkspaceTool: mocks.ensureTelegramGiveawayWorkspaceTool,
+}));
 
 const BOT_TOKEN = "123456:test-token";
 
@@ -82,6 +88,39 @@ describe("requireCreator Telegram Mini App scope", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(401);
+    expect(mocks.ensureTelegramGiveawayWorkspaceTool).not.toHaveBeenCalled();
+  });
+
+  it("opens an account-free workspace for an unconnected identity on Telegram-only routes", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", BOT_TOKEN);
+    const creator = {
+      accountKind: "TELEGRAM_ONLY",
+      id: "creator-new",
+      telegramBetaEnabled: true,
+      username: "tg_new",
+    };
+    mocks.ensureTelegramGiveawayWorkspaceTool.mockResolvedValue({
+      connection: { creatorId: creator.id, telegramChatId: "999", telegramUserId: "999" },
+      created: true,
+      creator,
+    });
+    const prisma = {
+      telegramConnection: { findUnique: vi.fn().mockResolvedValue(null) },
+    };
+    const request = new Request("https://kaspalinks.test/api/creator/giveaways/v6", {
+      headers: { "x-telegram-mini-app-init-data": signedInitData("999") },
+    });
+
+    const result = await requireCreator(request, prisma as never, {
+      allowTelegramMiniApp: true,
+      allowTelegramOnly: true,
+    });
+
+    expect(result).toEqual(expect.objectContaining({ creator, ok: true }));
+    expect(mocks.ensureTelegramGiveawayWorkspaceTool).toHaveBeenCalledWith(prisma, {
+      telegramChatId: "999",
+      telegramUserId: "999",
+    });
   });
 
   it("limits Telegram-only identities to routes that explicitly allow giveaway workspaces", async () => {
