@@ -14,7 +14,7 @@ import {
   serializeClaimableLink as serialize,
   type ClaimableLinkRow,
 } from "@/lib/claimable-registration";
-import { selectRotatingWindow } from "@/lib/claimable-refresh";
+import { refreshClaimableStatusesOnChain } from "@/lib/claimable-status-refresh";
 import { isPrismaUniqueConstraintError } from "@/lib/prisma-errors";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 import {
@@ -29,77 +29,15 @@ import { z } from "zod";
 // and URL fragments. This endpoint gives the creator a durable, cross-device
 // list + accurate status; /my-links merges it with the browser-held secrets.
 
-const NON_TERMINAL = new Set(["awaiting_funding", "funded", "shared", "refundable"]);
 const DELETABLE_STATUSES = new Set(["claimed", "refunded", "spent_unknown"]);
-const REFRESH_MAX = 8;
-const REFRESH_THROTTLE_MS = 20_000;
 const KASPA_REST_BASE_URL = "https://api.kaspa.org";
 const UTXO_REQUEST_TIMEOUT_MS = 7_000;
-// Per-creator throttle so repeated /my-links loads (incl. focus refreshes) don't
-// hammer the indexer. Resets on restart; single-instance deployment.
-const lastRefreshByCreator = new Map<string, number>();
-const refreshCursorByCreator = new Map<string, number>();
 const adoptFundingInputSchema = z.object({
   amountSompi: z.string().regex(/^[1-9][0-9]*$/, "amountSompi must be a positive integer."),
   fundingOutputIndex: z.number().int().min(0),
   fundingTransactionId: z.string().regex(/^[0-9a-fA-F]{64}$/),
   linkKey: z.string().trim().min(1).max(128),
 });
-
-async function maybeRefreshOnChain(creatorId: string, links: ClaimableLinkRow[]): Promise<void> {
-  const now = Date.now();
-  if (now - (lastRefreshByCreator.get(creatorId) ?? 0) < REFRESH_THROTTLE_MS) return;
-  lastRefreshByCreator.set(creatorId, now);
-
-  const refreshable = links.filter((link) => NON_TERMINAL.has(link.status));
-  if (refreshable.length === 0) return;
-  const cursor = (refreshCursorByCreator.get(creatorId) ?? 0) % refreshable.length;
-  const selection = selectRotatingWindow(refreshable, cursor, REFRESH_MAX);
-  const candidates = selection.items;
-  refreshCursorByCreator.set(creatorId, selection.nextCursor);
-
-  await Promise.all(
-    candidates.map(async (link) => {
-      try {
-        const update = await resolveClaimableOnChain({
-          amountSompi: link.amountSompi.toString(),
-          claimTxId: link.claimTxId,
-          createdAtMs: link.createdAt.getTime(),
-          fundingAddress: link.fundingAddress,
-          fundingOutputIndex: link.fundingOutputIndex,
-          fundingTxId: link.fundingTxId,
-          refundLockTime: link.refundLockTime,
-          refundTxId: link.refundTxId,
-          status: link.status,
-        });
-        if (!update) return;
-        const data: { status: string; fundingTxId?: string; fundingOutputIndex?: number } = {
-          status: update.status,
-        };
-        if (update.fundingTxId) data.fundingTxId = update.fundingTxId;
-        if (update.fundingOutputIndex !== undefined) {
-          data.fundingOutputIndex = update.fundingOutputIndex;
-        }
-        const changed = await prisma.claimableLink.updateMany({
-          where: { id: link.id, updatedAt: link.updatedAt, status: link.status, deletedAt: null },
-          data,
-        });
-        if (changed.count !== 1) {
-          const current = await prisma.claimableLink.findUnique({ where: { id: link.id } });
-          if (current) Object.assign(link, current);
-          return;
-        }
-        link.status = update.status;
-        if (update.fundingTxId) link.fundingTxId = update.fundingTxId;
-        if (update.fundingOutputIndex !== undefined) {
-          link.fundingOutputIndex = update.fundingOutputIndex;
-        }
-      } catch {
-        // Best-effort: indexer hiccups must not break the list.
-      }
-    }),
-  );
-}
 
 export async function GET(request: Request) {
   const guard = await requireCreator(request, prisma);
@@ -134,7 +72,7 @@ export async function GET(request: Request) {
     where: { creatorId: guard.creator.id },
   });
 
-  await maybeRefreshOnChain(guard.creator.id, links);
+  await refreshClaimableStatusesOnChain(guard.creator.id, links);
 
   return apiJson({
     claimableBatches: batches.flatMap((batch) => {

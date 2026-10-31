@@ -1,6 +1,7 @@
 import { ActionType, PaymentRequestStatus, prisma } from "@kaspa-actions/db";
 import { formatSompiToKaspa } from "@kaspa-actions/kaspa";
 
+import { refreshClaimableStatusesOnChain } from "@/lib/claimable-status-refresh";
 import { requireCreator } from "@/lib/creator-guard";
 import { touchTelegramActivity } from "@/lib/telegram-activity";
 import { apiJson, apiMethodNotAllowed } from "@/lib/errors";
@@ -10,6 +11,8 @@ import { telegramActionPath } from "@/lib/telegram-links";
 // "My links" in the Telegram Mini App: the chat workspace's payment links and
 // claim links. Claim codes never reach the server, so claim links are listed
 // with their state only; the link itself lives in the browser that made it.
+// Nothing else asks the chain about an account-free workspace's claim links, so
+// this list refreshes their status like /my-links does.
 
 const PUBLIC_TYPE: Record<ActionType, string> = {
   [ActionType.KASPA_DONATION]: "kaspa.donation",
@@ -54,11 +57,19 @@ export async function GET(request: Request) {
       orderBy: { createdAt: "desc" },
       select: {
         amountSompi: true,
+        claimTxId: true,
         createdAt: true,
         feeSompi: true,
+        fundingAddress: true,
+        fundingOutputIndex: true,
+        fundingTxId: true,
+        id: true,
         linkKey: true,
+        refundLockTime: true,
+        refundTxId: true,
         status: true,
         title: true,
+        updatedAt: true,
       },
       take: 20,
       where: { creatorId: guard.creator.id, deletedAt: null },
@@ -68,6 +79,7 @@ export async function GET(request: Request) {
       where: { creatorId: guard.creator.id },
     }),
   ]);
+  await refreshClaimableStatusesOnChain(guard.creator.id, claims);
   const totals = actions.length
     ? await prisma.paymentRequest.groupBy({
         _count: { _all: true },

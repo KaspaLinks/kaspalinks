@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   claims: vi.fn(),
   connection: vi.fn(),
   groupBy: vi.fn(),
+  refresh: vi.fn(),
   requireCreator: vi.fn(),
 }));
 
@@ -18,6 +19,9 @@ vi.mock("@kaspa-actions/db", async (importOriginal) => ({
   },
 }));
 vi.mock("@/lib/creator-guard", () => ({ requireCreator: mocks.requireCreator }));
+vi.mock("@/lib/claimable-status-refresh", () => ({
+  refreshClaimableStatusesOnChain: mocks.refresh,
+}));
 vi.mock("@/lib/rate-limit-helpers", () => ({
   enforceRateLimit: () => ({ allowed: true }),
   RateBuckets: { TOCCATA_LAB_FUNDING_STATUS: "toccata.funding-status" },
@@ -103,6 +107,30 @@ describe("GET /api/telegram/links", () => {
     ]);
     expect(body.claimLinks).toEqual([
       expect.objectContaining({ amountKas: "5", linkKey: "lab-1", status: "claimed" }),
+    ]);
+  });
+
+  it("lists claim links with the status the chain refresh found", async () => {
+    mocks.actions.mockResolvedValue([]);
+    mocks.claims.mockResolvedValue([
+      {
+        amountSompi: 500_200_000n,
+        createdAt,
+        feeSompi: 200_000n,
+        linkKey: "lab-2",
+        status: "awaiting_funding",
+        title: "For Bo",
+      },
+    ]);
+    mocks.refresh.mockImplementation(async (_creatorId: string, links: Array<{ status: string }>) => {
+      for (const link of links) link.status = "funded";
+    });
+
+    const body = await (await get()).json();
+
+    expect(mocks.refresh).toHaveBeenCalledWith("creator-tg", expect.any(Array));
+    expect(body.claimLinks).toEqual([
+      expect.objectContaining({ linkKey: "lab-2", status: "funded" }),
     ]);
   });
 
