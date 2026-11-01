@@ -15,16 +15,23 @@ export function OpenWalletClient() {
   const [copied, setCopied] = useState<"" | "address" | "amount">("");
 
   useEffect(() => {
-    let uri = "";
-    try {
-      uri = decodeURIComponent(window.location.hash.slice(1));
-    } catch {
-      // A malformed fragment is treated like a missing one.
-    }
-    const parsed = parseWalletLaunchUri(uri);
-    setRequest(parsed);
-    // The tap in Telegram already asked for the wallet; the button below stays as a fallback.
-    if (parsed) window.location.assign(parsed.uri);
+    const read = () => {
+      let uri = "";
+      try {
+        uri = decodeURIComponent(window.location.hash.slice(1));
+      } catch {
+        // A malformed fragment is treated like a missing one.
+      }
+      const parsed = parseWalletLaunchUri(uri);
+      setRequest(parsed);
+      setCopied("");
+      // The tap in Telegram already asked for the wallet; the button below stays as a fallback.
+      if (parsed) window.location.assign(parsed.uri);
+    };
+    read();
+    // A tab that is already open only sees the fragment change.
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
   }, []);
 
   async function copy(kind: "address" | "amount", value: string) {

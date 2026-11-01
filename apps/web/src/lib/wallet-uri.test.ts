@@ -62,8 +62,9 @@ describe("parseWalletLaunchUri", () => {
 
   it("round-trips through the bridge page fragment", () => {
     const uri = `${ADDRESS}?amount=101.73`;
-    const fragment = walletBridgePath(uri).split("#")[1] ?? "";
-    expect(walletBridgePath(uri)).toMatch(/^\/open-wallet#/);
+    const fragment = walletBridgePath(uri, 1).split("#")[1] ?? "";
+    expect(walletBridgePath(uri, 1)).toMatch(/^\/open-wallet\?at=1#/);
+    expect(walletBridgePath(uri, 1)).not.toBe(walletBridgePath(uri, 2));
     expect(parseWalletLaunchUri(decodeURIComponent(fragment))?.uri).toBe(uri);
   });
 });

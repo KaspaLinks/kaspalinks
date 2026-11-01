@@ -38,7 +38,8 @@ export function parseWalletLaunchUri(
 }
 
 // Telegram's Mini App view cannot hand a kaspa: link to a wallet app. This page
-// opens in the phone's browser instead, which can.
-export function walletBridgePath(uri: string): string {
-  return `/open-wallet#${encodeURIComponent(uri)}`;
+// opens in the phone's browser instead, which can. The query differs on every tap,
+// so a browser tab still open from an earlier tap loads the page again.
+export function walletBridgePath(uri: string, openedAt: number = Date.now()): string {
+  return `/open-wallet?at=${openedAt}#${encodeURIComponent(uri)}`;
 }
