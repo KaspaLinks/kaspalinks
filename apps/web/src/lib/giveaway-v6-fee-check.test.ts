@@ -1,4 +1,5 @@
 import { estimatePostToccataFeeMass } from "@kaspa-actions/kaspa";
+import { GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET } from "@kaspa-actions/kaspa-indexer";
 import { describe, expect, it } from "vitest";
 
 import { giveawayV6TransitionFees } from "./giveaway-v6-budget";
@@ -23,7 +24,14 @@ describe("Giveaway V6 fee model", () => {
       treeDepth: 10,
     });
     // Compute masses reported for bf9c…, 13f9…, ea54… and 3b55… on Mainnet.
-    const chain = { activation: 57_808, entry: 92_026, freeze: 173_149, draw: 171_614 };
+    // The canary entry declared a budget of 457; each unit since adds 100 grams.
+    const entryBudgetRaise = (GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET - 457) * 100;
+    const chain = {
+      activation: 57_808,
+      entry: 92_026 + entryBudgetRaise,
+      freeze: 173_149,
+      draw: 171_614,
+    };
     for (const [transition, mass] of Object.entries(chain)) {
       const modelled = estimatePostToccataFeeMass(shapes[transition as keyof typeof chain]);
       // Never below the chain; above it only by the longest payout script.

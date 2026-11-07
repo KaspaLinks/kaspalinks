@@ -196,6 +196,18 @@ async function registerGiveawayV6(
   } catch (error) {
     if (isAlreadyAccepted(error)) {
       submittedTransactionId = registration.transactionId;
+    } else if (isScriptRejection(error)) {
+      // Retrying rebuilds the same transaction, so the page must not loop.
+      console.error("[giveaway-v6-entry] registration failed script verification", {
+        publicId: giveaway.publicId,
+        shardIndex: registration.shardIndex,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return apiError(
+        ErrorCodes.SERVER_ERROR,
+        "Joining is not possible right now. Please try again later.",
+        503,
+      );
     } else if (isRelayRejection(error)) {
       // Another entry just advanced this shard on Kaspa; the page retries by itself.
       return apiError(
@@ -303,6 +315,11 @@ async function loadGiveawayV6(publicId: string) {
 function isAlreadyAccepted(error: unknown): boolean {
   const message = error instanceof Error ? error.message : "";
   return /already (?:accepted|known)|transaction.*already/iu.test(message);
+}
+
+function isScriptRejection(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return /failed to verify the signature script|script units exceeded/iu.test(message);
 }
 
 function isRelayRejection(error: unknown): boolean {

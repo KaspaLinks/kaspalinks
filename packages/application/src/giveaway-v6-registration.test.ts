@@ -86,17 +86,17 @@ describe("Giveaway V6 registration transaction", () => {
 
     expect(result).toMatchObject({
       computeBudget: GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET,
-      computeMass: "92026",
-      feeMass: "92026",
+      computeMass: "93326",
+      feeMass: "93326",
       feeSompi: "10000000",
       fundingAmountSompi: "101000000",
-      minimumFeeSompi: "9202600",
+      minimumFeeSompi: "9332600",
       outputAmountSompi: "91000000",
       transientMass: "183824",
     });
     expect(transaction.inputs).toEqual([
       expect.objectContaining({
-        computeBudget: 457,
+        computeBudget: GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET,
         index: result.shardIndex + 1,
         transactionId: activationId,
       }),

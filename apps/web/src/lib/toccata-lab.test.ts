@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
-import { giveawayV6PayToScriptHashScriptPublicKeyHex } from "@kaspa-actions/kaspa-indexer";
+import {
+  GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET,
+  giveawayV6PayToScriptHashScriptPublicKeyHex,
+} from "@kaspa-actions/kaspa-indexer";
 
 import {
   createToccataClaimableAutoReturnScript,
@@ -328,7 +331,10 @@ function giveawayV6ActivationSafeJson() {
 function giveawayV6RegistrationSafeJson() {
   const fixture = JSON.parse(
     readFileSync(
-      new URL("../../../../labs/claimable-script/fixtures/giveaway_v6_abi_vectors.json", import.meta.url),
+      new URL(
+        "../../../../labs/claimable-script/fixtures/giveaway_v6_abi_vectors.json",
+        import.meta.url,
+      ),
       "utf8",
     ),
   ) as {
@@ -348,7 +354,7 @@ function giveawayV6RegistrationSafeJson() {
     id: "ee".repeat(32),
     inputs: [
       {
-        computeBudget: 457,
+        computeBudget: GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET,
         index: 1,
         sequence: "0",
         sigOpCount: 0,

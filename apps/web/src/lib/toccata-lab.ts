@@ -19,6 +19,7 @@ import {
 import { z } from "zod";
 import {
   decodeGiveawayV6Witness,
+  GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET,
   giveawayV6PayToScriptHashScriptPublicKeyHex,
 } from "@kaspa-actions/kaspa-indexer";
 
@@ -1161,7 +1162,7 @@ export function validateGiveawayV6RegistrationBroadcastSafeJson(
   }
 
   const input = parsed.inputs[0] as SafeJsonClaimableInput;
-  if (parseToccataComputeBudget(input.computeBudget) !== 457) {
+  if (parseToccataComputeBudget(input.computeBudget) !== GIVEAWAY_V6_REGISTRATION_COMPUTE_BUDGET) {
     throw new Error("Giveaway V6 registration has an invalid compute budget.");
   }
   parseOutputIndex(input.index);

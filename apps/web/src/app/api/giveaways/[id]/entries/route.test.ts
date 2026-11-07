@@ -171,6 +171,31 @@ describe("public covenant entry endpoint", () => {
     expect(m.audit).not.toHaveBeenCalled();
   });
 
+  it("does not ask the page to retry a registration Kaspa cannot verify", async () => {
+    m.v6Enabled.mockReturnValue(true);
+    m.findUnique.mockResolvedValue(v6Giveaway());
+    m.restore.mockReturnValue(v6Projection());
+    m.buildV6.mockReturnValue({
+      commitmentHex: "cd".repeat(32),
+      shardIndex: 2,
+      transactionId: "ab".repeat(32),
+      transactionSafeJson: "{}",
+    });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    m.broadcast.mockRejectedValue(
+      new Error(
+        "Rejected transaction ab: failed to verify the signature script: script units exceeded the amount committed in the input",
+      ),
+    );
+    const response = await post(body);
+    expect(response.status).toBe(503);
+    const failed = (await response.json()) as { error: { code: string } };
+    expect(failed.error.code).not.toBe("ENTRY_BUSY");
+    expect(logged).toHaveBeenCalledOnce();
+    expect(m.audit).not.toHaveBeenCalled();
+    logged.mockRestore();
+  });
+
   it("says the giveaway is full once every committed spot is taken", async () => {
     m.v6Enabled.mockReturnValue(true);
     m.findUnique.mockResolvedValue(v6Giveaway());
