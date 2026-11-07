@@ -11106,6 +11106,27 @@ body:has(main.deck-main) {
   text-align: center;
 }
 
+.giveaway-own-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 20px;
+  padding: 18px clamp(18px, 4vw, 28px);
+  border-radius: var(--radius-md);
+}
+
+.giveaway-own-cta h2 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.giveaway-own-cta p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.92rem;
+}
+
 .giveaway-v6-page {
   --giveaway-step-line: rgba(112, 199, 186, 0.22);
 }

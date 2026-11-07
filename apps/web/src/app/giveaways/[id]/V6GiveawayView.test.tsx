@@ -115,6 +115,16 @@ describe("V6GiveawayView", () => {
     expect(html).toContain(`https://kaspa.stream/transactions/${"03".repeat(32)}`);
   });
 
+  it.each(["open", "drawn"] as const)(
+    "invites visitors to run their own giveaway (%s)",
+    (phase) => {
+      const html = render(phase);
+
+      expect(html).toContain("Run your own giveaway");
+      expect(html).toContain('href="/giveaway/new?from=giveaway"');
+    },
+  );
+
   it("counts spots against the committed cap and keeps entering open below it", () => {
     const html = render("open", undefined, 32);
 

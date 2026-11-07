@@ -203,6 +203,15 @@ export default function V6GiveawayView(props: Props) {
           </a>
         </details>
       </section>
+      <section className="card giveaway-own-cta">
+        <div>
+          <h2>Run your own giveaway</h2>
+          <p>Pick a prize and a draw time, fund it once, share one link. No account needed.</p>
+        </div>
+        <a className="btn" href="/giveaway/new?from=giveaway">
+          Create a giveaway
+        </a>
+      </section>
       <p className="giveaway-entry-footnote">Non-custodial · enforced by SilverScript</p>
     </main>
   );
