@@ -3,6 +3,14 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@kaspa-actions/db";
 
+import {
+  activatedV6GiveawayFilter,
+  loadV6GiveawayStats,
+  V6_DRAWN_GIVEAWAY_EVENTS,
+  V6_DRAWN_GIVEAWAY_RECENT,
+  V6_DRAWN_GIVEAWAY_TYPES,
+} from "@/lib/public-stats-giveaways";
+
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const SOMPI_PER_KAS = 100_000_000n;
 const RECENT_LIMIT = 10;
@@ -30,6 +38,8 @@ type StatsResponse = {
   computedAt: string;
   confirmedPayments: number;
   confirmedPaymentsDelta7d: number;
+  /** SilverScript V6 giveaways on Mainnet whose prize was activated. */
+  giveaways: { entries: number; paidKas: string; run: number; winnersPaid: number };
   linkTypeBreakdown: Record<string, number>;
   recentConfirmations: Array<{
     amountKas: null | string;
@@ -88,6 +98,8 @@ async function loadStats(): Promise<StatsResponse> {
       UNION ALL
       SELECT cp."amountSompi", cp."confirmedAt"
       FROM covenant_payouts cp
+      UNION ALL
+      ${V6_DRAWN_GIVEAWAY_EVENTS}
     )
     SELECT 'all_time'::text AS kind,
            COUNT(*)::bigint AS payments,
@@ -114,6 +126,7 @@ async function loadStats(): Promise<StatsResponse> {
     newCreators7d,
     typeBreakdown,
     recent,
+    v6Giveaways,
   ] = await Promise.all([
     // "Links created" is historical. Soft-deleting a public URL removes it
     // from creator tools and public lookup, but not from this aggregate.
@@ -135,6 +148,7 @@ async function loadStats(): Promise<StatsResponse> {
           { actions: { some: { deletedAt: null, network: "MAINNET" } } },
           { claimableLinks: { some: { deletedAt: null, network: "MAINNET" } } },
           { covenantPrototypes: { some: { publicTitle: { not: null } } } },
+          activatedV6GiveawayFilter(),
         ],
       },
     }),
@@ -159,6 +173,7 @@ async function loadStats(): Promise<StatsResponse> {
               some: { createdAt: { gte: sevenDaysAgo }, publicTitle: { not: null } },
             },
           },
+          activatedV6GiveawayFilter(sevenDaysAgo),
         ],
       },
     }),
@@ -185,6 +200,8 @@ async function loadStats(): Promise<StatsResponse> {
               AND al.metadata->>'prototypeId' IS NOT NULL
             ORDER BY al.metadata->>'prototypeId', al."createdAt" ASC
           ) confirmed_giveaways
+          UNION ALL
+          ${V6_DRAWN_GIVEAWAY_TYPES}
         ) confirmed_by_type
         GROUP BY type
       `,
@@ -235,13 +252,17 @@ async function loadStats(): Promise<StatsResponse> {
               AND metadata->>'prizeSompi' ~ '^[0-9]+$'
             ORDER BY metadata->>'prototypeId', "createdAt" ASC
           ) al
+          UNION ALL
+          ${V6_DRAWN_GIVEAWAY_RECENT}
         ) recent_confirmations
         ORDER BY "confirmedAt" DESC NULLS LAST, "sortCreatedAt" DESC
         LIMIT ${RECENT_LIMIT}
       `,
+    loadV6GiveawayStats(sevenDaysAgo),
   ]);
-  const totalLinks = actionLinks + claimableLinks + covenantGiveaways;
-  const totalLinksDelta7d = actionLinksDelta7d + claimableLinksDelta7d + covenantGiveawaysDelta7d;
+  const totalLinks = actionLinks + claimableLinks + covenantGiveaways + v6Giveaways.run;
+  const totalLinksDelta7d =
+    actionLinksDelta7d + claimableLinksDelta7d + covenantGiveawaysDelta7d + v6Giveaways.runDelta7d;
 
   return {
     activeCreators,
@@ -249,6 +270,12 @@ async function loadStats(): Promise<StatsResponse> {
     computedAt: now.toISOString(),
     confirmedPayments: Number(allTime?.payments ?? 0n),
     confirmedPaymentsDelta7d: Number(last7d?.payments ?? 0n),
+    giveaways: {
+      entries: v6Giveaways.entries,
+      paidKas: formatSompiAsKas(v6Giveaways.paidSompi),
+      run: v6Giveaways.run,
+      winnersPaid: v6Giveaways.winnersPaid,
+    },
     linkTypeBreakdown: Object.fromEntries(
       typeBreakdown.map(({ count, type }) => [toProtocolType(type), Number(count)]),
     ),

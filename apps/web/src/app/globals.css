@@ -5254,6 +5254,40 @@ a.type-segment:hover {
   }
 }
 
+/* Stats: the three giveaway numbers. One row of tiles when there is room,
+   otherwise one line each with the number on the right. */
+.metric-grid.stats-giveaway-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+@media (max-width: 559px) {
+  .metric-grid.stats-giveaway-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .stats-giveaway-grid .metric-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    gap: 2px 12px;
+    padding: 12px 14px;
+  }
+  .stats-giveaway-grid .metric-label {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .stats-giveaway-grid .metric-delta {
+    grid-column: 1;
+    grid-row: 2;
+    margin: 0;
+  }
+  .stats-giveaway-grid .metric-value {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    margin: 0;
+  }
+}
+
 .metric-card {
   display: grid;
   grid-template-rows: minmax(2.25rem, auto) minmax(2rem, auto) minmax(2rem, auto);

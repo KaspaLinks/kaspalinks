@@ -10,7 +10,10 @@ const { mockPrisma } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@kaspa-actions/db", () => ({ prisma: mockPrisma }));
+vi.mock("@kaspa-actions/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@kaspa-actions/db")>()),
+  prisma: mockPrisma,
+}));
 vi.mock("next/cache", () => ({
   unstable_cache: (operation: () => unknown) => operation,
 }));
@@ -30,7 +33,10 @@ describe("GET /api/public/stats", () => {
         { kind: "last_7d", payments: 1n, sompi: 200_000_000n },
       ])
       .mockResolvedValueOnce([{ count: 4n, type: "kaspa.claimable" }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { entries: 14n, paidSompi: 10_000_000_000n, run: 3n, runDelta7d: 2n, winnersPaid: 1n },
+      ]);
   });
 
   it("keeps created-link totals historical while active creators require undeleted links", async () => {
@@ -41,9 +47,10 @@ describe("GET /api/public/stats", () => {
       expect.objectContaining({
         activeCreators: 3,
         confirmedPayments: 4,
+        giveaways: { entries: 14, paidKas: "100", run: 3, winnersPaid: 1 },
         totalKasReceived: "8",
-        totalLinks: 17,
-        totalLinksDelta7d: 4,
+        totalLinks: 20,
+        totalLinksDelta7d: 6,
       }),
     );
     expect(mockPrisma.action.count).toHaveBeenNthCalledWith(1, {
@@ -58,6 +65,14 @@ describe("GET /api/public/stats", () => {
           { actions: { some: { deletedAt: null, network: "MAINNET" } } },
           { claimableLinks: { some: { deletedAt: null, network: "MAINNET" } } },
           { covenantPrototypes: { some: { publicTitle: { not: null } } } },
+          {
+            giveaways: {
+              some: {
+                drawProtocolVersion: 6,
+                v6Projection: { network: "MAINNET", phase: { not: "AWAITING_ACTIVATION" } },
+              },
+            },
+          },
         ],
       },
     });

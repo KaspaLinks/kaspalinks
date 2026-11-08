@@ -3,6 +3,14 @@ import { unstable_cache } from "next/cache";
 
 import { prisma } from "@kaspa-actions/db";
 
+import {
+  activatedV6GiveawayFilter,
+  loadV6GiveawayStats,
+  V6_DRAWN_GIVEAWAY_EVENTS,
+  V6_DRAWN_GIVEAWAY_RECENT,
+  V6_DRAWN_GIVEAWAY_TYPES,
+} from "@/lib/public-stats-giveaways";
+
 import { compactSompiAsKas } from "@/app/dashboard/metrics";
 
 export const dynamic = "force-dynamic";
@@ -140,6 +148,8 @@ async function loadStats() {
       UNION ALL
       SELECT cp."amountSompi", cp."confirmedAt"
       FROM covenant_payouts cp
+      UNION ALL
+      ${V6_DRAWN_GIVEAWAY_EVENTS}
     )
     SELECT 'all_time'::text AS kind,
            COUNT(*)::bigint AS payments,
@@ -166,6 +176,7 @@ async function loadStats() {
     newCreators7d,
     typeBreakdown,
     recent,
+    v6Giveaways,
   ] = await Promise.all([
     prisma.action.count({ where: { network: "MAINNET" } }),
     prisma.claimableLink.count({ where: { network: "MAINNET" } }),
@@ -183,6 +194,7 @@ async function loadStats() {
           { actions: { some: { deletedAt: null, network: "MAINNET" } } },
           { claimableLinks: { some: { deletedAt: null, network: "MAINNET" } } },
           { covenantPrototypes: { some: { publicTitle: { not: null } } } },
+          activatedV6GiveawayFilter(),
         ],
       },
     }),
@@ -209,6 +221,7 @@ async function loadStats() {
               some: { createdAt: { gte: sevenDaysAgo }, publicTitle: { not: null } },
             },
           },
+          activatedV6GiveawayFilter(sevenDaysAgo),
         ],
       },
     }),
@@ -235,6 +248,8 @@ async function loadStats() {
               AND al.metadata->>'prototypeId' IS NOT NULL
             ORDER BY al.metadata->>'prototypeId', al."createdAt" ASC
           ) confirmed_giveaways
+          UNION ALL
+          ${V6_DRAWN_GIVEAWAY_TYPES}
         ) confirmed_by_type
         GROUP BY type
       `,
@@ -285,13 +300,17 @@ async function loadStats() {
               AND metadata->>'prizeSompi' ~ '^[0-9]+$'
             ORDER BY metadata->>'prototypeId', "createdAt" ASC
           ) al
+          UNION ALL
+          ${V6_DRAWN_GIVEAWAY_RECENT}
         ) recent_confirmations
         ORDER BY "confirmedAt" DESC NULLS LAST, "sortCreatedAt" DESC
         LIMIT ${RECENT_LIMIT}
       `,
+    loadV6GiveawayStats(sevenDaysAgo),
   ]);
-  const totalLinks = actionLinks + claimableLinks + covenantGiveaways;
-  const totalLinksDelta7d = actionLinksDelta7d + claimableLinksDelta7d + covenantGiveawaysDelta7d;
+  const totalLinks = actionLinks + claimableLinks + covenantGiveaways + v6Giveaways.run;
+  const totalLinksDelta7d =
+    actionLinksDelta7d + claimableLinksDelta7d + covenantGiveawaysDelta7d + v6Giveaways.runDelta7d;
 
   return {
     activeCreators,
@@ -299,6 +318,12 @@ async function loadStats() {
     computedAt: now.toISOString(),
     confirmedPayments: Number(allTime?.payments ?? 0n),
     confirmedPaymentsDelta7d: Number(last7d?.payments ?? 0n),
+    giveaways: {
+      entries: v6Giveaways.entries,
+      paidKas: formatSompiAsKas(v6Giveaways.paidSompi),
+      run: v6Giveaways.run,
+      winnersPaid: v6Giveaways.winnersPaid,
+    },
     linkTypeBreakdown: typeBreakdown.map((row) => ({
       count: Number(row.count),
       type: row.type,
@@ -396,6 +421,41 @@ export default async function StatsPage() {
           </p>
         </article>
       </section>
+
+      {stats.giveaways.run > 0 ? (
+        <section className="card" aria-labelledby="stats-giveaways">
+          <h2 id="stats-giveaways" style={{ marginBottom: 4 }}>
+            On-chain giveaways
+          </h2>
+          <p className="muted" style={{ margin: "0 0 14px" }}>
+            Free to enter, drawn and paid by SilverScript on Kaspa.{" "}
+            <a href="/giveaway/new?from=stats">Run your own</a>
+          </p>
+          <div className="metric-grid stats-giveaway-grid">
+            <article className="metric-card">
+              <span className="metric-label">Entries</span>
+              <p className="metric-value">{stats.giveaways.entries}</p>
+              <p className="metric-delta">
+                <span>confirmed on-chain</span>
+              </p>
+            </article>
+            <article className="metric-card">
+              <span className="metric-label">Giveaways</span>
+              <p className="metric-value">{stats.giveaways.run}</p>
+              <p className="metric-delta">
+                <span>prize locked on-chain</span>
+              </p>
+            </article>
+            <article className="metric-card">
+              <span className="metric-label">Winners paid</span>
+              <p className="metric-value">{stats.giveaways.winnersPaid}</p>
+              <p className="metric-delta">
+                {stats.giveaways.paidKas} <span>KAS paid automatically</span>
+              </p>
+            </article>
+          </div>
+        </section>
+      ) : null}
 
       <section className="card">
         <h2 style={{ marginBottom: 12 }}>Link types · confirmed payments by category</h2>
