@@ -55,6 +55,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: `${base}/stats`,
     },
     {
+      changeFrequency: "monthly",
+      lastModified: now,
+      priority: 0.6,
+      url: `${base}/bot`,
+    },
+    {
       // Objection-handling FAQ — targets "is kaspa links safe / fees /
       // refund" style queries and reinforces the non-custodial pitch.
       changeFrequency: "monthly",

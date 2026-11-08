@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { loadFeaturedGiveaway } from "@/lib/featured-giveaway";
+import { telegramBotUrl } from "@/lib/telegram-bot";
 
 import { HeroQuickStart } from "./HeroQuickStart";
 import { HomeLiveGiveaway } from "./HomeLiveGiveaway";
@@ -29,11 +30,6 @@ const START_TILES = [
     title: "Run a giveaway",
   },
 ] as const;
-
-function telegramBotUrl(): null | string {
-  const username = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, "") ?? "";
-  return /^[A-Za-z0-9_]{5,32}$/.test(username) ? `https://t.me/${username}` : null;
-}
 
 export default async function Home() {
   const botUrl = telegramBotUrl();
@@ -207,9 +203,8 @@ export default async function Home() {
         {botUrl ? (
           <p className="home-start-telegram">
             Also in Telegram: the same links and giveaways from a chat.{" "}
-            <a href={botUrl} rel="noreferrer" target="_blank">
-              Open the bot →
-            </a>
+            {/* Via /bot: in-app browsers such as X on iPhone cannot open t.me's Start button. */}
+            <Link href="/bot">Open the bot →</Link>
           </p>
         ) : null}
       </section>

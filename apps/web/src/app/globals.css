@@ -642,6 +642,72 @@ ul li {
   }
 }
 
+/* /bot: landing page for posts that promote the Telegram bot. */
+.bot-page {
+  display: grid;
+  gap: 20px;
+}
+.bot-hero {
+  padding: 12px 0 4px;
+  text-align: center;
+}
+.bot-hero h1 {
+  margin: 14px 0 10px;
+  color: var(--fg-strong);
+  font-size: clamp(1.9rem, 6vw, 2.6rem);
+  line-height: 1.1;
+}
+.bot-hero .hero-sub {
+  max-width: 560px;
+  margin: 0 auto;
+}
+.bot-open {
+  margin-top: 22px;
+}
+.bot-fallback h2 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+}
+.bot-fallback p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.92rem;
+}
+.bot-fallback p.muted {
+  margin-top: 10px;
+}
+.bot-handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.bot-handle code {
+  color: var(--fg-strong);
+  font-size: 1.05rem;
+}
+.bot-features {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+}
+.bot-feature {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+.bot-feature strong {
+  color: var(--fg-strong);
+}
+.bot-feature span {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .home-start-telegram {
   margin: 12px 0 0;
   color: var(--fg-muted);
