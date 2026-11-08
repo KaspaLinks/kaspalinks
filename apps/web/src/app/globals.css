@@ -575,6 +575,73 @@ ul li {
   }
 }
 
+/* Home: the open giveaway, where visitors actually take part. */
+.home-live-giveaway {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 20px;
+  padding: 12px 18px;
+  border: 1px solid rgba(92, 228, 173, 0.35);
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, rgba(92, 228, 173, 0.12), rgba(92, 228, 173, 0.03));
+  color: var(--fg);
+  text-decoration: none;
+  transition:
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+.home-live-giveaway:hover {
+  border-color: var(--ok);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+.home-live-giveaway-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ok);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.home-live-giveaway-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+.home-live-giveaway-body {
+  display: flex;
+  flex: 1 1 260px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+.home-live-giveaway-body strong {
+  color: var(--fg-strong);
+  font-size: 1.1rem;
+}
+.home-live-giveaway-body span {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+.home-live-giveaway-cta {
+  color: var(--accent-bright);
+  font-size: 0.9rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-live-giveaway-dot {
+    animation: none;
+  }
+}
+
 .home-start-telegram {
   margin: 12px 0 0;
   color: var(--fg-muted);

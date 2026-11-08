@@ -1,6 +1,9 @@
 import Link from "next/link";
 
+import { loadFeaturedGiveaway } from "@/lib/featured-giveaway";
+
 import { HeroQuickStart } from "./HeroQuickStart";
+import { HomeLiveGiveaway } from "./HomeLiveGiveaway";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +35,12 @@ function telegramBotUrl(): null | string {
   return /^[A-Za-z0-9_]{5,32}$/.test(username) ? `https://t.me/${username}` : null;
 }
 
-export default function Home() {
+export default async function Home() {
   const botUrl = telegramBotUrl();
+  const liveGiveaway = await loadFeaturedGiveaway();
   return (
     <main className="main-wide">
+      {liveGiveaway ? <HomeLiveGiveaway giveaway={liveGiveaway} /> : null}
       <section className="hero hero-split">
         <div className="hero-copy">
           <span className="hero-eyebrow">Shareable Kaspa payment links</span>
