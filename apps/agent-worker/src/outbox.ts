@@ -1,8 +1,14 @@
 import {
+  groupGiveawayMessage,
   TelegramApiClient,
   TelegramApiError,
   telegramGiveawayIdSchema,
 } from "@kaspa-actions/agent";
+import {
+  loadGiveawayV6PublicFacts,
+  markTelegramGroupRemoved,
+  migrateTelegramGroupChat,
+} from "@kaspa-actions/application";
 import {
   NotificationRuleStatus,
   TelegramOutboxStatus,
@@ -33,6 +39,13 @@ const resultPayload = z
     publicId: telegramGiveawayIdSchema,
     title: z.string().min(1).max(80),
     status: z.enum(["DRAWN", "NO_ENTRIES", "CANCELLED"]),
+  })
+  .strict();
+
+const groupGiveawayPayload = z
+  .object({
+    event: z.enum(["announce", "reminder", "result"]),
+    groupGiveawayId: z.string().min(1).max(64),
   })
   .strict();
 
@@ -72,9 +85,52 @@ export async function deliverOutbox(
       });
     let activeConnectionId: string | null = null;
     let activeSubscriberUserId: string | null = null;
+    let activeGroupChatId: string | null = null;
     try {
       let ruleIds: string[] = [];
-      if (candidate.kind === "giveaway.result") {
+      if (candidate.kind === "group.giveaway") {
+        if (
+          process.env.TOCCATA_LAB_ENABLED !== "true" ||
+          process.env.GIVEAWAY_LAB_ENABLED !== "true"
+        ) {
+          await suppress();
+          continue;
+        }
+        const payload = groupGiveawayPayload.parse(candidate.payload);
+        const link = await prisma.telegramGroupGiveaway.findUnique({
+          where: { id: payload.groupGiveawayId },
+          select: { giveawayId: true, group: { select: { chatId: true, removedAt: true } } },
+        });
+        if (!link || link.group.removedAt) {
+          await suppress();
+          continue;
+        }
+        // The post shows the giveaway as it is now, not as it was when queued.
+        const facts = await loadGiveawayV6PublicFacts(prisma, { id: link.giveawayId });
+        // Paused chain verification usually recovers; retry with the usual backoff.
+        if (facts?.verificationPaused) throw new Error("Giveaway verification is paused.");
+        const message =
+          facts && facts.network === "MAINNET"
+            ? groupGiveawayMessage(
+                payload.event,
+                facts,
+                new URL(process.env.NEXT_PUBLIC_APP_URL ?? "").origin,
+              )
+            : null;
+        if (!message) {
+          await prisma.telegramOutbox.updateMany({
+            where: lease,
+            data: {
+              lockedAt: null,
+              status: TelegramOutboxStatus.DEAD,
+              lastErrorCode: "STATE_CHANGED",
+            },
+          });
+          continue;
+        }
+        activeGroupChatId = link.group.chatId;
+        await client.sendMessage({ chatId: link.group.chatId, ...message });
+      } else if (candidate.kind === "giveaway.result") {
         if (
           process.env.TOCCATA_LAB_ENABLED !== "true" ||
           process.env.GIVEAWAY_LAB_ENABLED !== "true"
@@ -195,6 +251,24 @@ export async function deliverOutbox(
           });
       });
     } catch (error) {
+      if (
+        error instanceof TelegramApiError &&
+        error.migrateToChatId &&
+        activeGroupChatId &&
+        candidate.attempts < 3
+      ) {
+        // The group became a supergroup; move it and send again on the next pass.
+        await migrateTelegramGroupChat(prisma, activeGroupChatId, error.migrateToChatId);
+        await prisma.telegramOutbox.updateMany({
+          where: lease,
+          data: {
+            attempts: candidate.attempts + 1,
+            lockedAt: null,
+            status: TelegramOutboxStatus.PENDING,
+          },
+        });
+        continue;
+      }
       const attempts = candidate.attempts + 1;
       const permanent =
         error instanceof z.ZodError || (error instanceof TelegramApiError && error.permanent);
@@ -238,6 +312,9 @@ export async function deliverOutbox(
             });
         }
       });
+      // The bot was removed from the group; stop posting there.
+      if (activeGroupChatId && error instanceof TelegramApiError && error.connectionUnavailable)
+        await markTelegramGroupRemoved(prisma, activeGroupChatId);
     }
   }
 }

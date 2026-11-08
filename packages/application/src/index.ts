@@ -9,6 +9,7 @@ export * from "./reads.ts";
 export * from "./rules.ts";
 export * from "./telegram-connect.ts";
 export * from "./giveaway-notifications.ts";
+export * from "./telegram-groups.ts";
 export * from "./giveaway-v6-projection.ts";
 export * from "./giveaway-v6-bootstrap.ts";
 export * from "./giveaway-v6-activation.ts";

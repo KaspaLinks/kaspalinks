@@ -17,6 +17,13 @@ const mocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   updateMany: vi.fn(),
   updateUpdate: vi.fn(),
+  getChatMember: vi.fn(),
+  ensureGroup: vi.fn(),
+  recordMembership: vi.fn(),
+  markWelcomed: vi.fn(),
+  markRemoved: vi.fn(),
+  migrateGroup: vi.fn(),
+  findGroup: vi.fn(),
 }));
 
 vi.mock("@kaspa-actions/agent", async () => {
@@ -26,6 +33,7 @@ vi.mock("@kaspa-actions/agent", async () => {
     ...actual,
     TelegramApiClient: class {
       answerCallbackQuery = mocks.answerCallbackQuery;
+      getChatMember = mocks.getChatMember;
       sendMessage = mocks.sendMessage;
     },
   };
@@ -47,6 +55,13 @@ vi.mock("@kaspa-actions/application", () => ({
   updateAgentSettingsTool: mocks.updateSettings,
   createGiveawaySetupDraftTool: mocks.createGiveawaySetupDraft,
   ensureTelegramGiveawayWorkspaceTool: mocks.ensureWorkspace,
+  ensureTelegramGroup: mocks.ensureGroup,
+  isTelegramBotMemberStatus: (status: string) =>
+    ["administrator", "creator", "member"].includes(status),
+  markTelegramGroupRemoved: mocks.markRemoved,
+  markTelegramGroupWelcomed: mocks.markWelcomed,
+  migrateTelegramGroupChat: mocks.migrateGroup,
+  recordTelegramGroupMembership: mocks.recordMembership,
   setGiveawayResultSubscription: mocks.subscribe,
   stopGiveawayResultSubscriptions: mocks.stopSubscriptions,
 }));
@@ -64,6 +79,7 @@ vi.mock("@kaspa-actions/db", () => {
     prisma: {
       giveaway: { findMany: mocks.giveawayList },
       telegramConnection: { findUnique: mocks.findConnection, updateMany: mocks.touchConnection },
+      telegramGroup: { findUnique: mocks.findGroup },
       telegramUpdate: {
         create: mocks.createUpdate,
         update: mocks.updateUpdate,
@@ -114,7 +130,7 @@ describe("Telegram Agent webhook", () => {
     expect(mocks.createUpdate).not.toHaveBeenCalled();
   });
 
-  it("accepts but ignores messages outside private chats", async () => {
+  it("ignores group commands while no bot username is configured", async () => {
     const response = await POST(
       webhookRequest({
         message: {
@@ -784,5 +800,179 @@ describe("SilverScript bot handoff", () => {
         ]),
       }),
     );
+  });
+});
+
+describe("Telegram groups", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    resetRateLimits();
+    process.env.TOCCATA_LAB_ENABLED = "true";
+    process.env.GIVEAWAY_LAB_ENABLED = "true";
+    process.env.GIVEAWAY_V6_CREATION_ENABLED = "true";
+    process.env.TELEGRAM_WEBHOOK_SECRET = "webhook-secret";
+    process.env.TELEGRAM_BOT_TOKEN = "test-token";
+    process.env.TELEGRAM_BOT_USERNAME = "KaspaLinksBot";
+    process.env.NEXT_PUBLIC_APP_URL = "https://kaspalinks.com";
+    mocks.createUpdate.mockResolvedValue({});
+    mocks.updateUpdate.mockResolvedValue({});
+    mocks.sendMessage.mockResolvedValue({ message_id: 1 });
+    mocks.ensureGroup.mockResolvedValue({ recentlyWelcomed: false, title: "Kaspa Fans" });
+    mocks.getChatMember.mockResolvedValue({ status: "administrator" });
+  });
+  const groupMessage = (text: string, from = 77) =>
+    webhookRequest({
+      update_id: 5001,
+      message: {
+        chat: { id: -1001234, title: "Kaspa Fans", type: "supergroup" },
+        from: { id: from },
+        message_id: 42,
+        text,
+      },
+    });
+
+  it("welcomes the group once when the bot is added", async () => {
+    mocks.recordMembership.mockResolvedValue({ welcome: true });
+    const response = await POST(
+      webhookRequest({
+        update_id: 5000,
+        my_chat_member: {
+          chat: { id: -1001234, title: "Kaspa Fans", type: "supergroup" },
+          from: { id: 77 },
+          new_chat_member: { status: "member" },
+          old_chat_member: { status: "left" },
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.recordMembership).toHaveBeenCalledWith(expect.anything(), {
+      active: true,
+      chatId: "-1001234",
+      title: "Kaspa Fans",
+    });
+    expect(mocks.sendMessage).toHaveBeenCalledWith({
+      chatId: "-1001234",
+      text: expect.stringContaining("send /giveaway"),
+    });
+    expect(mocks.createUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ label: "group:member" }) }),
+    );
+  });
+
+  it("sends a group admin to the private chat to set up a giveaway", async () => {
+    expect((await POST(groupMessage("/giveaway@KaspaLinksBot"))).status).toBe(200);
+    expect(mocks.getChatMember).toHaveBeenCalledWith("-1001234", "77");
+    expect(mocks.sendMessage).toHaveBeenCalledWith({
+      buttons: [
+        [{ text: "Set up giveaway", url: "https://t.me/KaspaLinksBot?start=grp_m1001234" }],
+      ],
+      chatId: "-1001234",
+      replyToMessageId: 42,
+      text: expect.stringContaining("Giveaway for Kaspa Fans"),
+    });
+    expect(mocks.createUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ label: "group:/giveaway" }) }),
+    );
+  });
+
+  it("tells other members that only admins can start one", async () => {
+    mocks.getChatMember.mockResolvedValue({ status: "member" });
+    await POST(groupMessage("/giveaway"));
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Only group admins can start a giveaway here." }),
+    );
+    expect(JSON.stringify(mocks.sendMessage.mock.calls)).not.toContain("grp_");
+  });
+
+  it("stays quiet for other bots' commands and anything else", async () => {
+    await POST(groupMessage("/giveaway@OtherBot"));
+    await POST(groupMessage("/claim 5"));
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
+    expect(mocks.getChatMember).not.toHaveBeenCalled();
+  });
+
+  it("follows a group that became a supergroup", async () => {
+    await POST(
+      webhookRequest({
+        update_id: 5002,
+        message: {
+          chat: { id: -1234, title: "Kaspa Fans", type: "group" },
+          from: { id: 77 },
+          message_id: 43,
+          migrate_to_chat_id: -1009999,
+        },
+      }),
+    );
+    expect(mocks.migrateGroup).toHaveBeenCalledWith(expect.anything(), "-1234", "-1009999");
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  const privateStart = (payload: string) =>
+    webhookRequest({
+      update_id: 5003,
+      message: {
+        chat: { id: 77, type: "private" },
+        from: { id: 77 },
+        message_id: 3,
+        text: `/start ${payload}`,
+      },
+    });
+
+  it("opens the studio for the group after checking admin rights again", async () => {
+    mocks.findGroup.mockResolvedValue({ chatId: "-1001234", removedAt: null, title: "Kaspa Fans" });
+    mocks.findConnection.mockResolvedValue(null);
+    mocks.ensureWorkspace.mockResolvedValue({
+      connection: { creatorId: "creator-tg", telegramChatId: "77", telegramUserId: "77" },
+      creator: {
+        accountKind: "TELEGRAM_ONLY",
+        prizeCovenantEnabled: true,
+        telegramBetaEnabled: true,
+      },
+    });
+    expect((await POST(privateStart("grp_m1001234"))).status).toBe(200);
+    expect(mocks.getChatMember).toHaveBeenCalledWith("-1001234", "77");
+    expect(mocks.ensureWorkspace).toHaveBeenCalledWith(expect.anything(), {
+      telegramChatId: "77",
+      telegramUserId: "77",
+    });
+    expect(mocks.sendMessage).toHaveBeenCalledWith({
+      buttons: [
+        [
+          {
+            text: "Set up giveaway",
+            web_app: { url: "https://kaspalinks.com/telegram?mode=create&group=-1001234" },
+          },
+        ],
+      ],
+      chatId: "77",
+      text: expect.stringContaining("Giveaway for Kaspa Fans"),
+    });
+  });
+
+  it("refuses the setup link to non-admins and for groups the bot left", async () => {
+    mocks.findGroup.mockResolvedValue({ chatId: "-1001234", removedAt: null, title: "Kaspa Fans" });
+    mocks.getChatMember.mockResolvedValue({ status: "member" });
+    await POST(privateStart("grp_m1001234"));
+    expect(mocks.sendMessage).toHaveBeenLastCalledWith({
+      chatId: "77",
+      text: "Only admins of Kaspa Fans can run a giveaway there.",
+    });
+    mocks.findGroup.mockResolvedValue(null);
+    await POST(
+      webhookRequest({
+        update_id: 5004,
+        message: {
+          chat: { id: 77, type: "private" },
+          from: { id: 77 },
+          message_id: 4,
+          text: "/start grp_m55",
+        },
+      }),
+    );
+    expect(mocks.sendMessage).toHaveBeenLastCalledWith({
+      chatId: "77",
+      text: expect.stringContaining("not in that group anymore"),
+    });
+    expect(mocks.ensureWorkspace).not.toHaveBeenCalled();
   });
 });

@@ -26,6 +26,14 @@ await client.setMyCommands([
   { command: "stop", description: "Turn off all giveaway result reminders" },
   { command: "disconnect", description: "Disconnect this Telegram chat" },
 ]);
+// In groups the menu lists only what the bot answers there.
+await client.setMyCommands(
+  [
+    { command: "giveaway", description: "Run a KAS giveaway for this group (admins)" },
+    { command: "help", description: "What Kaspa Links does in this group" },
+  ],
+  { type: "all_group_chats" },
+);
 // The button next to the message field opens the Mini App start screen.
 await client.setChatMenuButton({ text: "Open", url: `${appUrl}/telegram` });
-console.info("Telegram webhook, command menu and menu button registered.");
+console.info("Telegram webhook, command menus and menu button registered.");

@@ -4,6 +4,7 @@ export type TelegramCommand =
   | { kind: "public_giveaway" | "watch_giveaway"; publicId: string }
   | { kind: "stop_giveaway_alerts" }
   | { kind: "connect"; code: string }
+  | { chatId: string; kind: "group_setup" }
   | { kind: "disconnect" | "giveaways" | "help" | "links" | "payments" | "start" | "stats" }
   | { amountKas: string; kind: "prepare_giveaway"; title: string }
   | { amountKas: string; kind: "prepare_claim"; title: string }
@@ -81,6 +82,41 @@ export function telegramUpdateLabel(input: {
   return COUNTED_COMMANDS.has(name) ? `/${name}` : "/other";
 }
 
+// Group chat ids are negative; a start payload allows only [A-Za-z0-9_-], so the
+// minus sign becomes "m". The id is not a secret: setting up a giveaway for the
+// group still requires the person to be one of its admins.
+export function groupStartPayload(chatId: string): string {
+  if (!/^-?\d{1,20}$/.test(chatId)) throw new Error("Invalid Telegram chat id.");
+  return `grp_${chatId.replace(/^-/, "m")}`;
+}
+
+function parseGroupStartPayload(payload: string): null | string {
+  const match = /^grp_(m?)(\d{1,20})$/.exec(payload);
+  return match ? `${match[1] ? "-" : ""}${match[2]}` : null;
+}
+
+export type TelegramGroupCommand = { kind: "giveaway" } | { kind: "help" };
+
+/**
+ * Commands the bot answers in a group. Everything else stays unanswered so the
+ * bot never talks over a conversation; a command addressed to another bot
+ * (/giveaway@OtherBot) is ignored too.
+ */
+export function parseTelegramGroupCommand(
+  text: string,
+  botUsername: string,
+): null | TelegramGroupCommand {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/")) return null;
+  const [name = "", target] = (trimmed.split(/\s/)[0] ?? "").slice(1).split("@");
+  if (target !== undefined && target.toLowerCase() !== botUsername.replace(/^@/, "").toLowerCase())
+    return null;
+  const command = name.toLowerCase();
+  if (command === "giveaway") return { kind: "giveaway" };
+  if (command === "start" || command === "help") return { kind: "help" };
+  return null;
+}
+
 export function parseTelegramCommand(text: string): TelegramCommand | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith("/")) return null;
@@ -91,6 +127,8 @@ export function parseTelegramCommand(text: string): TelegramCommand | null {
 
   if (command === "stop") return { kind: "stop_giveaway_alerts" };
   if (command === "start") {
+    const group = parseGroupStartPayload(rest);
+    if (group) return { chatId: group, kind: "group_setup" };
     const publicLink = /^(g|watch)_([a-zA-Z0-9_-]{1,48})$/.exec(rest);
     if (publicLink)
       return {

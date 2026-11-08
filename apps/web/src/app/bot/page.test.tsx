@@ -26,6 +26,8 @@ describe("BotPage", () => {
     for (const feature of ["Send KAS", "Get paid", "Giveaway", "My links"]) {
       expect(html).toContain(`<strong>${feature}</strong>`);
     }
+    // Groups: Telegram's group picker, then the bot asks admins to send /giveaway.
+    expect(html).toContain('href="https://t.me/kaspalinksbot?startgroup=giveaway"');
   });
 
   it("is not found without a valid bot username", () => {

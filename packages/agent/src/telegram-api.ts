@@ -7,6 +7,8 @@ export class TelegramApiError extends Error {
     public readonly errorCode?: number,
     public readonly retryAfterSeconds?: number,
     public readonly connectionUnavailable = false,
+    /** A group became a supergroup; resend to this chat id. */
+    public readonly migrateToChatId?: string,
   ) {
     super(message);
   }
@@ -15,7 +17,7 @@ export class TelegramApiError extends Error {
 type TelegramApiResponse<T> = {
   description?: string;
   error_code?: number;
-  parameters?: { retry_after?: number };
+  parameters?: { migrate_to_chat_id?: number; retry_after?: number };
   ok: boolean;
   result?: T;
 };
@@ -24,6 +26,13 @@ export type TelegramBotCommand = {
   command: string;
   description: string;
 };
+
+export type TelegramBotCommandScope = { type: "all_group_chats" } | { type: "all_private_chats" };
+
+/** Members whose status lets them manage a group. */
+export function isTelegramGroupAdminStatus(status: string): boolean {
+  return status === "creator" || status === "administrator";
+}
 
 export class TelegramApiClient {
   constructor(
@@ -37,14 +46,29 @@ export class TelegramApiClient {
     buttons?: TelegramInlineButton[][];
     chatId: string;
     disableWebPagePreview?: boolean;
+    /** Answer this message in a group; still sent if it was deleted meanwhile. */
+    replyToMessageId?: number;
     text: string;
   }): Promise<{ message_id: number }> {
     return this.call("sendMessage", {
       chat_id: input.chatId,
       disable_web_page_preview: input.disableWebPagePreview ?? true,
       ...(input.buttons ? { reply_markup: { inline_keyboard: input.buttons } } : {}),
+      ...(input.replyToMessageId
+        ? {
+            reply_parameters: {
+              allow_sending_without_reply: true,
+              message_id: input.replyToMessageId,
+            },
+          }
+        : {}),
       text: input.text,
     });
+  }
+
+  /** One member's status in a group the bot belongs to, e.g. "administrator". */
+  async getChatMember(chatId: string, userId: string): Promise<{ status: string }> {
+    return this.call("getChatMember", { chat_id: chatId, user_id: userId });
   }
 
   async savePreparedInlineMessage(
@@ -69,15 +93,18 @@ export class TelegramApiClient {
 
   async setWebhook(input: { secretToken: string; url: string }): Promise<boolean> {
     return this.call("setWebhook", {
-      allowed_updates: ["message", "callback_query"],
+      allowed_updates: ["message", "callback_query", "my_chat_member"],
       drop_pending_updates: false,
       secret_token: input.secretToken,
       url: input.url,
     });
   }
 
-  async setMyCommands(commands: TelegramBotCommand[]): Promise<boolean> {
-    return this.call("setMyCommands", { commands });
+  async setMyCommands(
+    commands: TelegramBotCommand[],
+    scope?: TelegramBotCommandScope,
+  ): Promise<boolean> {
+    return this.call("setMyCommands", { commands, ...(scope ? { scope } : {}) });
   }
 
   /** The default menu button for every private chat with the bot. */
@@ -122,6 +149,9 @@ export class TelegramApiClient {
           ? Math.max(1, payload.parameters!.retry_after!)
           : undefined,
         code === 403,
+        Number.isSafeInteger(payload.parameters?.migrate_to_chat_id)
+          ? String(payload.parameters!.migrate_to_chat_id)
+          : undefined,
       );
     }
     return payload.result;

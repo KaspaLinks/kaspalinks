@@ -707,6 +707,15 @@ ul li {
   font-size: 0.9rem;
   line-height: 1.45;
 }
+.bot-groups h2 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+}
+.bot-groups p {
+  margin: 0 0 14px;
+  color: var(--fg-muted);
+  font-size: 0.92rem;
+}
 
 .home-start-telegram {
   margin: 12px 0 0;
@@ -12983,6 +12992,28 @@ main.giveaway-guided-page {
   font-size: 0.85rem;
 }
 .studio-watch .btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+/* Opened from a Telegram group: where the bot will post this giveaway. */
+.studio-group-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.studio-group-notice > div {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.studio-group-notice span {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.studio-group-notice .btn {
   flex-shrink: 0;
   margin-left: auto;
 }

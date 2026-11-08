@@ -76,6 +76,17 @@ export default function BotPage() {
           </div>
         ))}
       </section>
+
+      <section className="card bot-groups">
+        <h2>Run giveaways in your group</h2>
+        <p>
+          Add the bot to your Telegram group. An admin sends /giveaway and funds the prize; the bot
+          posts it in the group, reminds everyone before entries close and announces the winner.
+        </p>
+        <a className="btn" href={`https://t.me/${username}?startgroup=giveaway`}>
+          Add @{username} to a group
+        </a>
+      </section>
     </main>
   );
 }

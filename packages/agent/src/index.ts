@@ -5,3 +5,4 @@ export * from "./telegram-mini-app.ts";
 export * from "./telegram-types.ts";
 
 export * from "./telegram-giveaways.ts";
+export * from "./telegram-groups.ts";

@@ -1,8 +1,19 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import {
+  groupAdminOnlyText,
+  groupAnonymousAdminText,
+  groupSetupMessage,
+  groupWelcomeText,
+  isTelegramGroupAdminStatus,
   OpenAiIntentInterpreter,
+  parseTelegramGroupCommand,
+  privateGroupMissingText,
+  privateGroupNotAdminText,
+  privateGroupSetupMessage,
+  TELEGRAM_ANONYMOUS_ADMIN_ID,
   TelegramApiClient,
+  TelegramApiError,
   TelegramCommandError,
   estimateAiCostMicros,
   parseAiPrice,
@@ -13,6 +24,7 @@ import {
   telegramGiveawayIdSchema,
   type InterpretedIntent,
   type TelegramCallbackQuery,
+  type TelegramChatMemberUpdated,
   type TelegramMessage,
   type TelegramUpdate as TelegramUpdatePayload,
 } from "@kaspa-actions/agent";
@@ -26,6 +38,12 @@ import {
   createActionTool,
   disconnectTelegramTool,
   ensureTelegramGiveawayWorkspaceTool,
+  ensureTelegramGroup,
+  isTelegramBotMemberStatus,
+  markTelegramGroupRemoved,
+  markTelegramGroupWelcomed,
+  migrateTelegramGroupChat,
+  recordTelegramGroupMembership,
   getCreatorStatsTool,
   listActionsTool,
   listPaymentsTool,
@@ -48,10 +66,21 @@ import { giveawayV6AccessFor, isGiveawayV6CreationEnabled } from "@/lib/giveaway
 import { isGiveawayLabEnabled } from "@/lib/giveaway-lab";
 import { isClaimableAnonymousEnabled } from "@/lib/claimable-flags";
 import { touchTelegramActivity } from "@/lib/telegram-activity";
+import { telegramBotUsername } from "@/lib/telegram-bot";
 import { telegramActionPath } from "@/lib/telegram-links";
 import { isToccataLabEnabled } from "@/lib/toccata-lab";
 
 export const runtime = "nodejs";
+
+const telegramChatSchema = z.object({
+  id: z.union([z.number().int().safe(), z.string().regex(/^-?\d{1,20}$/)]),
+  // Group titles are public; anything longer is cut, never rejected.
+  title: z
+    .string()
+    .optional()
+    .transform((value) => value?.slice(0, 128)),
+  type: z.enum(["private", "group", "supergroup", "channel"]),
+});
 
 const telegramUpdateSchema = z
   .object({
@@ -82,10 +111,20 @@ const telegramUpdateSchema = z
             id: z.union([z.number().int().positive().safe(), z.string().regex(/^\d{1,20}$/)]),
           })
           .optional(),
-        chat: z.object({
-          id: z.union([z.number().int().safe(), z.string().regex(/^-?\d{1,20}$/)]),
-          type: z.enum(["private", "group", "supergroup", "channel"]),
+        chat: telegramChatSchema,
+        migrate_to_chat_id: z
+          .union([z.number().int().safe(), z.string().regex(/^-?\d{1,20}$/)])
+          .optional(),
+      })
+      .optional(),
+    my_chat_member: z
+      .object({
+        chat: telegramChatSchema,
+        from: z.object({
+          id: z.union([z.number().int().positive().safe(), z.string().regex(/^\d{1,20}$/)]),
         }),
+        new_chat_member: z.object({ status: z.string().max(32) }),
+        old_chat_member: z.object({ status: z.string().max(32) }),
       })
       .optional(),
     update_id: z.union([z.number().int().nonnegative().safe(), z.string().regex(/^\d{1,20}$/)]),
@@ -681,11 +720,150 @@ async function respondToAiIntent(
   });
 }
 
+function isGroupChat(chat: { type: string }) {
+  return chat.type === "group" || chat.type === "supergroup";
+}
+
+// The bot joined or left a group. A join gets one short welcome.
+async function handleMembership(client: TelegramApiClient, update: TelegramChatMemberUpdated) {
+  if (!isGroupChat(update.chat)) return;
+  const chatId = String(update.chat.id);
+  const result = await recordTelegramGroupMembership(prisma, {
+    active: isTelegramBotMemberStatus(update.new_chat_member.status),
+    chatId,
+    title: update.chat.title ?? null,
+  });
+  if (result.welcome) await client.sendMessage({ chatId, text: groupWelcomeText() });
+}
+
+// In groups the bot answers only /giveaway and /help, so it never talks over a chat.
+async function handleGroupMessage(client: TelegramApiClient, message: TelegramMessage) {
+  const chatId = String(message.chat.id);
+  if (message.migrate_to_chat_id !== undefined) {
+    await migrateTelegramGroupChat(prisma, chatId, String(message.migrate_to_chat_id));
+    return;
+  }
+  const botUsername = telegramBotUsername();
+  const text = message.text?.trim();
+  if (!botUsername || !text || !message.from) return;
+  const command = parseTelegramGroupCommand(text, botUsername);
+  if (!command) return;
+  const group = await ensureTelegramGroup(prisma, { chatId, title: message.chat.title ?? null });
+  const reply = { chatId, replyToMessageId: message.message_id };
+  if (command.kind === "help") {
+    // Adding the bot through a link also sends /start; the welcome already went out.
+    if (group.recentlyWelcomed) return;
+    await client.sendMessage({ ...reply, text: groupWelcomeText() });
+    await markTelegramGroupWelcomed(prisma, chatId);
+    return;
+  }
+  if (!isGiveawayV6CreationEnabled()) {
+    await client.sendMessage({
+      ...reply,
+      text: "Giveaways are temporarily unavailable. Please try again later.",
+    });
+    return;
+  }
+  const userId = String(message.from.id);
+  if (userId === TELEGRAM_ANONYMOUS_ADMIN_ID) {
+    await client.sendMessage({ ...reply, text: groupAnonymousAdminText });
+    return;
+  }
+  const member = await client.getChatMember(chatId, userId);
+  if (!isTelegramGroupAdminStatus(member.status)) {
+    await client.sendMessage({ ...reply, text: groupAdminOnlyText });
+    return;
+  }
+  await client.sendMessage({
+    ...reply,
+    ...groupSetupMessage({ botUsername, chatId, title: group.title }),
+  });
+}
+
+/**
+ * The admin's status in a group, checked live with Telegram. "missing" when the
+ * bot is no longer in that group.
+ */
+async function groupMemberStatus(
+  client: TelegramApiClient,
+  groupChatId: string,
+  telegramUserId: string,
+): Promise<"admin" | "missing" | "not_admin"> {
+  try {
+    const member = await client.getChatMember(groupChatId, telegramUserId);
+    return isTelegramGroupAdminStatus(member.status) ? "admin" : "not_admin";
+  } catch (error) {
+    if (!(error instanceof TelegramApiError) || !error.permanent) throw error;
+    if (error.connectionUnavailable || /chat not found/i.test(error.message)) {
+      await markTelegramGroupRemoved(prisma, groupChatId);
+      return "missing";
+    }
+    return "not_admin";
+  }
+}
+
+// The private chat's answer to the group's "Set up giveaway" link.
+async function handleGroupSetup(
+  client: TelegramApiClient,
+  input: { chatId: string; groupChatId: string; telegramUserId: string },
+) {
+  if (!isGiveawayV6CreationEnabled()) {
+    await client.sendMessage({
+      chatId: input.chatId,
+      text: "SilverScript giveaways are temporarily unavailable. Please try again later.",
+    });
+    return;
+  }
+  const group = await prisma.telegramGroup.findUnique({
+    select: { chatId: true, removedAt: true, title: true },
+    where: { chatId: input.groupChatId },
+  });
+  const status =
+    group && !group.removedAt
+      ? await groupMemberStatus(client, group.chatId, input.telegramUserId)
+      : "missing";
+  if (!group || status === "missing") {
+    await client.sendMessage({ chatId: input.chatId, text: privateGroupMissingText });
+    return;
+  }
+  if (status === "not_admin") {
+    await client.sendMessage({ chatId: input.chatId, text: privateGroupNotAdminText(group.title) });
+    return;
+  }
+  let connection = await connectedCreator(input.telegramUserId);
+  if (!connection) {
+    const workspace = await ensureTelegramGiveawayWorkspaceTool(prisma, {
+      telegramChatId: input.chatId,
+      telegramUserId: input.telegramUserId,
+    });
+    connection = { ...workspace.connection, creator: workspace.creator };
+  }
+  if (!usesCovenantStudio(connection.creator)) {
+    await client.sendMessage({
+      chatId: input.chatId,
+      text: "SilverScript giveaways are not enabled for this account yet.",
+    });
+    return;
+  }
+  await client.sendMessage({
+    chatId: input.chatId,
+    ...privateGroupSetupMessage({
+      appUrl: requiredEnv("NEXT_PUBLIC_APP_URL"),
+      chatId: group.chatId,
+      title: group.title,
+    }),
+  });
+}
+
 async function handleMessage(
   client: TelegramApiClient,
   message: TelegramMessage,
   updateId: string,
 ) {
+  if (isGroupChat(message.chat)) {
+    await handleGroupMessage(client, message);
+    return;
+  }
   if (message.chat.type !== "private" || !message.from) return;
   const chatId = String(message.chat.id);
   const telegramUserId = String(message.from.id);
@@ -716,6 +894,10 @@ async function handleMessage(
         [{ text: "Notify me of the result", callback_data: `watch:on:${card.publicId}` }],
       ],
     });
+    return;
+  }
+  if (command?.kind === "group_setup") {
+    await handleGroupSetup(client, { chatId, groupChatId: command.chatId, telegramUserId });
     return;
   }
   if (command?.kind === "prepare_claim") {
@@ -908,6 +1090,18 @@ async function handleMessage(
   await client.sendMessage({ chatId, text: "Unknown command. Try /help." });
 }
 
+// Group commands are counted apart from the same commands in private chats.
+function updateLabel(update: TelegramUpdatePayload): null | string {
+  if (update.my_chat_member) return "group:member";
+  const label = telegramUpdateLabel({
+    callbackData: update.callback_query?.data,
+    text: update.message?.text,
+  });
+  if (update.message && isGroupChat(update.message.chat))
+    return label?.startsWith("/") ? `group:${label}` : null;
+  return label;
+}
+
 export async function POST(request: Request) {
   let webhookSecret: string;
   let client: TelegramApiClient;
@@ -938,10 +1132,7 @@ export async function POST(request: Request) {
     await prisma.telegramUpdate.create({
       data: {
         attempts: 1,
-        label: telegramUpdateLabel({
-          callbackData: update.callback_query?.data,
-          text: update.message?.text,
-        }),
+        label: updateLabel(update),
         processingAt,
         updateId,
       },
@@ -971,6 +1162,7 @@ export async function POST(request: Request) {
       await touchTelegramActivity(prisma, { telegramUserId: String(userId) }, processingAt);
     }
     if (update.callback_query) await handleCallback(client, update.callback_query);
+    else if (update.my_chat_member) await handleMembership(client, update.my_chat_member);
     else if (update.message) await handleMessage(client, update.message, updateId);
     await prisma.telegramUpdate.update({
       data: { errorCode: null, processedAt: new Date(), processingAt: null },

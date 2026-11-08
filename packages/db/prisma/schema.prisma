@@ -668,6 +668,7 @@ model Giveaway {
   updatedAt                     DateTime                       @updatedAt
   entries                       GiveawayEntry[]
   telegramSubscriptions         TelegramGiveawaySubscription[]
+  telegramGroups                TelegramGroupGiveaway[]
   v6Bootstrap                   GiveawayV6Bootstrap?
   v6Projection                  GiveawayV6Projection?
   telegramCheckedAt             DateTime?
@@ -829,6 +830,41 @@ model TelegramGiveawaySubscription {
   @@unique([giveawayId, telegramUserId])
   @@index([telegramUserId, revokedAt])
   @@index([resultQueuedAt, revokedAt])
+}
+
+// Telegram groups the bot belongs to. Only the chat id and the group's public
+// title are stored; never member lists or message text.
+model TelegramGroup {
+  id         String                  @id @default(cuid())
+  chatId     String                  @unique
+  title      String?
+  welcomedAt DateTime?
+  removedAt  DateTime?
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+  giveaways  TelegramGroupGiveaway[]
+
+  @@index([removedAt])
+}
+
+// A giveaway that an admin of the group chose to announce there. The worker
+// posts it once it is live, one reminder before entries close, and the result.
+model TelegramGroupGiveaway {
+  id                     String        @id @default(cuid())
+  groupId                String
+  group                  TelegramGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  giveawayId             String
+  giveaway               Giveaway      @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  linkedByTelegramUserId String
+  announceQueuedAt       DateTime?
+  reminderQueuedAt       DateTime?
+  resultQueuedAt         DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  @@unique([groupId, giveawayId])
+  @@index([giveawayId])
+  @@index([resultQueuedAt])
 }
 
 // Isolated mainnet trials; never processed by the public giveaway worker.

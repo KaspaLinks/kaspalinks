@@ -425,6 +425,46 @@ function normalizedCreatedGiveaway(response: CreateResponse): StudioGiveaway {
   };
 }
 
+type TelegramGroupTarget = { chatId: string; title: null | string };
+
+function groupLabel(group: null | TelegramGroupTarget): string {
+  return group?.title?.trim() || "your group";
+}
+
+function GroupAnnouncementNotice({
+  group,
+  linked,
+  linking,
+  onLink,
+}: {
+  group: TelegramGroupTarget;
+  /** Null while no giveaway is selected. */
+  linked: boolean | null;
+  linking: boolean;
+  onLink: (() => void) | null;
+}) {
+  const name = groupLabel(group);
+  return (
+    <div className="notice studio-group-notice" role="status">
+      <div>
+        <strong>For {name}</strong>
+        <span>
+          {linked
+            ? `✓ The bot posts this giveaway in ${name} once it's live, reminds everyone shortly before entries close and announces the winner.`
+            : linked === false && !onLink
+              ? `This giveaway can't be announced in ${name} any more.`
+              : `The bot posts your giveaway in ${name} once it's live, reminds everyone shortly before entries close and announces the winner.`}
+        </span>
+      </div>
+      {onLink ? (
+        <button className="btn btn-sm" disabled={linking} onClick={onLink} type="button">
+          {linking ? "Linking…" : `Announce in ${name}`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function GiveawayV6Studio({
   guestTurnstile,
   initialView = "create",
@@ -458,6 +498,10 @@ export function GiveawayV6Studio({
   const [error, setError] = useState("");
   const activationInFlight = useRef(false);
   const checkInFlight = useRef(false);
+  // Opened from a group's "Set up giveaway" link: the bot announces there.
+  const [group, setGroup] = useState<null | TelegramGroupTarget>(null);
+  const [groupLinked, setGroupLinked] = useState<readonly string[]>([]);
+  const [groupLinking, setGroupLinking] = useState(false);
 
   useEffect(() => {
     if (surface !== "telegram") return;
@@ -543,6 +587,64 @@ export function GiveawayV6Studio({
     surface,
     telegramInitData,
   ]);
+
+  useEffect(() => {
+    if (surface !== "telegram" || !telegramInitData) return;
+    const chatId = new URLSearchParams(window.location.search).get("group");
+    if (!chatId || !/^-\d{1,20}$/.test(chatId)) return;
+    let active = true;
+    void (async () => {
+      const response = await fetch(`/api/telegram/groups/${encodeURIComponent(chatId)}`, {
+        headers: { "x-telegram-mini-app-init-data": telegramInitData },
+      });
+      const body: unknown = await response.json().catch(() => null);
+      if (!active) return;
+      if (!response.ok) {
+        setError(errorMessage(body, "The group could not be checked. Reopen the link from it."));
+        return;
+      }
+      const loaded = body as { group: TelegramGroupTarget; linkedPublicIds: string[] };
+      setGroup(loaded.group);
+      setGroupLinked(loaded.linkedPublicIds);
+    })().catch(() => {
+      if (active) setError("The group could not be checked. Reopen the link from it.");
+    });
+    return () => {
+      active = false;
+    };
+  }, [surface, telegramInitData]);
+
+  const linkToGroup = useCallback(
+    async (publicId: string): Promise<boolean> => {
+      if (!group || !telegramInitData) return false;
+      setGroupLinking(true);
+      try {
+        const response = await fetch(`/api/telegram/groups/${encodeURIComponent(group.chatId)}`, {
+          body: JSON.stringify({ publicId }),
+          headers: {
+            "content-type": "application/json",
+            "x-telegram-mini-app-init-data": telegramInitData,
+          },
+          method: "POST",
+        });
+        const body: unknown = await response.json().catch(() => null);
+        if (!response.ok) {
+          setError(errorMessage(body, "The giveaway could not be linked to the group."));
+          return false;
+        }
+        setGroupLinked((current) =>
+          current.includes(publicId) ? current : [...current, publicId],
+        );
+        return true;
+      } catch {
+        setError("The giveaway could not be linked to the group. Try again.");
+        return false;
+      } finally {
+        setGroupLinking(false);
+      }
+    },
+    [group, telegramInitData],
+  );
 
   const startAsGuest = useCallback(async (turnstileToken: null | string) => {
     const response = await fetch("/api/creators/guest", {
@@ -772,7 +874,12 @@ export function GiveawayV6Studio({
       if (!response.ok) throw new Error(errorMessage(body, "Giveaway could not be created."));
       const giveaway = normalizedCreatedGiveaway(body as CreateResponse);
       storeGiveaway(giveaway);
-      setMessage("Setup locked. Fund the exact amount shown below.");
+      const announced = group ? await linkToGroup(giveaway.publicId) : false;
+      setMessage(
+        announced
+          ? `Setup locked. Fund the exact amount shown below. Once it's live, the bot posts it in ${groupLabel(group)}.`
+          : "Setup locked. Fund the exact amount shown below.",
+      );
       const url = new URL(window.location.href);
       url.searchParams.set("id", giveaway.publicId);
       url.searchParams.delete("mode");
@@ -927,6 +1034,26 @@ export function GiveawayV6Studio({
       </header>
 
       {isGuest && guest ? <GuestLinkNotice identity={guest} saved={guestSaved} /> : null}
+
+      {group ? (
+        <GroupAnnouncementNotice
+          group={group}
+          linked={selected ? groupLinked.includes(selected.publicId) : null}
+          linking={groupLinking}
+          onLink={
+            selected &&
+            (selected.phase === "AWAITING_ACTIVATION" || selected.phase === "OPEN") &&
+            !groupLinked.includes(selected.publicId)
+              ? () => {
+                  setError("");
+                  void linkToGroup(selected.publicId).then((ok) => {
+                    if (ok) setMessage(`The bot will post this giveaway in ${groupLabel(group)}.`);
+                  });
+                }
+              : null
+          }
+        />
+      ) : null}
 
       <div className="studio-toolbar">
         <button

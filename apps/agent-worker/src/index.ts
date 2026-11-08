@@ -5,6 +5,7 @@ import {
   createGiveawayV6EntropyProverSocketClient,
   executeDueGiveawayV6Settlements,
   expireAgentData,
+  queueTelegramGroupGiveawayPosts,
   scheduleNextPaymentDetection,
   syncDueGiveawayV6Projections,
 } from "@kaspa-actions/application";
@@ -22,7 +23,10 @@ import { deliverOutbox } from "./outbox.ts";
 import { processGiveawayReminders } from "./giveaways.ts";
 
 const LOOP_INTERVAL_MS = 1_000;
+// Group posts follow giveaway phases that change at most every few seconds.
+const GROUP_POST_INTERVAL_MS = 15_000;
 let lastRetentionAt = 0;
+let lastGroupPostsAt = 0;
 
 function indexerFor(network: "MAINNET" | "TESTNET"): KaspaIndexer | null {
   if (process.env.KASPA_INDEXER_ENABLED !== "true") return null;
@@ -121,6 +125,12 @@ async function tick(client: TelegramApiClient) {
     processGiveawayReminders(now),
     processClaimableReturns(now),
     processGiveawayV6Advances(now),
+    now.getTime() - lastGroupPostsAt >= GROUP_POST_INTERVAL_MS
+      ? (async () => {
+          lastGroupPostsAt = now.getTime();
+          await queueTelegramGroupGiveawayPosts(prisma, now);
+        })()
+      : Promise.resolve(),
     giveawayV6Relay
       ? (async () => {
           await syncDueGiveawayV6Projections(prisma, giveawayV6Relay, now);
