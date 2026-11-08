@@ -3,8 +3,9 @@ import { telegramGiveawayIdSchema, type V6GiveawayShareInput } from "./telegram-
 import type { TelegramInlineButton } from "./telegram-types.ts";
 
 // Messages for Telegram groups. Telegram allows only URL buttons in groups, so
-// every button here is a plain link: setup continues in the private chat with
-// the bot, entry on the giveaway page.
+// every button posted there is a plain link: setup continues in the private
+// chat with the bot, entry on the giveaway page. The question whether to post
+// a live giveaway goes to the admin's private chat, where buttons may answer.
 
 type BotMessage = { buttons?: TelegramInlineButton[][]; text: string };
 
@@ -38,7 +39,7 @@ export function groupWelcomeText(): string {
   return [
     "👋 Thanks for adding Kaspa Links!",
     "",
-    "Admins: send /giveaway to run a KAS giveaway for this group. Entry is free. I post it here, remind everyone before entries close and announce the winner.",
+    "Admins: send /giveaway to run a KAS giveaway for this group. Entry is free. Once it's live, you choose whether I post it here; then I also remind everyone before entries close and announce the winner.",
     "",
     "The winner is drawn on Kaspa and paid automatically. Kaspa Links never holds the prize.",
   ].join("\n");
@@ -58,7 +59,7 @@ export function groupSetupMessage(input: {
   return {
     text: [
       `🎁 Giveaway for ${groupName(input.title)}`,
-      "Tap below to set it up in a private chat with me: prize, draw time, then fund it from your wallet. Once it's live, I'll post it here.",
+      "Tap below to set it up in a private chat with me: prize, draw time, then fund it from your wallet. Once it's live, you choose whether I post it here.",
     ].join("\n"),
     buttons: [
       [
@@ -84,7 +85,7 @@ export function privateGroupSetupMessage(input: {
     text: [
       `Giveaway for ${groupName(input.title)}`,
       "",
-      "Choose the prize and draw time, then fund it from your wallet. Once it's live, I'll post it in the group, remind everyone shortly before entries close and announce the winner there.",
+      "Choose the prize and draw time, then fund it from your wallet. Once it's live, you choose whether I post it in the group. Then I also remind everyone shortly before entries close and announce the winner there.",
     ].join("\n"),
     buttons: [[{ text: "Set up giveaway", web_app: { url: url.toString() } }]],
   };
@@ -98,6 +99,84 @@ export const privateGroupMissingText =
   "I'm not in that group anymore. Add me again, then send /giveaway there.";
 
 export type GroupGiveawayEvent = "announce" | "reminder" | "result";
+
+export type GroupPostDecision = "post" | "skip";
+
+const DECISION_PATTERN = /^group:(post|skip):([a-z0-9]{20,40})$/;
+
+/** Callback data of the private "Post in group?" buttons (at most 64 bytes). */
+export function groupDecisionCallback(decision: GroupPostDecision, linkId: string): string {
+  const data = `group:${decision}:${linkId}`;
+  if (!DECISION_PATTERN.test(data)) throw new Error("Invalid group giveaway link id.");
+  return data;
+}
+
+export function parseGroupDecisionCallback(
+  data: string | undefined,
+): { decision: GroupPostDecision; linkId: string } | null {
+  const match = DECISION_PATTERN.exec(data ?? "");
+  return match ? { decision: match[1] as GroupPostDecision, linkId: match[2]! } : null;
+}
+
+function buttonGroupName(title: null | string | undefined): string {
+  const name = groupName(title);
+  return name.length > 28 ? `${name.slice(0, 27)}…` : name;
+}
+
+/** Asks the admin in their private chat whether to post the live giveaway in the group. */
+export function groupPostQuestion(input: {
+  amountKas: string;
+  groupTitle?: null | string;
+  linkId: string;
+  title: string;
+}): BotMessage {
+  const title = input.title.length > 80 ? `${input.title.slice(0, 79)}…` : input.title;
+  return {
+    text: [
+      "Your giveaway is live 🎉",
+      `${title} · ${input.amountKas} KAS`,
+      "",
+      `Post it in ${groupName(input.groupTitle)}? I'll then also remind everyone shortly before entries close and announce the winner there.`,
+    ].join("\n"),
+    buttons: [
+      [
+        {
+          text: `Post in ${buttonGroupName(input.groupTitle)}`,
+          callback_data: groupDecisionCallback("post", input.linkId),
+        },
+      ],
+      [{ text: "Not now", callback_data: groupDecisionCallback("skip", input.linkId) }],
+    ],
+  };
+}
+
+export function groupDecisionText(decision: GroupPostDecision, groupTitle?: null | string): string {
+  return decision === "post"
+    ? `✓ Posting it in ${groupName(groupTitle)} now.`
+    : `OK, I won't post it in ${groupName(groupTitle)}. While entries are open, you can still post it from the giveaway studio.`;
+}
+
+/** A link that opens one message for members of a supergroup; basic groups have none. */
+export function telegramGroupMessageLink(chatId: string, messageId: number): null | string {
+  const match = /^-100(\d{1,20})$/.exec(chatId);
+  return match && Number.isSafeInteger(messageId) && messageId > 0
+    ? `https://t.me/c/${match[1]}/${messageId}`
+    : null;
+}
+
+/** Tells the admin privately that the post is in the group. */
+export function groupPostedMessage(input: {
+  chatId: string;
+  groupTitle?: null | string;
+  messageId: number;
+  title: string;
+}): BotMessage {
+  const link = telegramGroupMessageLink(input.chatId, input.messageId);
+  return {
+    text: `✓ Posted in ${groupName(input.groupTitle)}: ${input.title.slice(0, 80)}`,
+    ...(link ? { buttons: [[{ text: "Open the post", url: link }]] } : {}),
+  };
+}
 
 export type GroupGiveawayFacts = V6GiveawayShareInput & { winnerAddress: null | string };
 

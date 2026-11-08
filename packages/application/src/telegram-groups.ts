@@ -1,12 +1,13 @@
-import { GiveawayV6Phase, type Network, type PrismaClient } from "@kaspa-actions/db";
+import { GiveawayV6Phase, type Network, Prisma, type PrismaClient } from "@kaspa-actions/db";
 import { formatSompiToKaspa, kaspaAddressFromScriptPublicKeyHex } from "@kaspa-actions/kaspa";
 
 import { ApplicationError } from "./errors.ts";
 import { restoreGiveawayV6Projection } from "./giveaway-v6-projection.ts";
 
-// Telegram groups: the bot posts a giveaway that a group admin linked to the
-// group once it is live, one reminder shortly before entries close, and the
-// result. Only the group's chat id and public title are stored.
+// Telegram groups: a group admin sets up a giveaway for the group. Once it is
+// live, the admin chooses whether the bot posts it there (in the studio or in
+// answer to a private question); after a post come one reminder shortly before
+// entries close, and the result. Only the group's chat id and title are stored.
 
 /** A group admin can link a giveaway only while there is time left to enter. */
 export const TELEGRAM_GROUP_MIN_TIME_LEFT_MS = 10 * 60_000;
@@ -20,7 +21,7 @@ export const TELEGRAM_GROUPS_PER_GIVEAWAY = 5;
 /** /start right after the bot joined repeats the welcome; skip it. */
 const WELCOME_REPEAT_MS = 2 * 60_000;
 
-export type TelegramGroupPostEvent = "announce" | "reminder" | "result";
+export type TelegramGroupPostEvent = "announce" | "ask" | "reminder" | "result";
 
 const ACTIVE_MEMBER_STATUSES = new Set(["administrator", "creator", "member"]);
 
@@ -230,12 +231,32 @@ export async function loadGiveawayV6PublicFacts(
   }
 }
 
-/** Links one of the creator's giveaways to a group whose admin the caller is. */
+export type TelegramGroupLinkState = "confirmed" | "declined" | "pending";
+export type TelegramGroupPostDecision = "post" | "skip";
+
+export function telegramGroupLinkState(row: {
+  postConfirmedAt: Date | null;
+  postDeclinedAt: Date | null;
+}): TelegramGroupLinkState {
+  return row.postConfirmedAt ? "confirmed" : row.postDeclinedAt ? "declined" : "pending";
+}
+
+/**
+ * Links one of the creator's giveaways to a group whose admin the caller is,
+ * and records their choice whether to post it there. Without a choice the
+ * link waits; the bot asks once the giveaway is live. A post cannot be undone.
+ */
 export async function linkGiveawayToTelegramGroup(
   prisma: PrismaClient,
-  input: { chatId: string; creatorId: string; publicId: string; telegramUserId: string },
+  input: {
+    chatId: string;
+    creatorId: string;
+    decision?: TelegramGroupPostDecision;
+    publicId: string;
+    telegramUserId: string;
+  },
   now = new Date(),
-) {
+): Promise<{ created: boolean; state: TelegramGroupLinkState; title: null | string }> {
   const group = await prisma.telegramGroup.findUnique({
     select: { id: true, removedAt: true, title: true },
     where: { chatId: input.chatId },
@@ -263,39 +284,85 @@ export async function linkGiveawayToTelegramGroup(
   ) {
     throw new ApplicationError(
       "GIVEAWAY_CLOSING",
-      "Entries close too soon to announce this giveaway in the group.",
+      "Entries close too soon to post this giveaway in the group.",
       409,
     );
   }
+  const where = { groupId_giveawayId: { giveawayId: giveaway.id, groupId: group.id } };
   const existing = await prisma.telegramGroupGiveaway.findUnique({
-    select: { id: true },
-    where: { groupId_giveawayId: { giveawayId: giveaway.id, groupId: group.id } },
+    select: { id: true, postConfirmedAt: true, postDeclinedAt: true },
+    where,
   });
-  if (existing) return { created: false, title: group.title };
-  const links = await prisma.telegramGroupGiveaway.count({ where: { giveawayId: giveaway.id } });
-  if (links >= TELEGRAM_GROUPS_PER_GIVEAWAY) {
-    throw new ApplicationError(
-      "GROUP_LIMIT",
-      `A giveaway can be announced in up to ${TELEGRAM_GROUPS_PER_GIVEAWAY} groups.`,
-      409,
-    );
+  const decided =
+    input.decision === "post"
+      ? { postConfirmedAt: now }
+      : input.decision === "skip"
+        ? { postDeclinedAt: now }
+        : {};
+  if (!existing) {
+    const links = await prisma.telegramGroupGiveaway.count({ where: { giveawayId: giveaway.id } });
+    if (links >= TELEGRAM_GROUPS_PER_GIVEAWAY) {
+      throw new ApplicationError(
+        "GROUP_LIMIT",
+        `A giveaway can be posted in up to ${TELEGRAM_GROUPS_PER_GIVEAWAY} groups.`,
+        409,
+      );
+    }
+    const created = await prisma.telegramGroupGiveaway.upsert({
+      where,
+      create: {
+        giveawayId: giveaway.id,
+        groupId: group.id,
+        linkedByTelegramUserId: input.telegramUserId,
+        ...decided,
+      },
+      update: {},
+      select: { postConfirmedAt: true, postDeclinedAt: true },
+    });
+    return { created: true, state: telegramGroupLinkState(created), title: group.title };
   }
-  await prisma.telegramGroupGiveaway.upsert({
-    where: { groupId_giveawayId: { giveawayId: giveaway.id, groupId: group.id } },
-    create: {
-      giveawayId: giveaway.id,
-      groupId: group.id,
-      linkedByTelegramUserId: input.telegramUserId,
-    },
-    update: {},
-  });
-  return { created: true, title: group.title };
+  if (input.decision === "post" && !existing.postConfirmedAt) {
+    await prisma.telegramGroupGiveaway.updateMany({
+      where: { id: existing.id, postConfirmedAt: null },
+      data: { postConfirmedAt: now },
+    });
+    return { created: false, state: "confirmed", title: group.title };
+  }
+  if (input.decision === "skip" && !existing.postConfirmedAt && !existing.postDeclinedAt) {
+    await prisma.telegramGroupGiveaway.updateMany({
+      where: { id: existing.id, postConfirmedAt: null, postDeclinedAt: null },
+      data: { postDeclinedAt: now },
+    });
+    return { created: false, state: "declined", title: group.title };
+  }
+  return { created: false, state: telegramGroupLinkState(existing), title: group.title };
 }
 
+/** One group link with what a private "Post in group?" answer needs to check. */
+export async function loadTelegramGroupLink(prisma: PrismaClient, linkId: string) {
+  return prisma.telegramGroupGiveaway.findUnique({
+    select: {
+      giveaway: { select: { creatorId: true, publicId: true, title: true } },
+      group: { select: { chatId: true, removedAt: true, title: true } },
+      linkedByTelegramUserId: true,
+      postConfirmedAt: true,
+      postDeclinedAt: true,
+    },
+    where: { id: linkId },
+  });
+}
+
+/** The private question waits this long after activation, so the studio can answer first. */
+export const TELEGRAM_GROUP_ASK_DELAY_MS = 3 * 60_000;
+
 export type TelegramGroupPostCandidate = {
+  activationSubmittedAt: Date | null;
   announceQueuedAt: Date | null;
+  askQueuedAt: Date | null;
   closesAt: Date;
   phase: GiveawayV6Phase | null;
+  postConfirmedAt: Date | null;
+  postDeclinedAt: Date | null;
   reminderQueuedAt: Date | null;
   verificationPaused: boolean;
 };
@@ -317,7 +384,19 @@ export function nextTelegramGroupPost(
     return left < -UNFUNDED_GRACE_MS ? "done" : null;
   }
   if (phase !== GiveawayV6Phase.OPEN || row.verificationPaused) return null;
-  if (!row.announceQueuedAt) return left >= TELEGRAM_GROUP_MIN_TIME_LEFT_MS ? "announce" : null;
+  if (!row.announceQueuedAt) {
+    if (left < TELEGRAM_GROUP_MIN_TIME_LEFT_MS) return null;
+    if (row.postConfirmedAt) return "announce";
+    if (
+      !row.postDeclinedAt &&
+      !row.askQueuedAt &&
+      (row.activationSubmittedAt === null ||
+        now.getTime() - row.activationSubmittedAt.getTime() >= TELEGRAM_GROUP_ASK_DELAY_MS)
+    ) {
+      return "ask";
+    }
+    return null;
+  }
   if (
     !row.reminderQueuedAt &&
     left <= TELEGRAM_GROUP_REMINDER_WINDOW_MS &&
@@ -329,17 +408,41 @@ export function nextTelegramGroupPost(
   return null;
 }
 
+function claimFor(
+  event: TelegramGroupPostEvent,
+  id: string,
+  now: Date,
+): Prisma.TelegramGroupGiveawayUpdateManyArgs {
+  switch (event) {
+    case "ask":
+      return {
+        data: { askQueuedAt: now },
+        where: { askQueuedAt: null, id, postConfirmedAt: null, postDeclinedAt: null },
+      };
+    case "announce":
+      return { data: { announceQueuedAt: now }, where: { announceQueuedAt: null, id } };
+    case "reminder":
+      return { data: { reminderQueuedAt: now }, where: { id, reminderQueuedAt: null } };
+    case "result":
+      return { data: { resultQueuedAt: now }, where: { id, resultQueuedAt: null } };
+  }
+}
+
 /** Queues due group posts into the Telegram outbox; the worker sends them. */
 export async function queueTelegramGroupGiveawayPosts(prisma: PrismaClient, now = new Date()) {
   const rows = await prisma.telegramGroupGiveaway.findMany({
     orderBy: { createdAt: "asc" },
     select: {
       announceQueuedAt: true,
+      askQueuedAt: true,
       id: true,
+      postConfirmedAt: true,
+      postDeclinedAt: true,
       reminderQueuedAt: true,
       giveaway: {
         select: {
           closesAt: true,
+          v6Bootstrap: { select: { activationSubmittedAt: true } },
           v6Projection: { select: { lastErrorCode: true, phase: true } },
         },
       },
@@ -351,9 +454,13 @@ export async function queueTelegramGroupGiveawayPosts(prisma: PrismaClient, now 
   for (const row of rows) {
     const next = nextTelegramGroupPost(
       {
+        activationSubmittedAt: row.giveaway.v6Bootstrap?.activationSubmittedAt ?? null,
         announceQueuedAt: row.announceQueuedAt,
+        askQueuedAt: row.askQueuedAt,
         closesAt: row.giveaway.closesAt,
         phase: row.giveaway.v6Projection?.phase ?? null,
+        postConfirmedAt: row.postConfirmedAt,
+        postDeclinedAt: row.postDeclinedAt,
         reminderQueuedAt: row.reminderQueuedAt,
         verificationPaused: (row.giveaway.v6Projection?.lastErrorCode ?? null) !== null,
       },
@@ -368,20 +475,7 @@ export async function queueTelegramGroupGiveawayPosts(prisma: PrismaClient, now 
       continue;
     }
     await prisma.$transaction(async (tx) => {
-      const claimed = await tx.telegramGroupGiveaway.updateMany({
-        where:
-          next === "announce"
-            ? { announceQueuedAt: null, id: row.id }
-            : next === "reminder"
-              ? { id: row.id, reminderQueuedAt: null }
-              : { id: row.id, resultQueuedAt: null },
-        data:
-          next === "announce"
-            ? { announceQueuedAt: now }
-            : next === "reminder"
-              ? { reminderQueuedAt: now }
-              : { resultQueuedAt: now },
-      });
+      const claimed = await tx.telegramGroupGiveaway.updateMany(claimFor(next, row.id, now));
       if (claimed.count !== 1) return;
       const dedupeKey = `group-giveaway:${row.id}:${next}`;
       await tx.telegramOutbox.upsert({

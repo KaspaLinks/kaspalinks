@@ -64,7 +64,7 @@ const COUNTED_COMMANDS = new Set([
   "tip",
   "wallet",
 ]);
-const COUNTED_BUTTONS = new Set(["draft", "menu", "notify", "watch"]);
+const COUNTED_BUTTONS = new Set(["draft", "group", "menu", "notify", "watch"]);
 
 /** The stats label of one bot update, e.g. "/claim", "button:menu" or "text". */
 export function telegramUpdateLabel(input: {

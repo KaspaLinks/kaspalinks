@@ -7,6 +7,7 @@ import {
   ApplicationError,
   linkGiveawayToTelegramGroup,
   markTelegramGroupRemoved,
+  telegramGroupLinkState,
 } from "@kaspa-actions/application";
 import { AuditActorType, prisma, type Creator } from "@kaspa-actions/db";
 import { z } from "zod";
@@ -21,7 +22,10 @@ export const runtime = "nodejs";
 
 // Group chat ids are negative; private chats can't be announcement targets.
 const chatIdSchema = z.string().regex(/^-\d{1,20}$/);
-const linkSchema = z.object({ publicId: z.string().cuid() }).strict();
+// Without a decision the giveaway waits for the admin's choice once it is live.
+const linkSchema = z
+  .object({ decision: z.enum(["post", "skip"]).optional(), publicId: z.string().cuid() })
+  .strict();
 
 type Context = { params: Promise<{ chatId: string }> };
 type Authorized = {
@@ -112,22 +116,29 @@ async function authorize(
   };
 }
 
-/** The group's name and which of the caller's giveaways are already announced there. */
+/** The group's name and the caller's giveaways set up for it, with the posting choice. */
 export async function GET(request: Request, context: Context) {
   const auth = await authorize(request, context);
   if (!auth.ok) return auth.response;
   const links = await prisma.telegramGroupGiveaway.findMany({
-    select: { giveaway: { select: { publicId: true } } },
+    select: {
+      giveaway: { select: { publicId: true } },
+      postConfirmedAt: true,
+      postDeclinedAt: true,
+    },
     take: 50,
     where: { giveaway: { creatorId: auth.creator.id }, group: { chatId: auth.group.chatId } },
   });
   return apiJson({
     group: auth.group,
-    linkedPublicIds: links.map((link) => link.giveaway.publicId),
+    links: links.map((link) => ({
+      publicId: link.giveaway.publicId,
+      state: telegramGroupLinkState(link),
+    })),
   });
 }
 
-/** Announce one of the caller's giveaways in the group. */
+/** Set up one of the caller's giveaways for the group, or post it there. */
 export async function POST(request: Request, context: Context) {
   const auth = await authorize(request, context);
   if (!auth.ok) return auth.response;
@@ -143,19 +154,22 @@ export async function POST(request: Request, context: Context) {
     const result = await linkGiveawayToTelegramGroup(prisma, {
       chatId: auth.group.chatId,
       creatorId: auth.creator.id,
+      ...(parsed.data.decision ? { decision: parsed.data.decision } : {}),
       publicId: parsed.data.publicId,
       telegramUserId: auth.userId,
     });
-    if (result.created) {
+    if (result.created || parsed.data.decision) {
       await writeAuditLog(prisma, {
         actorType: AuditActorType.CREATOR,
         creatorId: auth.creator.id,
-        event: "giveaway.telegram_group_linked",
+        event: parsed.data.decision
+          ? `giveaway.telegram_group_${parsed.data.decision}`
+          : "giveaway.telegram_group_linked",
         ipHash: auth.ipHash,
         metadata: { publicId: parsed.data.publicId },
       });
     }
-    return apiJson({ group: auth.group, linked: true });
+    return apiJson({ group: auth.group, state: result.state });
   } catch (error) {
     if (error instanceof ApplicationError) {
       return apiError(

@@ -1,5 +1,7 @@
 import {
   groupGiveawayMessage,
+  groupPostedMessage,
+  groupPostQuestion,
   TelegramApiClient,
   TelegramApiError,
   telegramGiveawayIdSchema,
@@ -44,7 +46,7 @@ const resultPayload = z
 
 const groupGiveawayPayload = z
   .object({
-    event: z.enum(["announce", "reminder", "result"]),
+    event: z.enum(["announce", "ask", "reminder", "result"]),
     groupGiveawayId: z.string().min(1).max(64),
   })
   .strict();
@@ -99,26 +101,21 @@ export async function deliverOutbox(
         const payload = groupGiveawayPayload.parse(candidate.payload);
         const link = await prisma.telegramGroupGiveaway.findUnique({
           where: { id: payload.groupGiveawayId },
-          select: { giveawayId: true, group: { select: { chatId: true, removedAt: true } } },
+          select: {
+            giveawayId: true,
+            group: { select: { chatId: true, removedAt: true, title: true } },
+            id: true,
+            linkedByTelegramUserId: true,
+            postConfirmedAt: true,
+            postDeclinedAt: true,
+          },
         });
         if (!link || link.group.removedAt) {
           await suppress();
           continue;
         }
-        // The post shows the giveaway as it is now, not as it was when queued.
-        const facts = await loadGiveawayV6PublicFacts(prisma, { id: link.giveawayId });
-        // Paused chain verification usually recovers; retry with the usual backoff.
-        if (facts?.verificationPaused) throw new Error("Giveaway verification is paused.");
-        const message =
-          facts && facts.network === "MAINNET"
-            ? groupGiveawayMessage(
-                payload.event,
-                facts,
-                new URL(process.env.NEXT_PUBLIC_APP_URL ?? "").origin,
-              )
-            : null;
-        if (!message) {
-          await prisma.telegramOutbox.updateMany({
+        const stateChanged = () =>
+          prisma.telegramOutbox.updateMany({
             where: lease,
             data: {
               lockedAt: null,
@@ -126,10 +123,63 @@ export async function deliverOutbox(
               lastErrorCode: "STATE_CHANGED",
             },
           });
+        // Only a post the admin chose goes to the group; a decided question is not asked.
+        const decided = link.postConfirmedAt !== null || link.postDeclinedAt !== null;
+        if (payload.event === "ask" ? decided : link.postConfirmedAt === null) {
+          await stateChanged();
           continue;
         }
-        activeGroupChatId = link.group.chatId;
-        await client.sendMessage({ chatId: link.group.chatId, ...message });
+        // The post shows the giveaway as it is now, not as it was when queued.
+        const facts = await loadGiveawayV6PublicFacts(prisma, { id: link.giveawayId });
+        // Paused chain verification usually recovers; retry with the usual backoff.
+        if (facts?.verificationPaused) throw new Error("Giveaway verification is paused.");
+        if (!facts || facts.network !== "MAINNET") {
+          await stateChanged();
+          continue;
+        }
+        if (payload.event === "ask") {
+          if (facts.phase !== "open") {
+            await stateChanged();
+            continue;
+          }
+          // The admin's private chat with the bot has the same id as the admin.
+          await client.sendMessage({
+            chatId: link.linkedByTelegramUserId,
+            ...groupPostQuestion({
+              amountKas: facts.amountKas,
+              groupTitle: link.group.title,
+              linkId: link.id,
+              title: facts.title,
+            }),
+          });
+        } else {
+          const message = groupGiveawayMessage(
+            payload.event,
+            facts,
+            new URL(process.env.NEXT_PUBLIC_APP_URL ?? "").origin,
+          );
+          if (!message) {
+            await stateChanged();
+            continue;
+          }
+          activeGroupChatId = link.group.chatId;
+          const sent = await client.sendMessage({ chatId: link.group.chatId, ...message });
+          if (payload.event === "announce") {
+            try {
+              await client.sendMessage({
+                chatId: link.linkedByTelegramUserId,
+                ...groupPostedMessage({
+                  chatId: link.group.chatId,
+                  groupTitle: link.group.title,
+                  messageId: sent.message_id,
+                  title: facts.title,
+                }),
+              });
+            } catch {
+              // The group post went out; a missed confirmation must not repeat it.
+            }
+          }
+        }
       } else if (candidate.kind === "giveaway.result") {
         if (
           process.env.TOCCATA_LAB_ENABLED !== "true" ||

@@ -847,8 +847,9 @@ model TelegramGroup {
   @@index([removedAt])
 }
 
-// A giveaway that an admin of the group chose to announce there. The worker
-// posts it once it is live, one reminder before entries close, and the result.
+// A giveaway set up for a group by one of its admins. Nothing is posted until
+// that admin chooses "Post" once it is live; then the worker posts it, one
+// reminder before entries close, and the result.
 model TelegramGroupGiveaway {
   id                     String        @id @default(cuid())
   groupId                String
@@ -856,6 +857,10 @@ model TelegramGroupGiveaway {
   giveawayId             String
   giveaway               Giveaway      @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
   linkedByTelegramUserId String
+  // The bot asked the admin privately whether to post the live giveaway.
+  askQueuedAt            DateTime?
+  postConfirmedAt        DateTime?
+  postDeclinedAt         DateTime?
   announceQueuedAt       DateTime?
   reminderQueuedAt       DateTime?
   resultQueuedAt         DateTime?

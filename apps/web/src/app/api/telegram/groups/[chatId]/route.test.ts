@@ -30,6 +30,8 @@ vi.mock("@kaspa-actions/application", () => ({
   },
   linkGiveawayToTelegramGroup: mocks.link,
   markTelegramGroupRemoved: mocks.markRemoved,
+  telegramGroupLinkState: (row: { postConfirmedAt: Date | null; postDeclinedAt: Date | null }) =>
+    row.postConfirmedAt ? "confirmed" : row.postDeclinedAt ? "declined" : "pending",
 }));
 vi.mock("@kaspa-actions/db", () => ({
   AuditActorType: { CREATOR: "CREATOR" },
@@ -87,8 +89,10 @@ describe("Telegram group giveaway links", () => {
     });
     mocks.findGroup.mockResolvedValue({ chatId: "-1001234", removedAt: null, title: "Kaspa Fans" });
     mocks.getChatMember.mockResolvedValue({ status: "administrator" });
-    mocks.findLinks.mockResolvedValue([{ giveaway: { publicId } }]);
-    mocks.link.mockResolvedValue({ created: true, title: "Kaspa Fans" });
+    mocks.findLinks.mockResolvedValue([
+      { giveaway: { publicId }, postConfirmedAt: null, postDeclinedAt: null },
+    ]);
+    mocks.link.mockResolvedValue({ created: true, state: "pending", title: "Kaspa Fans" });
   });
 
   it("shows the group to its admin with their linked giveaways", async () => {
@@ -96,7 +100,7 @@ describe("Telegram group giveaway links", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       group: { chatId: "-1001234", title: "Kaspa Fans" },
-      linkedPublicIds: [publicId],
+      links: [{ publicId, state: "pending" }],
     });
     expect(mocks.getChatMember).toHaveBeenCalledWith("-1001234", "77");
     expect(mocks.findLinks).toHaveBeenCalledWith(
@@ -118,6 +122,26 @@ describe("Telegram group giveaway links", () => {
     expect(mocks.audit).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ event: "giveaway.telegram_group_linked" }),
+    );
+  });
+
+  it("posts in the group only on the admin's choice", async () => {
+    mocks.link.mockResolvedValue({ created: false, state: "confirmed", title: "Kaspa Fans" });
+    const response = await POST(request("POST", { decision: "post", publicId }), context());
+    expect(await response.json()).toEqual({
+      group: { chatId: "-1001234", title: "Kaspa Fans" },
+      state: "confirmed",
+    });
+    expect(mocks.link).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ decision: "post", telegramUserId: "77" }),
+    );
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ event: "giveaway.telegram_group_post" }),
+    );
+    expect((await POST(request("POST", { decision: "later", publicId }), context())).status).toBe(
+      400,
     );
   });
 

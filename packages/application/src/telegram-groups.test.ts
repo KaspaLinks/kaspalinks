@@ -12,29 +12,43 @@ const now = new Date("2026-11-09T12:00:00Z");
 const minutes = (value: number) => new Date(now.getTime() + value * 60_000);
 
 const open = {
+  activationSubmittedAt: minutes(-30),
   announceQueuedAt: null,
+  askQueuedAt: null,
   closesAt: minutes(6 * 60),
   phase: "OPEN" as const,
+  postConfirmedAt: null,
+  postDeclinedAt: null,
   reminderQueuedAt: null,
   verificationPaused: false,
 };
+const confirmed = { ...open, postConfirmedAt: minutes(-1) };
 
 describe("nextTelegramGroupPost", () => {
-  it("announces once the giveaway is live and not about to close", () => {
-    expect(nextTelegramGroupPost(open, now)).toBe("announce");
+  it("posts only after the admin chose to, while there is time to enter", () => {
+    expect(nextTelegramGroupPost(confirmed, now)).toBe("announce");
+    expect(nextTelegramGroupPost({ ...confirmed, closesAt: minutes(9) }, now)).toBeNull();
+    expect(nextTelegramGroupPost({ ...confirmed, verificationPaused: true }, now)).toBeNull();
+    expect(nextTelegramGroupPost({ ...open, postDeclinedAt: minutes(-1) }, now)).toBeNull();
+  });
+
+  it("asks the admin privately once, a few minutes after activation", () => {
+    expect(nextTelegramGroupPost(open, now)).toBe("ask");
+    expect(nextTelegramGroupPost({ ...open, activationSubmittedAt: null }, now)).toBe("ask");
+    expect(nextTelegramGroupPost({ ...open, activationSubmittedAt: minutes(-2) }, now)).toBeNull();
+    expect(nextTelegramGroupPost({ ...open, askQueuedAt: minutes(-10) }, now)).toBeNull();
     expect(nextTelegramGroupPost({ ...open, closesAt: minutes(9) }, now)).toBeNull();
-    expect(nextTelegramGroupPost({ ...open, verificationPaused: true }, now)).toBeNull();
   });
 
   it("waits while the giveaway is not funded and gives up a day after its draw time", () => {
-    const unfunded = { ...open, phase: "AWAITING_ACTIVATION" as const };
+    const unfunded = { ...confirmed, phase: "AWAITING_ACTIVATION" as const };
     expect(nextTelegramGroupPost(unfunded, now)).toBeNull();
     expect(nextTelegramGroupPost({ ...unfunded, phase: null }, now)).toBeNull();
     expect(nextTelegramGroupPost({ ...unfunded, closesAt: minutes(-25 * 60) }, now)).toBe("done");
   });
 
-  it("reminds in the last hour only when the announcement was long enough before", () => {
-    const announced = { ...open, announceQueuedAt: minutes(-5 * 60), closesAt: minutes(45) };
+  it("reminds in the last hour only when the post was long enough before", () => {
+    const announced = { ...confirmed, announceQueuedAt: minutes(-5 * 60), closesAt: minutes(45) };
     expect(nextTelegramGroupPost(announced, now)).toBe("reminder");
     expect(nextTelegramGroupPost({ ...announced, closesAt: minutes(61) }, now)).toBeNull();
     expect(nextTelegramGroupPost({ ...announced, closesAt: minutes(5) }, now)).toBeNull();
@@ -42,17 +56,12 @@ describe("nextTelegramGroupPost", () => {
     expect(nextTelegramGroupPost({ ...announced, reminderQueuedAt: minutes(-1) }, now)).toBeNull();
   });
 
-  it("posts a result only for announced giveaways", () => {
-    expect(
-      nextTelegramGroupPost({ ...open, announceQueuedAt: minutes(-60), phase: "DRAWN" }, now),
-    ).toBe("result");
-    expect(
-      nextTelegramGroupPost({ ...open, announceQueuedAt: minutes(-60), phase: "RETURNED" }, now),
-    ).toBe("result");
+  it("posts a result only for giveaways it posted", () => {
+    const posted = { ...confirmed, announceQueuedAt: minutes(-60) };
+    expect(nextTelegramGroupPost({ ...posted, phase: "DRAWN" }, now)).toBe("result");
+    expect(nextTelegramGroupPost({ ...posted, phase: "RETURNED" }, now)).toBe("result");
     expect(nextTelegramGroupPost({ ...open, phase: "DRAWN" }, now)).toBe("done");
-    expect(
-      nextTelegramGroupPost({ ...open, announceQueuedAt: minutes(-60), phase: "FROZEN" }, now),
-    ).toBeNull();
+    expect(nextTelegramGroupPost({ ...posted, phase: "FROZEN" }, now)).toBeNull();
   });
 });
 
@@ -111,11 +120,17 @@ describe("recordTelegramGroupMembership", () => {
 
 describe("linkGiveawayToTelegramGroup", () => {
   const input = { chatId: "-100", creatorId: "c1", publicId: "pub1", telegramUserId: "7" };
-  function db(overrides: { giveaway?: unknown; group?: unknown; links?: number } = {}) {
+  function db(
+    overrides: { existing?: unknown; giveaway?: unknown; group?: unknown; links?: number } = {},
+  ) {
     const telegramGroupGiveaway = {
       count: vi.fn().mockResolvedValue(overrides.links ?? 0),
-      findUnique: vi.fn().mockResolvedValue(null),
-      upsert: vi.fn().mockResolvedValue({}),
+      findUnique: vi.fn().mockResolvedValue(overrides.existing ?? null),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      upsert: vi.fn().mockImplementation(async (args: { create: Record<string, unknown> }) => ({
+        postConfirmedAt: args.create.postConfirmedAt ?? null,
+        postDeclinedAt: args.create.postDeclinedAt ?? null,
+      })),
     };
     const prisma = {
       giveaway: {
@@ -142,10 +157,11 @@ describe("linkGiveawayToTelegramGroup", () => {
     return { prisma: prisma as unknown as PrismaClient, telegramGroupGiveaway, raw: prisma };
   }
 
-  it("links the creator's own live or unfunded giveaway", async () => {
+  it("links the creator's own live or unfunded giveaway without posting yet", async () => {
     const { prisma, telegramGroupGiveaway, raw } = db();
     await expect(linkGiveawayToTelegramGroup(prisma, input, now)).resolves.toEqual({
       created: true,
+      state: "pending",
       title: "Fans",
     });
     expect(raw.giveaway.findFirst).toHaveBeenCalledWith(
@@ -158,6 +174,37 @@ describe("linkGiveawayToTelegramGroup", () => {
         create: { giveawayId: "g1", groupId: "grp1", linkedByTelegramUserId: "7" },
       }),
     );
+  });
+
+  it("records the admin's choice, and a post cannot be taken back", async () => {
+    const fresh = db();
+    await expect(
+      linkGiveawayToTelegramGroup(fresh.prisma, { ...input, decision: "post" }, now),
+    ).resolves.toMatchObject({ created: true, state: "confirmed" });
+    expect(fresh.telegramGroupGiveaway.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: expect.objectContaining({ postConfirmedAt: now }) }),
+    );
+
+    const pending = db({ existing: { id: "l1", postConfirmedAt: null, postDeclinedAt: null } });
+    await expect(
+      linkGiveawayToTelegramGroup(pending.prisma, { ...input, decision: "skip" }, now),
+    ).resolves.toMatchObject({ created: false, state: "declined" });
+    expect(pending.telegramGroupGiveaway.updateMany).toHaveBeenCalledWith({
+      where: { id: "l1", postConfirmedAt: null, postDeclinedAt: null },
+      data: { postDeclinedAt: now },
+    });
+
+    // Declined first, posted later from the studio.
+    const declined = db({ existing: { id: "l1", postConfirmedAt: null, postDeclinedAt: now } });
+    await expect(
+      linkGiveawayToTelegramGroup(declined.prisma, { ...input, decision: "post" }, now),
+    ).resolves.toMatchObject({ state: "confirmed" });
+
+    const posted = db({ existing: { id: "l1", postConfirmedAt: now, postDeclinedAt: null } });
+    await expect(
+      linkGiveawayToTelegramGroup(posted.prisma, { ...input, decision: "skip" }, now),
+    ).resolves.toMatchObject({ state: "confirmed" });
+    expect(posted.telegramGroupGiveaway.updateMany).not.toHaveBeenCalled();
   });
 
   it("refuses groups the bot left, foreign giveaways and closing giveaways", async () => {
@@ -202,6 +249,13 @@ describe("linkGiveawayToTelegramGroup", () => {
 });
 
 describe("queueTelegramGroupGiveawayPosts", () => {
+  const row = {
+    announceQueuedAt: null,
+    askQueuedAt: null,
+    postConfirmedAt: null,
+    postDeclinedAt: null,
+    reminderQueuedAt: null,
+  };
   it("claims each post once and queues it in the outbox", async () => {
     const tx = {
       telegramGroupGiveaway: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
@@ -212,19 +266,28 @@ describe("queueTelegramGroupGiveawayPosts", () => {
       telegramGroupGiveaway: {
         findMany: vi.fn().mockResolvedValue([
           {
-            announceQueuedAt: null,
+            ...row,
             giveaway: {
               closesAt: minutes(300),
+              v6Bootstrap: { activationSubmittedAt: minutes(-60) },
               v6Projection: { lastErrorCode: null, phase: "OPEN" },
             },
             id: "link1",
-            reminderQueuedAt: null,
+            postConfirmedAt: minutes(-1),
           },
           {
-            announceQueuedAt: null,
-            giveaway: { closesAt: minutes(-2000), v6Projection: null },
+            ...row,
+            giveaway: { closesAt: minutes(-2000), v6Bootstrap: null, v6Projection: null },
             id: "link2",
-            reminderQueuedAt: null,
+          },
+          {
+            ...row,
+            giveaway: {
+              closesAt: minutes(300),
+              v6Bootstrap: { activationSubmittedAt: minutes(-60) },
+              v6Projection: { lastErrorCode: null, phase: "OPEN" },
+            },
+            id: "link3",
           },
         ]),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -232,7 +295,12 @@ describe("queueTelegramGroupGiveawayPosts", () => {
     };
     await expect(
       queueTelegramGroupGiveawayPosts(prisma as unknown as PrismaClient, now),
-    ).resolves.toEqual({ queued: 1 });
+    ).resolves.toEqual({ queued: 2 });
+    // Not decided yet: the admin is asked, and only if nobody answered meanwhile.
+    expect(tx.telegramGroupGiveaway.updateMany).toHaveBeenCalledWith({
+      where: { askQueuedAt: null, id: "link3", postConfirmedAt: null, postDeclinedAt: null },
+      data: { askQueuedAt: now },
+    });
     expect(tx.telegramGroupGiveaway.updateMany).toHaveBeenCalledWith({
       where: { announceQueuedAt: null, id: "link1" },
       data: { announceQueuedAt: now },

@@ -66,6 +66,22 @@ export class TelegramApiClient {
     });
   }
 
+  /** Replaces a message the bot sent, e.g. a question once it was answered. */
+  async editMessageText(input: {
+    buttons?: TelegramInlineButton[][];
+    chatId: string;
+    messageId: number;
+    text: string;
+  }): Promise<unknown> {
+    return this.call("editMessageText", {
+      chat_id: input.chatId,
+      link_preview_options: { is_disabled: true },
+      message_id: input.messageId,
+      reply_markup: { inline_keyboard: input.buttons ?? [] },
+      text: input.text,
+    });
+  }
+
   /** One member's status in a group the bot belongs to, e.g. "administrator". */
   async getChatMember(chatId: string, userId: string): Promise<{ status: string }> {
     return this.call("getChatMember", { chat_id: chatId, user_id: userId });

@@ -24,6 +24,9 @@ const mocks = vi.hoisted(() => ({
   markRemoved: vi.fn(),
   migrateGroup: vi.fn(),
   findGroup: vi.fn(),
+  editMessageText: vi.fn(),
+  linkGroup: vi.fn(),
+  loadGroupLink: vi.fn(),
 }));
 
 vi.mock("@kaspa-actions/agent", async () => {
@@ -33,6 +36,7 @@ vi.mock("@kaspa-actions/agent", async () => {
     ...actual,
     TelegramApiClient: class {
       answerCallbackQuery = mocks.answerCallbackQuery;
+      editMessageText = mocks.editMessageText;
       getChatMember = mocks.getChatMember;
       sendMessage = mocks.sendMessage;
     },
@@ -58,6 +62,8 @@ vi.mock("@kaspa-actions/application", () => ({
   ensureTelegramGroup: mocks.ensureGroup,
   isTelegramBotMemberStatus: (status: string) =>
     ["administrator", "creator", "member"].includes(status),
+  linkGiveawayToTelegramGroup: mocks.linkGroup,
+  loadTelegramGroupLink: mocks.loadGroupLink,
   markTelegramGroupRemoved: mocks.markRemoved,
   markTelegramGroupWelcomed: mocks.markWelcomed,
   migrateTelegramGroupChat: mocks.migrateGroup,
@@ -974,5 +980,76 @@ describe("Telegram groups", () => {
       text: expect.stringContaining("not in that group anymore"),
     });
     expect(mocks.ensureWorkspace).not.toHaveBeenCalled();
+  });
+
+  describe("the private post question", () => {
+    const linkId = "cmw86npun000f0izbhdrj7yyt";
+    const answer = (decision: "post" | "skip", from = 77) =>
+      webhookRequest({
+        update_id: 6000 + Math.floor(Math.random() * 1000),
+        callback_query: {
+          data: `group:${decision}:${linkId}`,
+          from: { id: from },
+          id: "cb1",
+          message: { chat: { id: from, type: "private" }, message_id: 9 },
+        },
+      });
+    beforeEach(() => {
+      mocks.loadGroupLink.mockResolvedValue({
+        giveaway: { creatorId: "creator-tg", publicId: "cmw5608th04eh01mp050ej458", title: "Win" },
+        group: { chatId: "-1001234", removedAt: null, title: "Kaspa Fans" },
+        linkedByTelegramUserId: "77",
+        postConfirmedAt: null,
+        postDeclinedAt: null,
+      });
+      mocks.linkGroup.mockResolvedValue({
+        created: false,
+        state: "confirmed",
+        title: "Kaspa Fans",
+      });
+      mocks.editMessageText.mockResolvedValue({});
+    });
+
+    it("posts after checking admin rights and replaces the question", async () => {
+      expect((await POST(answer("post"))).status).toBe(200);
+      expect(mocks.getChatMember).toHaveBeenCalledWith("-1001234", "77");
+      expect(mocks.linkGroup).toHaveBeenCalledWith(expect.anything(), {
+        chatId: "-1001234",
+        creatorId: "creator-tg",
+        decision: "post",
+        publicId: "cmw5608th04eh01mp050ej458",
+        telegramUserId: "77",
+      });
+      expect(mocks.editMessageText).toHaveBeenCalledWith({
+        chatId: "77",
+        messageId: 9,
+        text: "Win\n✓ Posting it in Kaspa Fans now.",
+      });
+    });
+
+    it("skips without asking Telegram, and only the asked admin may answer", async () => {
+      mocks.linkGroup.mockResolvedValue({ created: false, state: "declined", title: "Kaspa Fans" });
+      await POST(answer("skip"));
+      expect(mocks.getChatMember).not.toHaveBeenCalled();
+      expect(mocks.editMessageText).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining("won't post it in Kaspa Fans") }),
+      );
+      mocks.linkGroup.mockClear();
+      await POST(answer("post", 88));
+      expect(mocks.linkGroup).not.toHaveBeenCalled();
+      expect(mocks.answerCallbackQuery).toHaveBeenLastCalledWith(
+        "cb1",
+        "This question is no longer available.",
+      );
+    });
+
+    it("does not post for someone who is no longer an admin", async () => {
+      mocks.getChatMember.mockResolvedValue({ status: "member" });
+      await POST(answer("post"));
+      expect(mocks.linkGroup).not.toHaveBeenCalled();
+      expect(mocks.editMessageText).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "Only admins of Kaspa Fans can run a giveaway there." }),
+      );
+    });
   });
 });

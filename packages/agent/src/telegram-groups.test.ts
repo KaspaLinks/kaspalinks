@@ -7,11 +7,18 @@ import {
   parseTelegramGroupCommand,
 } from "./telegram-commands.ts";
 import {
+  groupDecisionCallback,
+  groupDecisionText,
   groupGiveawayMessage,
+  groupPostedMessage,
+  groupPostQuestion,
   groupSetupMessage,
+  parseGroupDecisionCallback,
   privateGroupSetupMessage,
+  telegramGroupMessageLink,
+  telegramUpdateLabel,
   type GroupGiveawayFacts,
-} from "./telegram-groups.ts";
+} from "./index.ts";
 
 const facts: GroupGiveawayFacts = {
   amountKas: "50",
@@ -130,5 +137,63 @@ describe("group giveaway posts", () => {
     expect(drawn.buttons?.[1]?.[0]?.url).toBe("https://kaspalinks.com/bot?from=tg-group");
     const returned = groupGiveawayMessage("result", { ...facts, phase: "returned" }, appUrl)!;
     expect(returned.text).toContain("without a winner");
+  });
+});
+
+describe("post decision in the private chat", () => {
+  const linkId = "cmw86npun000f0izbhdrj7yyt";
+
+  it("asks with two callback buttons that fit Telegram's 64-byte limit", () => {
+    const question = groupPostQuestion({
+      amountKas: "50",
+      groupTitle: "A very long Kaspa community group name for testing",
+      linkId,
+      title: "Community giveaway",
+    });
+    expect(question.text).toContain("Your giveaway is live 🎉");
+    expect(question.text).toContain("Community giveaway · 50 KAS");
+    const [[post], [skip]] = question.buttons as [
+      [{ callback_data: string; text: string }],
+      [{ callback_data: string }],
+    ];
+    expect(post.text).toBe("Post in A very long Kaspa community…");
+    expect(post.callback_data).toBe(`group:post:${linkId}`);
+    expect(skip.callback_data).toBe(`group:skip:${linkId}`);
+    expect(Buffer.byteLength(post.callback_data)).toBeLessThanOrEqual(64);
+  });
+
+  it("parses only well-formed decisions", () => {
+    expect(parseGroupDecisionCallback(`group:post:${linkId}`)).toEqual({
+      decision: "post",
+      linkId,
+    });
+    expect(parseGroupDecisionCallback(`group:skip:${linkId}`)).toEqual({
+      decision: "skip",
+      linkId,
+    });
+    expect(parseGroupDecisionCallback("group:post:../x")).toBeNull();
+    expect(parseGroupDecisionCallback("watch:on:abc")).toBeNull();
+    expect(() => groupDecisionCallback("post", "bad id")).toThrow();
+    expect(telegramUpdateLabel({ callbackData: `group:post:${linkId}` })).toBe("button:group");
+  });
+
+  it("confirms the post with a link that works in supergroups only", () => {
+    expect(telegramGroupMessageLink("-1001234567890", 42)).toBe("https://t.me/c/1234567890/42");
+    expect(telegramGroupMessageLink("-4567", 42)).toBeNull();
+    expect(
+      groupPostedMessage({
+        chatId: "-1001234567890",
+        groupTitle: "Fans",
+        messageId: 42,
+        title: "Win",
+      }),
+    ).toEqual({
+      text: "✓ Posted in Fans: Win",
+      buttons: [[{ text: "Open the post", url: "https://t.me/c/1234567890/42" }]],
+    });
+    expect(groupPostedMessage({ chatId: "-4567", messageId: 42, title: "Win" })).toEqual({
+      text: "✓ Posted in this group: Win",
+    });
+    expect(groupDecisionText("skip", "Fans")).toContain("won't post it in Fans");
   });
 });

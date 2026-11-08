@@ -3,6 +3,9 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import {
   groupAdminOnlyText,
   groupAnonymousAdminText,
+  groupDecisionText,
+  parseGroupDecisionCallback,
+  type GroupPostDecision,
   groupSetupMessage,
   groupWelcomeText,
   isTelegramGroupAdminStatus,
@@ -40,6 +43,8 @@ import {
   ensureTelegramGiveawayWorkspaceTool,
   ensureTelegramGroup,
   isTelegramBotMemberStatus,
+  linkGiveawayToTelegramGroup,
+  loadTelegramGroupLink,
   markTelegramGroupRemoved,
   markTelegramGroupWelcomed,
   migrateTelegramGroupChat,
@@ -397,6 +402,73 @@ async function executeMenuAction(
   return helpText;
 }
 
+// The admin answered "Post in <group>?" in the private chat. The question is
+// replaced by the outcome, so its buttons cannot be pressed twice.
+async function handleGroupDecision(
+  client: TelegramApiClient,
+  callback: TelegramCallbackQuery,
+  input: { decision: GroupPostDecision; linkId: string; telegramUserId: string },
+) {
+  const chatId = String(callback.message?.chat.id ?? input.telegramUserId);
+  const finish = async (text: string) => {
+    await client.answerCallbackQuery(callback.id);
+    if (callback.message) {
+      try {
+        await client.editMessageText({ chatId, messageId: callback.message.message_id, text });
+        return;
+      } catch {
+        // An old question may no longer be editable; answer below it instead.
+      }
+    }
+    await client.sendMessage({ chatId, text });
+  };
+  if (!isGiveawayV6CreationEnabled()) {
+    await client.answerCallbackQuery(callback.id, "Giveaways are unavailable.");
+    return;
+  }
+  const link = await loadTelegramGroupLink(prisma, input.linkId);
+  if (!link || link.linkedByTelegramUserId !== input.telegramUserId) {
+    await client.answerCallbackQuery(callback.id, "This question is no longer available.");
+    return;
+  }
+  if (link.group.removedAt) {
+    await finish(privateGroupMissingText);
+    return;
+  }
+  if (input.decision === "post") {
+    const status = await groupMemberStatus(client, link.group.chatId, input.telegramUserId);
+    if (status !== "admin") {
+      await finish(
+        status === "missing" ? privateGroupMissingText : privateGroupNotAdminText(link.group.title),
+      );
+      return;
+    }
+  }
+  let state: Awaited<ReturnType<typeof linkGiveawayToTelegramGroup>>["state"];
+  try {
+    ({ state } = await linkGiveawayToTelegramGroup(prisma, {
+      chatId: link.group.chatId,
+      creatorId: link.giveaway.creatorId,
+      decision: input.decision,
+      publicId: link.giveaway.publicId,
+      telegramUserId: input.telegramUserId,
+    }));
+  } catch (error) {
+    if (error instanceof ApplicationError && error.status < 500) {
+      await finish(error.message);
+      return;
+    }
+    throw error;
+  }
+  const outcome =
+    state !== "confirmed"
+      ? groupDecisionText("skip", link.group.title)
+      : input.decision === "post"
+        ? groupDecisionText("post", link.group.title)
+        : `It's already posted in ${link.group.title?.trim() || "the group"}.`;
+  await finish(`${link.giveaway.title}\n${outcome}`);
+}
+
 async function handleCallback(client: TelegramApiClient, callback: TelegramCallbackQuery) {
   const chat = callback.message?.chat;
   if (!chat || chat.type !== "private") {
@@ -404,6 +476,11 @@ async function handleCallback(client: TelegramApiClient, callback: TelegramCallb
     return;
   }
   const telegramUserId = String(callback.from.id);
+  const groupDecision = parseGroupDecisionCallback(callback.data);
+  if (groupDecision) {
+    await handleGroupDecision(client, callback, { ...groupDecision, telegramUserId });
+    return;
+  }
   const watch = /^watch:(on|off):([a-zA-Z0-9_-]{1,48})$/.exec(callback.data ?? "");
   if (watch) {
     if (!isGiveawayLabEnabled()) {

@@ -13013,9 +13013,15 @@ main.giveaway-guided-page {
   color: var(--fg-muted);
   font-size: 0.85rem;
 }
-.studio-group-notice .btn {
-  flex-shrink: 0;
+.studio-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-left: auto;
+}
+.studio-done {
+  width: 100%;
+  margin-top: 12px;
 }
 /* The live status leads the step, so nobody scrolls to find out if it worked. */
 .studio-watch-live {

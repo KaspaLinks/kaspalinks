@@ -431,35 +431,72 @@ function groupLabel(group: null | TelegramGroupTarget): string {
   return group?.title?.trim() || "your group";
 }
 
+type GroupLinkState = "confirmed" | "declined" | "pending";
+type GroupDecision = "post" | "skip";
+
+/**
+ * Opened from a group: before the giveaway is live this explains what happens;
+ * once it is live the admin chooses whether the bot posts it in the group.
+ */
 function GroupAnnouncementNotice({
+  busy,
   group,
-  linked,
-  linking,
-  onLink,
+  onDecide,
+  phase,
+  state,
 }: {
+  busy: boolean;
   group: TelegramGroupTarget;
-  /** Null while no giveaway is selected. */
-  linked: boolean | null;
-  linking: boolean;
-  onLink: (() => void) | null;
+  onDecide: (decision: GroupDecision) => void;
+  /** The selected giveaway's phase; null while none is selected. */
+  phase: null | string;
+  state: GroupLinkState | null;
 }) {
   const name = groupLabel(group);
+  const later =
+    "After a post, the bot also reminds everyone shortly before entries close and announces the winner there.";
+  const decide = phase === "OPEN" && state !== "confirmed";
+  const text =
+    phase === null
+      ? `Once your giveaway is live, you choose whether the bot posts it in ${name}. ${later}`
+      : phase === "AWAITING_ACTIVATION"
+        ? `Once it's live, you choose whether the bot posts it in ${name}.`
+        : state === "confirmed"
+          ? phase === "OPEN"
+            ? `✓ Posted in ${name}. The bot reminds everyone shortly before entries close and announces the winner there.`
+            : `✓ Posted in ${name}.`
+          : phase === "OPEN"
+            ? state === "declined"
+              ? `Not posted in ${name}. You can still post it while entries are open.`
+              : `Post this giveaway in ${name}? ${later}`
+            : `Entries are closed, so it can't be posted in ${name} any more.`;
   return (
     <div className="notice studio-group-notice" role="status">
       <div>
         <strong>For {name}</strong>
-        <span>
-          {linked
-            ? `✓ The bot posts this giveaway in ${name} once it's live, reminds everyone shortly before entries close and announces the winner.`
-            : linked === false && !onLink
-              ? `This giveaway can't be announced in ${name} any more.`
-              : `The bot posts your giveaway in ${name} once it's live, reminds everyone shortly before entries close and announces the winner.`}
-        </span>
+        <span>{text}</span>
       </div>
-      {onLink ? (
-        <button className="btn btn-sm" disabled={linking} onClick={onLink} type="button">
-          {linking ? "Linking…" : `Announce in ${name}`}
-        </button>
+      {decide ? (
+        <div className="studio-group-actions">
+          <button
+            className="btn btn-sm btn-primary"
+            disabled={busy}
+            onClick={() => onDecide("post")}
+            type="button"
+          >
+            {busy ? "Saving…" : `Post in ${name}`}
+          </button>
+          {state !== "declined" ? (
+            <button
+              className="btn btn-sm"
+              disabled={busy}
+              onClick={() => onDecide("skip")}
+              type="button"
+            >
+              Not now
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -500,8 +537,8 @@ export function GiveawayV6Studio({
   const checkInFlight = useRef(false);
   // Opened from a group's "Set up giveaway" link: the bot announces there.
   const [group, setGroup] = useState<null | TelegramGroupTarget>(null);
-  const [groupLinked, setGroupLinked] = useState<readonly string[]>([]);
-  const [groupLinking, setGroupLinking] = useState(false);
+  const [groupLinks, setGroupLinks] = useState<Readonly<Record<string, GroupLinkState>>>({});
+  const [groupBusy, setGroupBusy] = useState(false);
 
   useEffect(() => {
     if (surface !== "telegram") return;
@@ -603,9 +640,12 @@ export function GiveawayV6Studio({
         setError(errorMessage(body, "The group could not be checked. Reopen the link from it."));
         return;
       }
-      const loaded = body as { group: TelegramGroupTarget; linkedPublicIds: string[] };
+      const loaded = body as {
+        group: TelegramGroupTarget;
+        links: Array<{ publicId: string; state: GroupLinkState }>;
+      };
       setGroup(loaded.group);
-      setGroupLinked(loaded.linkedPublicIds);
+      setGroupLinks(Object.fromEntries(loaded.links.map((link) => [link.publicId, link.state])));
     })().catch(() => {
       if (active) setError("The group could not be checked. Reopen the link from it.");
     });
@@ -614,13 +654,14 @@ export function GiveawayV6Studio({
     };
   }, [surface, telegramInitData]);
 
+  /** Sets the giveaway up for the group; with a decision, posts it there or not. */
   const linkToGroup = useCallback(
-    async (publicId: string): Promise<boolean> => {
-      if (!group || !telegramInitData) return false;
-      setGroupLinking(true);
+    async (publicId: string, decision?: GroupDecision): Promise<GroupLinkState | null> => {
+      if (!group || !telegramInitData) return null;
+      setGroupBusy(true);
       try {
         const response = await fetch(`/api/telegram/groups/${encodeURIComponent(group.chatId)}`, {
-          body: JSON.stringify({ publicId }),
+          body: JSON.stringify(decision ? { decision, publicId } : { publicId }),
           headers: {
             "content-type": "application/json",
             "x-telegram-mini-app-init-data": telegramInitData,
@@ -629,18 +670,17 @@ export function GiveawayV6Studio({
         });
         const body: unknown = await response.json().catch(() => null);
         if (!response.ok) {
-          setError(errorMessage(body, "The giveaway could not be linked to the group."));
-          return false;
+          setError(errorMessage(body, "The group could not be updated. Try again."));
+          return null;
         }
-        setGroupLinked((current) =>
-          current.includes(publicId) ? current : [...current, publicId],
-        );
-        return true;
+        const { state } = body as { state: GroupLinkState };
+        setGroupLinks((current) => ({ ...current, [publicId]: state }));
+        return state;
       } catch {
-        setError("The giveaway could not be linked to the group. Try again.");
-        return false;
+        setError("The group could not be updated. Try again.");
+        return null;
       } finally {
-        setGroupLinking(false);
+        setGroupBusy(false);
       }
     },
     [group, telegramInitData],
@@ -874,10 +914,10 @@ export function GiveawayV6Studio({
       if (!response.ok) throw new Error(errorMessage(body, "Giveaway could not be created."));
       const giveaway = normalizedCreatedGiveaway(body as CreateResponse);
       storeGiveaway(giveaway);
-      const announced = group ? await linkToGroup(giveaway.publicId) : false;
+      const linked = group ? await linkToGroup(giveaway.publicId) : null;
       setMessage(
-        announced
-          ? `Setup locked. Fund the exact amount shown below. Once it's live, the bot posts it in ${groupLabel(group)}.`
+        linked
+          ? `Setup locked. Fund the exact amount shown below. Once it's live, you choose whether the bot posts it in ${groupLabel(group)}.`
           : "Setup locked. Fund the exact amount shown below.",
       );
       const url = new URL(window.location.href);
@@ -1037,21 +1077,19 @@ export function GiveawayV6Studio({
 
       {group ? (
         <GroupAnnouncementNotice
+          busy={groupBusy}
           group={group}
-          linked={selected ? groupLinked.includes(selected.publicId) : null}
-          linking={groupLinking}
-          onLink={
-            selected &&
-            (selected.phase === "AWAITING_ACTIVATION" || selected.phase === "OPEN") &&
-            !groupLinked.includes(selected.publicId)
-              ? () => {
-                  setError("");
-                  void linkToGroup(selected.publicId).then((ok) => {
-                    if (ok) setMessage(`The bot will post this giveaway in ${groupLabel(group)}.`);
-                  });
-                }
-              : null
-          }
+          onDecide={(decision) => {
+            if (!selected) return;
+            setError("");
+            void linkToGroup(selected.publicId, decision).then((state) => {
+              if (state === "confirmed")
+                setMessage(`The bot posts it in ${groupLabel(group)} within a few seconds.`);
+              else if (state === "declined") setMessage(`Not posted in ${groupLabel(group)}.`);
+            });
+          }}
+          phase={selected?.phase ?? null}
+          state={selected ? (groupLinks[selected.publicId] ?? null) : null}
         />
       ) : null}
 
@@ -1458,6 +1496,15 @@ export function GiveawayV6Studio({
                     Open public page
                   </Link>
                 </div>
+                {surface === "telegram" ? (
+                  <button
+                    className="btn studio-done"
+                    onClick={() => window.Telegram?.WebApp?.close()}
+                    type="button"
+                  >
+                    Done, back to Telegram
+                  </button>
+                ) : null}
               </div>
               <details className="studio-advanced">
                 <summary>On-chain verification</summary>
