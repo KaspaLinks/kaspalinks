@@ -134,6 +134,7 @@ export default function V6GiveawayView(props: Props) {
               </p>
             </div>
             <V6EntryClient
+              amountKas={props.amountKas}
               available={props.entryAvailable}
               network={props.network}
               publicId={props.publicId}

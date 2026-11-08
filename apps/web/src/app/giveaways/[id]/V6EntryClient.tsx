@@ -9,6 +9,8 @@ import { TurnstileWidget } from "@/app/toccata-lab/giveaway/[publicId]/Turnstile
 import { GIVEAWAY_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
 import { kaspaStreamTransactionUrl } from "@/lib/kaspa-stream";
 
+import { GiveawayShareButtons } from "./GiveawayShareButtons";
+
 type Submission = {
   commitmentHex: string;
   shardIndex: number;
@@ -23,11 +25,13 @@ const VERIFICATION_RETRYING =
   "Human verification did not finish yet. It retries on its own; the button unlocks when it passes.";
 
 export default function V6EntryClient({
+  amountKas,
   available,
   network,
   publicId,
   siteKey,
 }: {
+  amountKas: string;
   available: boolean;
   network: "mainnet" | "testnet-10";
   publicId: string;
@@ -150,6 +154,7 @@ export default function V6EntryClient({
               </a>
             ) : null}
           </SuccessHero>
+          <GiveawayShareButtons amountKas={amountKas} publicId={publicId} />
           {network === "mainnet" ? <GrowthPrompt source="giveaway-entry" /> : null}
         </>
       );

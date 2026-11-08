@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetRateLimits } from "@/lib/rate-limit";
-const mocks = vi.hoisted(() => ({ card: vi.fn(), prepare: vi.fn() }));
+const mocks = vi.hoisted(() => ({ card: vi.fn(), prepare: vi.fn(), v6: vi.fn() }));
 vi.mock("@/lib/telegram-giveaway", async () => ({
   ...(await vi.importActual<typeof import("@/lib/telegram-giveaway")>("@/lib/telegram-giveaway")),
   getTelegramGiveawayCard: mocks.card,
@@ -12,6 +12,7 @@ vi.mock("@kaspa-actions/agent", async () => ({
     savePreparedInlineMessage = mocks.prepare;
   },
 }));
+vi.mock("@/lib/giveaway-v6-share", () => ({ loadV6GiveawayShareInput: mocks.v6 }));
 import { POST } from "./route";
 function initData(userId = 123, authDate = Math.floor(Date.now() / 1000)) {
   const values = new URLSearchParams({
@@ -50,6 +51,7 @@ describe("Public Telegram prepared giveaway cards", () => {
       fundingConfirmed: true,
     });
     mocks.prepare.mockResolvedValue({ id: "prepared1", expiration_date: 1234 });
+    mocks.v6.mockResolvedValue(null);
   });
   it("prepares only for the signed participant ID without Creator access", async () => {
     const response = await POST(req(initData()), context);
@@ -74,5 +76,24 @@ describe("Public Telegram prepared giveaway cards", () => {
       (await POST(req(initData()), { params: Promise.resolve({ publicId: "../secret" }) })).status,
     ).toBe(404);
     expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+  it("builds a V6 giveaway's card from its on-chain state, with a join button for groups", async () => {
+    mocks.v6.mockResolvedValue({
+      amountKas: "100",
+      closesAt: new Date("2026-11-08T12:00:00.000Z"),
+      participantCap: 32,
+      participantCount: 12,
+      phase: "open",
+      publicId: "g1",
+      title: "Birthday giveaway $KAS",
+    });
+    expect((await POST(req(initData()), context)).status).toBe(200);
+    expect(mocks.card).not.toHaveBeenCalled();
+    const [, article] = mocks.prepare.mock.calls[0]!;
+    expect(article.input_message_content.message_text).toContain("12/32 spots taken");
+    expect(article.reply_markup.inline_keyboard[0][0]).toEqual({
+      text: "Join giveaway",
+      url: "https://example.test/giveaways/g1?from=telegram",
+    });
   });
 });

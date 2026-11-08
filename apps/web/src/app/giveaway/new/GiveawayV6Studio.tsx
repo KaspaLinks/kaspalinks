@@ -820,6 +820,30 @@ export function GiveawayV6Studio({
   async function shareGiveaway() {
     if (!selected) return;
     const url = new URL(selected.publicUrl, window.location.origin).toString();
+    // In Telegram, a card with a "Join giveaway" button can go to any chat or group.
+    const app = window.Telegram?.WebApp;
+    if (
+      surface === "telegram" &&
+      telegramInitData &&
+      app?.shareMessage &&
+      app.isVersionAtLeast?.("8.0")
+    ) {
+      try {
+        const response = await fetch(
+          `/api/telegram/giveaways/${encodeURIComponent(selected.publicId)}/share`,
+          { headers: { "x-telegram-mini-app-init-data": telegramInitData }, method: "POST" },
+        );
+        const body = (await response.json().catch(() => null)) as null | { id?: string };
+        if (response.ok && body?.id) {
+          app.shareMessage(body.id, (sent) => {
+            if (sent) setMessage("Giveaway shared.");
+          });
+          return;
+        }
+      } catch {
+        // Fall back to the plain link below.
+      }
+    }
     if (navigator.share) {
       try {
         await navigator.share({

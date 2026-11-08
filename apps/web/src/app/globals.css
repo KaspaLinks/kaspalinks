@@ -11239,6 +11239,23 @@ body:has(main.deck-main) {
   text-align: center;
 }
 
+.giveaway-share {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  text-align: center;
+}
+.giveaway-share strong {
+  color: var(--fg-strong);
+  font-size: 0.95rem;
+}
+.giveaway-share-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
 .giveaway-own-cta {
   display: flex;
   flex-wrap: wrap;
