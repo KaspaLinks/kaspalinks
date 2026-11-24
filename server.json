@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.kaspalinks/kaspa-links",
+  "title": "Kaspa Links",
+  "description": "Prepare Kaspa payment links, claim links and on-chain giveaways, and list open giveaways.",
+  "repository": {
+    "url": "https://github.com/KaspaLinks/kaspalinks",
+    "source": "github"
+  },
+  "version": "1.1.0",
+  "websiteUrl": "https://kaspalinks.com",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://kaspalinks.com/api/mcp"
+    }
+  ]
+}
