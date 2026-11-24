@@ -1,12 +1,7 @@
 import { extractClientIp, hashClientIp } from "@/lib/client-ip";
 import { apiMethodNotAllowed } from "@/lib/errors";
 import { loadOpenGiveaways } from "@/lib/featured-giveaway";
-import {
-  handleMcpMessage,
-  isSupportedProtocolVersion,
-  jsonRpcError,
-  JsonRpcErrors,
-} from "@/lib/mcp-server";
+import { handleMcpMessage, jsonRpcError, JsonRpcErrors } from "@/lib/mcp-server";
 import { getPublicAppBaseUrl } from "@/lib/public-url";
 import { enforceRateLimit, RateBuckets } from "@/lib/rate-limit-helpers";
 
@@ -28,12 +23,12 @@ export async function POST(request: Request) {
   );
   if (!limited.allowed) return limited.response;
 
-  const version = request.headers.get("mcp-protocol-version");
-  if (version && !isSupportedProtocolVersion(version)) {
-    return rpcReply(
-      jsonRpcError(null, JsonRpcErrors.INVALID_REQUEST, "Unsupported MCP-Protocol-Version."),
-      400,
-    );
+  // Assistants call from their servers without an Origin. A browser page on
+  // another site must not drive this endpoint (DNS rebinding, drive-by calls).
+  const appUrl = getPublicAppBaseUrl(request);
+  const origin = request.headers.get("origin");
+  if (origin && origin !== appUrl) {
+    return rpcReply(jsonRpcError(null, JsonRpcErrors.INVALID_REQUEST, "Origin not allowed."), 403);
   }
 
   const text = await request.text();
@@ -48,10 +43,15 @@ export async function POST(request: Request) {
     return rpcReply(jsonRpcError(null, JsonRpcErrors.PARSE_ERROR, "Body must be JSON."), 400);
   }
 
-  const reply = await handleMcpMessage(message, {
-    appUrl: getPublicAppBaseUrl(request),
-    loadOpenGiveaways: (limit) => loadOpenGiveaways(limit),
-  });
+  const reply = await handleMcpMessage(
+    message,
+    { appUrl, loadOpenGiveaways: (limit) => loadOpenGiveaways(limit) },
+    {
+      method: request.headers.get("mcp-method"),
+      name: request.headers.get("mcp-name"),
+      protocolVersion: request.headers.get("mcp-protocol-version"),
+    },
+  );
   if (!reply.body) return new Response(null, { status: reply.status });
   return rpcReply(reply.body, reply.status);
 }

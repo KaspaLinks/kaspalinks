@@ -50,6 +50,13 @@ describe("/api/mcp", () => {
 
   it("rejects bad JSON, unsupported protocol versions and oversized bodies", async () => {
     expect((await post("{")).status).toBe(400);
+    const unsupported = await post(
+      JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/list" }),
+      {
+        "mcp-protocol-version": "2024-01-01",
+      },
+    );
+    expect(((await unsupported.json()) as { error: { code: number } }).error.code).toBe(-32022);
     expect(
       (
         await post(JSON.stringify({ id: 1, jsonrpc: "2.0", method: "ping" }), {
@@ -63,6 +70,28 @@ describe("/api/mcp", () => {
   it("passes the rate limit response through", async () => {
     mockLimit.mockReturnValue({ allowed: false, response: new Response(null, { status: 429 }) });
     expect((await post("{}")).status).toBe(429);
+  });
+
+  it("passes the routing headers through and refuses foreign origins", async () => {
+    const mismatch = await post(JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/list" }), {
+      "mcp-method": "tools/call",
+      "mcp-protocol-version": "2026-07-28",
+    });
+    expect(mismatch.status).toBe(400);
+    expect(
+      (
+        await post(JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/list" }), {
+          origin: "https://evil.example",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await post(JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/list" }), {
+          origin: "https://kaspalinks.com",
+        })
+      ).status,
+    ).toBe(200);
   });
 
   it("offers no GET stream", async () => {

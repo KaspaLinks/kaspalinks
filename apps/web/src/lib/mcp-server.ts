@@ -24,8 +24,17 @@ import {
  * browser ever sees). Nothing is created, stored or sent from here.
  */
 
-export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
-const LATEST_PROTOCOL_VERSION = MCP_PROTOCOL_VERSIONS[0];
+/** Stateless revisions: no initialize; each request carries its version in `_meta`. */
+export const MODERN_PROTOCOL_VERSIONS = ["2026-07-28"] as const;
+/** Revisions that start with the initialize handshake. */
+export const LEGACY_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
+export const MCP_PROTOCOL_VERSIONS = [...MODERN_PROTOCOL_VERSIONS, ...LEGACY_PROTOCOL_VERSIONS];
+const LATEST_LEGACY_VERSION = LEGACY_PROTOCOL_VERSIONS[0];
+
+const META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion";
+const META_SERVER_INFO = "io.modelcontextprotocol/serverInfo";
+/** The tool list only changes with a release. */
+const LIST_TTL_MS = 60 * 60 * 1000;
 
 export const MCP_SERVER_INSTRUCTIONS =
   "Kaspa Links (kaspalinks.com) makes non-custodial Kaspa (KAS) payment links, claim links and " +
@@ -44,23 +53,59 @@ type JsonRpcId = number | string;
 
 type JsonRpcResponse =
   | { id: JsonRpcId | null; jsonrpc: "2.0"; result: unknown }
-  | { error: { code: number; message: string }; id: JsonRpcId | null; jsonrpc: "2.0" };
+  | {
+      error: { code: number; data?: unknown; message: string };
+      id: JsonRpcId | null;
+      jsonrpc: "2.0";
+    };
 
 export type McpReply = { body: JsonRpcResponse | null; status: number };
 
+/** The routing headers of a Streamable HTTP request (2026-07-28). */
+export type McpRequestHeaders = {
+  method?: null | string;
+  name?: null | string;
+  protocolVersion?: null | string;
+};
+
 export const JsonRpcErrors = {
+  HEADER_MISMATCH: -32020,
   INVALID_PARAMS: -32602,
   INVALID_REQUEST: -32600,
   METHOD_NOT_FOUND: -32601,
   PARSE_ERROR: -32700,
+  UNSUPPORTED_PROTOCOL_VERSION: -32022,
 } as const;
 
 export function isSupportedProtocolVersion(version: string): boolean {
   return (MCP_PROTOCOL_VERSIONS as readonly string[]).includes(version);
 }
 
-export function jsonRpcError(id: JsonRpcId | null, code: number, message: string): JsonRpcResponse {
-  return { error: { code, message }, id, jsonrpc: "2.0" };
+function isModernProtocolVersion(version: string): boolean {
+  return (MODERN_PROTOCOL_VERSIONS as readonly string[]).includes(version);
+}
+
+export function jsonRpcError(
+  id: JsonRpcId | null,
+  code: number,
+  message: string,
+  data?: unknown,
+): JsonRpcResponse {
+  return {
+    error: data === undefined ? { code, message } : { code, data, message },
+    id,
+    jsonrpc: "2.0",
+  };
+}
+
+/** Header values that are not plain ASCII arrive as `=?base64?…?=`. */
+function decodeHeaderValue(value: string): string {
+  const encoded = /^=\?base64\?([A-Za-z0-9+/=]*)\?=$/.exec(value);
+  return encoded ? Buffer.from(encoded[1] ?? "", "base64").toString("utf8") : value;
+}
+
+function serverInfo(deps: McpDependencies) {
+  return { name: "kaspa-links", title: "Kaspa Links", version: "1.1.0", websiteUrl: deps.appUrl };
 }
 
 type ToolResult = {
@@ -342,8 +387,20 @@ function readId(value: unknown): JsonRpcId | null | undefined {
   return null;
 }
 
-/** Handles one JSON-RPC message. A notification or a response gets no body (HTTP 202). */
-export async function handleMcpMessage(message: unknown, deps: McpDependencies): Promise<McpReply> {
+/**
+ * Handles one JSON-RPC message. A notification or a response gets no body (HTTP 202).
+ *
+ * Both protocol eras are served. `initialize` starts the handshake revisions
+ * (2025-11-25 and older). A request whose `_meta` or `MCP-Protocol-Version`
+ * names 2026-07-28 is handled statelessly with that revision's result fields
+ * and routing-header checks. An unknown version gets -32022 with the supported
+ * list, so a client can retry with one of them.
+ */
+export async function handleMcpMessage(
+  message: unknown,
+  deps: McpDependencies,
+  headers: McpRequestHeaders = {},
+): Promise<McpReply> {
   if (!isObject(message) || message.jsonrpc !== "2.0") {
     return {
       body: jsonRpcError(null, JsonRpcErrors.INVALID_REQUEST, "Expected one JSON-RPC 2.0 message."),
@@ -370,44 +427,86 @@ export async function handleMcpMessage(message: unknown, deps: McpDependencies):
     };
   }
 
+  const method = message.method;
   const params = isObject(message.params) ? message.params : {};
   const ok = (result: unknown): McpReply => ({ body: { id, jsonrpc: "2.0", result }, status: 200 });
+  const fail = (status: number, code: number, text: string, data?: unknown): McpReply => ({
+    body: jsonRpcError(id, code, text, data),
+    status,
+  });
 
-  switch (message.method) {
-    case "initialize": {
-      const requested = typeof params.protocolVersion === "string" ? params.protocolVersion : "";
-      return ok({
-        capabilities: { tools: { listChanged: false } },
-        instructions: MCP_SERVER_INSTRUCTIONS,
-        protocolVersion: isSupportedProtocolVersion(requested)
-          ? requested
-          : LATEST_PROTOCOL_VERSION,
-        serverInfo: {
-          name: "kaspa-links",
-          title: "Kaspa Links",
-          version: "1.0.0",
-          websiteUrl: deps.appUrl,
-        },
-      });
+  // The handshake always selects the older revisions, whatever header came with it.
+  if (method === "initialize") {
+    const requested = typeof params.protocolVersion === "string" ? params.protocolVersion : "";
+    return ok({
+      capabilities: { tools: { listChanged: false } },
+      instructions: MCP_SERVER_INSTRUCTIONS,
+      protocolVersion: (LEGACY_PROTOCOL_VERSIONS as readonly string[]).includes(requested)
+        ? requested
+        : LATEST_LEGACY_VERSION,
+      serverInfo: serverInfo(deps),
+    });
+  }
+
+  const meta = isObject(params._meta) ? params._meta : {};
+  const metaVersion =
+    typeof meta[META_PROTOCOL_VERSION] === "string" ? meta[META_PROTOCOL_VERSION] : undefined;
+  const headerVersion = headers.protocolVersion?.trim() || undefined;
+  const requested = metaVersion ?? headerVersion;
+  if (requested !== undefined && !isSupportedProtocolVersion(requested)) {
+    return fail(400, JsonRpcErrors.UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version", {
+      requested,
+      supported: MCP_PROTOCOL_VERSIONS,
+    });
+  }
+
+  const modern = requested !== undefined && isModernProtocolVersion(requested);
+  if (modern) {
+    if (metaVersion !== undefined && headerVersion !== undefined && headerVersion !== metaVersion) {
+      return fail(400, JsonRpcErrors.HEADER_MISMATCH, "MCP-Protocol-Version does not match _meta.");
     }
+    if (headers.method && decodeHeaderValue(headers.method.trim()) !== method) {
+      return fail(400, JsonRpcErrors.HEADER_MISMATCH, "Mcp-Method does not match the request.");
+    }
+    if (
+      method === "tools/call" &&
+      headers.name &&
+      decodeHeaderValue(headers.name.trim()) !== params.name
+    ) {
+      return fail(400, JsonRpcErrors.HEADER_MISMATCH, "Mcp-Name does not match the tool name.");
+    }
+  }
+
+  switch (method) {
+    case "server/discover":
+      return ok({
+        _meta: { [META_SERVER_INFO]: serverInfo(deps) },
+        cacheScope: "public",
+        capabilities: { tools: {} },
+        instructions: MCP_SERVER_INSTRUCTIONS,
+        resultType: "complete",
+        supportedVersions: MCP_PROTOCOL_VERSIONS,
+        ttlMs: LIST_TTL_MS,
+      });
     case "ping":
+      // Removed in 2026-07-28, kept for the handshake revisions.
+      if (modern) break;
       return ok({});
     case "tools/list":
-      return ok({ tools: TOOLS });
+      return ok(
+        modern
+          ? { cacheScope: "public", resultType: "complete", tools: TOOLS, ttlMs: LIST_TTL_MS }
+          : { tools: TOOLS },
+      );
     case "tools/call": {
       if (!isToolName(params.name)) {
-        return {
-          body: jsonRpcError(id, JsonRpcErrors.INVALID_PARAMS, "Unknown tool."),
-          status: 200,
-        };
+        return fail(200, JsonRpcErrors.INVALID_PARAMS, "Unknown tool.");
       }
-      console.info(`[mcp] tools/call ${params.name}`);
-      return ok(await callTool(params.name, params.arguments, deps));
+      console.info(`[mcp] tools/call ${params.name}${modern ? " (2026-07-28)" : ""}`);
+      const result = await callTool(params.name, params.arguments, deps);
+      return ok(modern ? { ...result, resultType: "complete" } : result);
     }
-    default:
-      return {
-        body: jsonRpcError(id, JsonRpcErrors.METHOD_NOT_FOUND, "Method not found."),
-        status: 200,
-      };
   }
+  // A stateless server answers an unknown method with 404, so clients can tell it apart.
+  return fail(modern ? 404 : 200, JsonRpcErrors.METHOD_NOT_FOUND, "Method not found.");
 }

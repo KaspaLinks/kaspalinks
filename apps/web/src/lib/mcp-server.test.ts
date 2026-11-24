@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import { parseLinkPrefill } from "@/app/new-link/link-prefill";
 
-import { handleMcpMessage, MCP_PROTOCOL_VERSIONS, type McpDependencies } from "./mcp-server";
+import {
+  handleMcpMessage,
+  LEGACY_PROTOCOL_VERSIONS,
+  MCP_PROTOCOL_VERSIONS,
+  type McpDependencies,
+} from "./mcp-server";
 
 const ADDRESS = "kaspa:qpauqsvk7yf9unexwmxsnmg547mhyga37csh0kj53q6xxgl24ydxjsgzthw5j";
 const APP = "https://kaspalinks.com";
@@ -49,7 +54,7 @@ describe("MCP protocol", () => {
       deps(),
     );
     expect((fallback.body as { result: { protocolVersion: string } }).result.protocolVersion).toBe(
-      MCP_PROTOCOL_VERSIONS[0],
+      LEGACY_PROTOCOL_VERSIONS[0],
     );
   });
 
@@ -209,5 +214,115 @@ describe("list_open_giveaways", () => {
     const result = await call("list_open_giveaways");
     expect(result.structuredContent?.giveaways).toEqual([]);
     expect(String(result.structuredContent?.note)).toContain("prepare_giveaway");
+  });
+});
+
+describe("MCP 2026-07-28 (stateless)", () => {
+  const MODERN = "2026-07-28";
+  const meta = {
+    "io.modelcontextprotocol/clientCapabilities": {},
+    "io.modelcontextprotocol/protocolVersion": MODERN,
+  };
+
+  function modern(method: string, params: Record<string, unknown> = {}, headers = {}) {
+    return handleMcpMessage(
+      { id: 21, jsonrpc: "2.0", method, params: { ...params, _meta: meta } },
+      deps(),
+      { method, protocolVersion: MODERN, ...headers },
+    );
+  }
+
+  it("answers server/discover with all supported versions and cache hints", async () => {
+    const reply = await modern("server/discover");
+    expect(reply.status).toBe(200);
+    const result = (reply.body as { result: Record<string, unknown> }).result;
+    expect(result).toMatchObject({
+      cacheScope: "public",
+      capabilities: { tools: {} },
+      resultType: "complete",
+      supportedVersions: MCP_PROTOCOL_VERSIONS,
+    });
+    expect(result.supportedVersions).toEqual(expect.arrayContaining([MODERN, "2025-11-25"]));
+    expect(typeof result.ttlMs).toBe("number");
+    expect(result._meta).toMatchObject({
+      "io.modelcontextprotocol/serverInfo": { name: "kaspa-links" },
+    });
+  });
+
+  it("adds resultType and cache hints to tools/list and tools/call", async () => {
+    const listed = (await modern("tools/list")).body as { result: Record<string, unknown> };
+    expect(listed.result).toMatchObject({ cacheScope: "public", resultType: "complete" });
+    expect(listed.result.tools).toHaveLength(4);
+
+    const called = await modern(
+      "tools/call",
+      { arguments: {}, name: "prepare_giveaway" },
+      { name: "prepare_giveaway" },
+    );
+    expect(called.status).toBe(200);
+    expect((called.body as { result: Record<string, unknown> }).result).toMatchObject({
+      resultType: "complete",
+      structuredContent: { created: false },
+    });
+  });
+
+  it("accepts a base64-encoded Mcp-Name", async () => {
+    const encoded = `=?base64?${Buffer.from("prepare_giveaway").toString("base64")}?=`;
+    const reply = await modern("tools/call", { name: "prepare_giveaway" }, { name: encoded });
+    expect(reply.status).toBe(200);
+  });
+
+  it("rejects routing headers that do not match the body with -32020", async () => {
+    for (const reply of [
+      await modern("tools/list", {}, { method: "tools/call" }),
+      await modern("tools/call", { name: "prepare_giveaway" }, { name: "list_open_giveaways" }),
+      await modern("tools/list", {}, { protocolVersion: "2025-11-25" }),
+    ]) {
+      expect(reply.status).toBe(400);
+      expect(reply.body).toMatchObject({ error: { code: -32020 } });
+    }
+  });
+
+  it("answers an unknown version with -32022 and the supported list", async () => {
+    const reply = await handleMcpMessage(
+      {
+        id: 22,
+        jsonrpc: "2.0",
+        method: "tools/list",
+        params: { _meta: { "io.modelcontextprotocol/protocolVersion": "2099-01-01" } },
+      },
+      deps(),
+      { protocolVersion: "2099-01-01" },
+    );
+    expect(reply.status).toBe(400);
+    expect(reply.body).toMatchObject({
+      error: { code: -32022, data: { requested: "2099-01-01", supported: MCP_PROTOCOL_VERSIONS } },
+    });
+  });
+
+  it("answers unknown and removed methods with 404", async () => {
+    expect((await modern("resources/list")).status).toBe(404);
+    expect((await modern("ping")).status).toBe(404);
+  });
+
+  it("still lets a client fall back to the handshake, even with a modern header", async () => {
+    const reply = await handleMcpMessage(
+      { id: 23, jsonrpc: "2.0", method: "initialize", params: { protocolVersion: "2025-11-25" } },
+      deps(),
+      { protocolVersion: MODERN },
+    );
+    expect(reply.status).toBe(200);
+    expect((reply.body as { result: { protocolVersion: string } }).result.protocolVersion).toBe(
+      "2025-11-25",
+    );
+  });
+
+  it("keeps handshake-era requests unchanged", async () => {
+    const reply = await handleMcpMessage({ id: 24, jsonrpc: "2.0", method: "tools/list" }, deps(), {
+      protocolVersion: "2025-11-25",
+    });
+    expect((reply.body as { result: Record<string, unknown> }).result).toEqual({
+      tools: expect.any(Array),
+    });
   });
 });
