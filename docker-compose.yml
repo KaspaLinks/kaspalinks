@@ -111,6 +111,11 @@ services:
       dockerfile: apps/web/Dockerfile
       target: wrpc-relay
     restart: unless-stopped
+    # The relay normally needs about 100 MB. A leak now gets the relay
+    # OOM-killed and restarted inside this limit instead of starving the host.
+    # memswap_limit equal to mem_limit means no swap, so it fails fast.
+    mem_limit: 512m
+    memswap_limit: 512m
     environment:
       NODE_ENV: production
       TOCCATA_RELAY_CONNECT_TIMEOUT_MS: ${TOCCATA_RELAY_CONNECT_TIMEOUT_MS:-30000}

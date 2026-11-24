@@ -6,9 +6,16 @@ import {
   normalizeVirtualChainRequest,
   stringifyRelayJson,
 } from "./protocol.mjs";
+import {
+  createRpcConnection,
+  errorMessage,
+  isConnectionError,
+  withTimeout,
+} from "./rpc-connection.mjs";
 
 const require = createRequire(import.meta.url);
-const { Resolver, RpcClient, Transaction, version } = require("kaspa-wasm");
+const kaspa = require("kaspa-wasm");
+const { Resolver, RpcClient, Transaction, version } = kaspa;
 
 const HOST = process.env.HOST ?? "0.0.0.0";
 const PORT = Number(process.env.PORT ?? process.env.TOCCATA_RELAY_PORT ?? "3010");
@@ -28,19 +35,26 @@ const WARM_CONNECT_INTERVAL_MS = Number(
 // waited 10-20 s for a fresh resolver connection.
 const KEEPALIVE_TIMEOUT_MS = 5_000;
 
-let rpc = null;
-let connectPromise = null;
-let lastConnectError = null;
+// One client for the whole process, reconnected in place (see rpc-connection.mjs).
+const rpcConnection = createRpcConnection({
+  client: new RpcClient({ networkId: NETWORK_ID, resolver: new Resolver() }),
+  connectTimeoutMs: CONNECT_TIMEOUT_MS,
+  keepaliveTimeoutMs: KEEPALIVE_TIMEOUT_MS,
+  network: NETWORK_ID,
+});
 let warmTimer = null;
 
 const server = createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
-      void warmRpcClient("health");
+      void rpcConnection.warm("health");
+      const { connected, connecting, connects, lastConnectError } = rpcConnection.status();
       writeJson(response, 200, {
-        connected: Boolean(rpc),
-        connecting: Boolean(connectPromise),
+        connected,
+        connecting,
+        connects,
         lastConnectError,
+        memory: readMemory(),
         network: NETWORK_ID,
         ok: true,
         sdkVersion: readSdkVersion(),
@@ -50,8 +64,8 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && request.url === "/ready") {
-      void warmRpcClient("readiness");
-      const connected = Boolean(rpc);
+      void rpcConnection.warm("readiness");
+      const { connected } = rpcConnection.status();
       writeJson(response, connected ? 200 : 503, {
         connected,
         network: NETWORK_ID,
@@ -69,7 +83,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && request.url === "/network") {
-      const result = await callRpcWithReconnect(
+      const result = await rpcConnection.callWithReconnect(
         (client) => client.getCurrentNetwork(),
         READ_TIMEOUT_MS,
         "Kaspa RPC network read",
@@ -80,7 +94,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/virtual-chain-v2") {
       const input = normalizeVirtualChainRequest(await readJsonBody(request));
-      const result = await callRpcWithReconnect(
+      const result = await rpcConnection.callWithReconnect(
         (client) => client.getVirtualChainFromBlockV2(input),
         READ_TIMEOUT_MS,
         "Kaspa VSPC v2 read",
@@ -91,7 +105,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/block-headers") {
       const input = normalizeBlockHeadersRequest(await readJsonBody(request));
-      const blocks = await callRpcWithReconnect(
+      const blocks = await rpcConnection.callWithReconnect(
         (client) =>
           Promise.all(
             input.hashes.map((hash) => client.getBlock({ hash, includeTransactions: false })),
@@ -105,7 +119,7 @@ const server = createServer(async (request, response) => {
 
     writeJson(response, 404, { error: { code: "NOT_FOUND", message: "Not found." } });
   } catch (error) {
-    const message = error instanceof Error && error.message ? error.message : String(error);
+    const message = errorMessage(error);
     const timedOut = message.toLowerCase().includes("timed out");
     // Public chain data only; without this a refused request left no trace at all.
     console.warn("[kaspa-wrpc-relay] request failed", {
@@ -128,9 +142,9 @@ server.listen(PORT, HOST, () => {
     port: PORT,
     sdkVersion: readSdkVersion(),
   });
-  void warmRpcClient("startup");
+  void rpcConnection.warm("startup");
   warmTimer = setInterval(() => {
-    void warmRpcClient("interval");
+    void rpcConnection.warm("interval");
   }, WARM_CONNECT_INTERVAL_MS);
 });
 
@@ -146,138 +160,62 @@ async function submitSignedTransaction(input) {
   const expectedTransactionId = normalizeTransactionId(input?.expectedTransactionId);
   const transactionSafeJson = normalizeTransactionSafeJson(input?.transactionSafeJson);
   const transaction = Transaction.deserializeFromSafeJSON(transactionSafeJson);
-  const localTransactionId = transaction.id;
+  const submits = [];
+  try {
+    const localTransactionId = transaction.id;
 
-  if (localTransactionId !== expectedTransactionId) {
-    throw new Error("Signed transaction id changed during wRPC submit preparation.");
-  }
+    if (localTransactionId !== expectedTransactionId) {
+      throw new Error("Signed transaction id changed during wRPC submit preparation.");
+    }
 
-  console.info("[kaspa-wrpc-relay] submit received", {
-    connected: Boolean(rpc),
-    transactionId: expectedTransactionId,
-  });
+    console.info("[kaspa-wrpc-relay] submit received", {
+      connected: rpcConnection.status().connected,
+      transactionId: expectedTransactionId,
+    });
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const client = await getRpcClient();
-      const submitted = await withTimeout(
-        client.submitTransaction({
-          allowOrphan: false,
-          transaction,
-        }),
-        SUBMIT_TIMEOUT_MS,
-        "Kaspa RPC submit",
-      );
-
-      return {
-        localTransactionId,
-        submittedTransactionId: submitted.transactionId || localTransactionId,
-      };
-    } catch (error) {
-      if (isAlreadyAcceptedError(error)) {
-        console.info("[kaspa-wrpc-relay] submit already accepted", {
-          transactionId: localTransactionId,
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const submitted = await rpcConnection.withClient((client) => {
+          const submit = client.submitTransaction({
+            allowOrphan: false,
+            transaction,
+          });
+          submits.push(submit);
+          return withTimeout(submit, SUBMIT_TIMEOUT_MS, "Kaspa RPC submit");
         });
+
         return {
           localTransactionId,
-          submittedTransactionId: localTransactionId,
+          submittedTransactionId: submitted.transactionId || localTransactionId,
         };
-      }
+      } catch (error) {
+        if (isAlreadyAcceptedError(error)) {
+          console.info("[kaspa-wrpc-relay] submit already accepted", {
+            transactionId: localTransactionId,
+          });
+          return {
+            localTransactionId,
+            submittedTransactionId: localTransactionId,
+          };
+        }
 
-      if (shouldResetRpcClient(error)) {
-        await resetRpcClient();
-        if (attempt === 0) {
+        if (attempt === 0 && isConnectionError(error)) {
           console.warn("[kaspa-wrpc-relay] retrying submit after RPC reconnect", {
-            message: error instanceof Error && error.message ? error.message : String(error),
+            message: errorMessage(error),
             transactionId: localTransactionId,
           });
           continue;
         }
+        throw error;
       }
-      throw error;
     }
-  }
 
-  throw new Error("Kaspa RPC submit failed after reconnect.");
-}
-
-async function callRpcWithReconnect(operation, timeoutMs, label) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const client = await getRpcClient();
-      return await withTimeout(operation(client), timeoutMs, label);
-    } catch (error) {
-      if (shouldResetRpcClient(error)) {
-        await resetRpcClient();
-        if (attempt === 0) continue;
-      }
-      throw error;
-    }
-  }
-  throw new Error(`${label} failed after reconnect.`);
-}
-
-async function getRpcClient() {
-  if (rpc !== null) return rpc;
-  if (connectPromise !== null) return connectPromise;
-
-  connectPromise = (async () => {
-    const client = new RpcClient({
-      networkId: NETWORK_ID,
-      resolver: new Resolver(),
-    });
-    await withTimeout(client.connect(), CONNECT_TIMEOUT_MS, "Kaspa RPC connect");
-    rpc = client;
-    connectPromise = null;
-    lastConnectError = null;
-    console.info("[kaspa-wrpc-relay] connected", { network: NETWORK_ID });
-    return client;
-  })().catch((error) => {
-    connectPromise = null;
-    lastConnectError = error instanceof Error && error.message ? error.message : String(error);
-    throw error;
-  });
-
-  return connectPromise;
-}
-
-async function warmRpcClient(reason) {
-  if (connectPromise !== null) return;
-  if (rpc !== null) {
-    if (reason === "interval") await keepRpcClientAlive(rpc);
-    return;
-  }
-  try {
-    await getRpcClient();
-  } catch (error) {
-    console.warn("[kaspa-wrpc-relay] warm connect failed", {
-      message: error instanceof Error && error.message ? error.message : String(error),
-      reason,
-    });
-  }
-}
-
-async function keepRpcClientAlive(client) {
-  try {
-    if (!client.isConnected) throw new Error("WebSocket is not connected");
-    await withTimeout(client.ping(), KEEPALIVE_TIMEOUT_MS, "Kaspa RPC keepalive");
-  } catch (error) {
-    // A request may already have replaced the client while the ping was running.
-    if (rpc !== client) return;
-    console.warn("[kaspa-wrpc-relay] keepalive failed, reconnecting", {
-      message: error instanceof Error && error.message ? error.message : String(error),
-    });
-    await resetRpcClient();
-    await warmRpcClient("keepalive");
-  }
-}
-
-async function resetRpcClient() {
-  const current = rpc;
-  rpc = null;
-  connectPromise = null;
-  if (current !== null) {
-    await current.disconnect().catch(() => undefined);
+    throw new Error("Kaspa RPC submit failed after reconnect.");
+  } finally {
+    // A deserialized transaction lives in WASM memory (about 260 KB for a 300 KB
+    // SafeJSON). The garbage collector does not see that size and WASM memory
+    // never shrinks, so it is freed here once every submit attempt has settled.
+    void Promise.allSettled(submits).then(() => freeWasmObject(transaction));
   }
 }
 
@@ -285,20 +223,8 @@ async function shutdown(signal) {
   console.info("[kaspa-wrpc-relay] shutting down", { signal });
   if (warmTimer !== null) clearInterval(warmTimer);
   server.close(() => undefined);
-  await resetRpcClient();
+  await rpcConnection.close();
   process.exit(0);
-}
-
-function shouldResetRpcClient(error) {
-  const message =
-    error instanceof Error && error.message ? error.message.toLowerCase() : String(error);
-  return (
-    message.includes("timed out") ||
-    message.includes("not connected") ||
-    message.includes("connection") ||
-    message.includes("websocket") ||
-    message.includes("network")
-  );
 }
 
 function isAlreadyAcceptedError(error) {
@@ -350,17 +276,28 @@ function writeJson(response, status, body) {
   response.end(stringifyRelayJson(body));
 }
 
-function withTimeout(promise, timeoutMs, label) {
-  let timeoutId;
-  return new Promise((resolve, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${timeoutMs}ms.`));
-    }, timeoutMs);
-
-    promise.then(resolve, reject).finally(() => {
-      clearTimeout(timeoutId);
+function freeWasmObject(value) {
+  try {
+    value.free();
+  } catch (error) {
+    console.warn("[kaspa-wrpc-relay] could not free a WASM object", {
+      message: errorMessage(error),
     });
-  });
+  }
+}
+
+function readMemory() {
+  const { heapUsed, rss } = process.memoryUsage();
+  const wasmBytes = kaspa.__wasm?.memory?.buffer?.byteLength;
+  return {
+    heapUsedMb: toMegabytes(heapUsed),
+    rssMb: toMegabytes(rss),
+    wasmMb: typeof wasmBytes === "number" ? toMegabytes(wasmBytes) : null,
+  };
+}
+
+function toMegabytes(bytes) {
+  return Math.round(bytes / 1_000_000);
 }
 
 function readSdkVersion() {
