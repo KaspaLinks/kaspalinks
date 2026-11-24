@@ -11,6 +11,7 @@ import {
   type FeaturedGiveawayCandidate,
   FEATURED_GIVEAWAY_MIN_PRIZE_SOMPI,
   pickFeaturedGiveaway,
+  pickOpenGiveaways,
 } from "./featured-giveaway";
 
 const NOW = new Date("2026-11-08T09:00:00.000Z");
@@ -78,5 +79,26 @@ describe("pickFeaturedGiveaway", () => {
         NOW,
       )?.amountKas,
     ).toBe("10");
+  });
+});
+
+describe("pickOpenGiveaways", () => {
+  it("lists eligible giveaways best first, up to the limit", () => {
+    const listed = pickOpenGiveaways(
+      [
+        candidate({ amountSompi: 20n * KAS, publicId: "small" }),
+        candidate({ participantCount: 32, publicId: "full" }),
+        candidate({ amountSompi: 500n * KAS, publicId: "big" }),
+        candidate({ amountSompi: 50n * KAS, publicId: "middle" }),
+      ],
+      NOW,
+      2,
+    );
+    expect(listed.map((giveaway) => giveaway.publicId)).toEqual(["big", "middle"]);
+    expect(listed[0]?.amountKas).toBe("500");
+  });
+
+  it("returns nothing for a limit of zero", () => {
+    expect(pickOpenGiveaways([candidate()], NOW, 0)).toEqual([]);
   });
 });

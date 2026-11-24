@@ -24,6 +24,7 @@ import { ACCOUNT_FREE_LINK_TURNSTILE_ACTION } from "@/lib/turnstile-shared";
 import { useKasUsdPrice } from "@/lib/use-kas-usd-price";
 import { AccountFreeLinkCreated, type AccountFreeCreatedLink } from "./AccountFreeLinkCreated";
 import { canShowGiveawayTemplate, slugify, validateRecipientAddress } from "./helpers";
+import { parseLinkPrefill } from "./link-prefill";
 import { takeQuickRecipient } from "./quick-recipient";
 
 type ActionTypeValue =
@@ -469,6 +470,8 @@ export function NewLinkClient({
   const [showOnProfile, setShowOnProfile] = useState<boolean | undefined>(undefined);
   const [amountKas, setAmountKas] = useState("");
   const [recipientAddress, setRecipientAddress] = useState("");
+  // The address handed over in the link, so the form can ask the visitor to check it is theirs.
+  const [recipientFromLink, setRecipientFromLink] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<null | string>(null);
@@ -626,6 +629,26 @@ export function NewLinkClient({
       const kindTemplate = kindFromUrl && LINK_TEMPLATE_BY_ID.get(kindFromUrl.templateId);
       if (!templateFromUrl && !validType && kindTemplate) {
         applyTemplate(kindTemplate);
+      }
+
+      // Values handed over after the # (for example by an AI assistant) win
+      // over the template, and leave the address bar right away.
+      const prefill = parseLinkPrefill(window.location.hash);
+      if (window.location.hash) {
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${window.location.pathname}${window.location.search}`,
+        );
+      }
+      if (prefill.recipientAddress) {
+        setRecipientAddress(prefill.recipientAddress);
+        setRecipientFromLink(prefill.recipientAddress);
+      }
+      if (prefill.amountKas) setAmountKas(prefill.amountKas);
+      if (prefill.title) {
+        setTitle(prefill.title);
+        setSlug(slugify(prefill.title));
       }
     }
 
@@ -1160,6 +1183,12 @@ export function NewLinkClient({
                     these are not human-readable.
                   </p>
                 )}
+                {recipientFromLink && recipientFromLink === recipientAddress.trim() ? (
+                  <p className="form-field-help form-field-warn">
+                    This address was filled in from the link you opened. Check that it is your own
+                    wallet address before you create the link.
+                  </p>
+                ) : null}
                 <details className="new-link-wallet-help">
                   <summary>No Kaspa wallet yet?</summary>
                   <ol>

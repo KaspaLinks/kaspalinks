@@ -25,6 +25,7 @@ export const RateBuckets = {
   ESCROW_LINK_PUBLIC_MUTATION: "escrow-link.public-mutation",
   ESCROW_LINK_PUBLIC_STATUS: "escrow-link.public-status",
   GIVEAWAY_V6_VERIFICATION: "giveaway-v6.verification",
+  MCP_REQUEST: "mcp.request",
   MOCK_CONFIRM: "mock.confirm",
   PAYMENT_REQUEST_CREATE: "payment-request.create",
   PAYMENT_REQUEST_STATUS: "payment-request.status",
@@ -74,6 +75,8 @@ export const RateLimits = {
   [RateBuckets.ESCROW_LINK_PUBLIC_MUTATION]: { limit: 8, windowMs: 60_000 },
   [RateBuckets.ESCROW_LINK_PUBLIC_STATUS]: { limit: 60, windowMs: 60_000 },
   [RateBuckets.GIVEAWAY_V6_VERIFICATION]: { limit: 60, windowMs: 60_000 },
+  // AI assistants call from shared egress addresses, and every MCP tool only reads.
+  [RateBuckets.MCP_REQUEST]: { limit: 120, windowMs: 60_000 },
   [RateBuckets.MOCK_CONFIRM]: { limit: 30, windowMs: 60_000 },
   [RateBuckets.PAYMENT_REQUEST_CREATE]: { limit: 20, windowMs: 60_000 },
   [RateBuckets.PAYMENT_REQUEST_STATUS]: { limit: 120, windowMs: 60_000 },

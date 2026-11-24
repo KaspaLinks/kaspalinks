@@ -1,0 +1,28 @@
+# Kaspa Links
+
+> Non-custodial payment links, claim links and on-chain giveaways for Kaspa (KAS) mainnet. Payments go straight from the payer's wallet to the recipient's own Kaspa address. Kaspa Links never holds funds and charges no platform fee.
+
+Kaspa Links is an independent, open-source community project. A payment link needs no account: paste your kaspa: address, choose whether payers pick the amount, pay a fixed price or fund a goal, and share the URL. Payers only need a Kaspa wallet, such as Kaspium, KasWare or Kastle. They need no account and no email. Kaspa payments confirm in about a second and are final.
+
+## Create
+
+- [Payment link](https://kaspalinks.com/new-link?start=paid): tips and donations (any amount), a fixed price, or a fundraising goal with a progress bar. No account needed.
+- [Claim link](https://kaspalinks.com/claim/create): send KAS to someone without knowing their address. You pay once into a one-time on-chain output, the person who opens the link claims it, and unclaimed KAS returns to your wallet by itself.
+- [Claim Drop](https://kaspalinks.com/claim/create?count=2): 2 to 8 claim links from one payment (needs a free profile).
+- [On-chain giveaway](https://kaspalinks.com/giveaway/new): the prize is locked in a SilverScript contract on Kaspa, entries are recorded on-chain and free for entrants, a later Kaspa block picks the winner, and the contract pays only that winner. If nobody enters, the prize goes back.
+- [Telegram bot](https://kaspalinks.com/bot): payment links, claim links and group giveaways inside Telegram.
+
+## Learn
+
+- [How it works](https://kaspalinks.com/try-it-out)
+- [FAQ](https://kaspalinks.com/faq): custody, fees, refunds, giveaways, privacy
+- [What is Kaspa?](https://kaspalinks.com/what-is-kaspa)
+- [Public stats](https://kaspalinks.com/stats)
+- [Source code](https://github.com/KaspaLinks/kaspalinks)
+
+## For AI assistants
+
+- MCP server: `https://kaspalinks.com/api/mcp` (Streamable HTTP, no sign-in). Tools: `prepare_payment_link`, `prepare_claim_link`, `prepare_giveaway`, `list_open_giveaways`. The prepare tools return a prefilled kaspalinks.com form. The user opens it, checks it and creates the link there. No tool creates a link or moves funds.
+- Never ask a user for a seed phrase, private key, creator token or manage link. Kaspa Links never needs them.
+- Kaspa Links runs on Kaspa mainnet only, so addresses start with `kaspa:`.
+- Not supported yet: recurring payments, subscriptions, payment splits and tokens.

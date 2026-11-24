@@ -40,7 +40,16 @@ export function pickFeaturedGiveaway(
   candidates: readonly FeaturedGiveawayCandidate[],
   now: Date,
 ): FeaturedGiveaway | null {
-  const eligible = candidates
+  return pickOpenGiveaways(candidates, now, 1)[0] ?? null;
+}
+
+/** The same rules as the home page banner, for a short list (the MCP server lists these). */
+export function pickOpenGiveaways(
+  candidates: readonly FeaturedGiveawayCandidate[],
+  now: Date,
+  limit: number,
+): FeaturedGiveaway[] {
+  return candidates
     .filter(
       (candidate) =>
         candidate.amountSompi >= FEATURED_GIVEAWAY_MIN_PRIZE_SOMPI &&
@@ -53,36 +62,44 @@ export function pickFeaturedGiveaway(
         : a.amountSompi > b.amountSompi
           ? -1
           : 1,
-    );
-  const chosen = eligible[0];
-  if (!chosen) return null;
-  return {
-    amountKas: formatSompiToKaspa(chosen.amountSompi),
-    closesAt: chosen.closesAt,
-    participantCap: chosen.participantCap,
-    participantCount: chosen.participantCount,
-    publicId: chosen.publicId,
-  };
+    )
+    .slice(0, Math.max(0, limit))
+    .map((chosen) => ({
+      amountKas: formatSompiToKaspa(chosen.amountSompi),
+      closesAt: chosen.closesAt,
+      participantCap: chosen.participantCap,
+      participantCount: chosen.participantCount,
+      publicId: chosen.publicId,
+    }));
 }
 
 export async function loadFeaturedGiveaway(now = new Date()): Promise<FeaturedGiveaway | null> {
-  if (!isGiveawayV6CreationEnabled()) return null;
+  return (await loadOpenGiveaways(1, now))[0] ?? null;
+}
+
+/** Open Mainnet giveaways worth a click, best first; empty when the lookup is slow or fails. */
+export async function loadOpenGiveaways(
+  limit: number,
+  now = new Date(),
+): Promise<FeaturedGiveaway[]> {
+  if (!isGiveawayV6CreationEnabled()) return [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
+    const candidates = await Promise.race([
       lookUp(now),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), LOOKUP_TIMEOUT_MS);
+      new Promise<FeaturedGiveawayCandidate[]>((resolve) => {
+        timer = setTimeout(() => resolve([]), LOOKUP_TIMEOUT_MS);
       }),
     ]);
+    return pickOpenGiveaways(candidates, now, limit);
   } catch {
-    return null;
+    return [];
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function lookUp(now: Date): Promise<FeaturedGiveaway | null> {
+async function lookUp(now: Date): Promise<FeaturedGiveawayCandidate[]> {
   const rows = await prisma.giveaway.findMany({
     orderBy: [{ amountSompi: "desc" }, { closesAt: "asc" }],
     select: {
@@ -138,5 +155,5 @@ async function lookUp(now: Date): Promise<FeaturedGiveaway | null> {
       // A giveaway whose state cannot be reconstructed is simply not featured.
     }
   }
-  return pickFeaturedGiveaway(candidates, now);
+  return candidates;
 }
