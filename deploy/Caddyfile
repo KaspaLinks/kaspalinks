@@ -12,6 +12,18 @@
 	}
 }
 
+# Only Cloudflare may send requests to this origin, plus loopback and the Docker
+# network for health checks. A request straight to the server's address would
+# skip Cloudflare's protection, so it is dropped. Certificate challenges are
+# answered before site routes and still work. Keep the list equal to
+# trusted_proxies above (https://www.cloudflare.com/ips/).
+(cloudflare_only) {
+	@not_cloudflare not remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32 private_ranges
+	handle @not_cloudflare {
+		abort
+	}
+}
+
 # Redirect www → apex so the site has one canonical hostname.
 # Without this block, requests to www.{$DOMAIN} hit Cloudflare but the
 # origin Caddy has no matching site for that Host header, so the TLS
@@ -19,10 +31,12 @@
 # Caddy auto-provision a Let's Encrypt cert for the www name and then
 # 301 every request to the apex. Apex visitors are unaffected.
 www.{$DOMAIN} {
+	import cloudflare_only
 	redir https://{$DOMAIN}{uri} permanent
 }
 
 {$DOMAIN} {
+	import cloudflare_only
 	encode zstd gzip
 
 	# Site is public. /operator-stats stays gated because it surfaces private
@@ -103,5 +117,11 @@ www.{$DOMAIN} {
 
 	# Preserve application cache policy for authenticated routes, mutations and
 	# errors. Public assets declare their own cache headers in the application.
-	reverse_proxy app:3000
+	reverse_proxy app:3000 {
+		# The app reads the first X-Forwarded-For entry as the client IP (rate
+		# limits, hashed IPs). Cloudflare passes a client-supplied value through,
+		# so the header is replaced with the IP Caddy itself derived from
+		# Cf-Connecting-Ip of a trusted Cloudflare edge.
+		header_up X-Forwarded-For {client_ip}
+	}
 }
