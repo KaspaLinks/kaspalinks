@@ -18,6 +18,7 @@ Kaspa Links is an independent, open-source community project. A payment link nee
 - [FAQ](https://kaspalinks.com/faq): custody, fees, refunds, giveaways, privacy
 - [What is Kaspa?](https://kaspalinks.com/what-is-kaspa)
 - [Public stats](https://kaspalinks.com/stats)
+- [Privacy](https://kaspalinks.com/privacy): what is stored, logs, services, contact
 - [Source code](https://github.com/KaspaLinks/kaspalinks)
 
 ## For AI assistants

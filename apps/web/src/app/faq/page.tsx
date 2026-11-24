@@ -100,6 +100,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     answer:
       "As little as possible. There are no third-party tracking scripts. Off-chain supporter notes are visible only to you, the creator. Visit analytics are aggregated from server logs using daily visitor hashes instead of raw IP addresses.",
+    link: { href: "/privacy", label: "Read the privacy page" },
     question: "What data do you store about me and my supporters?",
   },
   {

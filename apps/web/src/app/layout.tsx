@@ -142,6 +142,7 @@ export default function RootLayout({
             <Link href="/stats">Stats</Link>
             <Link href="/roadmap">Roadmap</Link>
             <Link href="/deck">Pitch</Link>
+            <Link href="/privacy">Privacy</Link>
             <a href={X_PROFILE_URL} rel="noreferrer" target="_blank">
               X
             </a>
